@@ -123,6 +123,7 @@ class LLMBedrockConfig(BaseLLMConfig):
         model_kwargs["streaming"] = True if self.streaming is None else self.streaming
         return model_kwargs
 
+
 class LLMAzureConfig(LLMConfig):
     """Configuration for Azure LLM models."""
 
@@ -133,6 +134,7 @@ class LLMAzureConfig(LLMConfig):
     configuration: LLMConfiguration | None = Field(default=None)
 
     model_config = pydantic_model_config
+
 
 type LLMConfigTypes = Annotated[
     LLMBedrockConfig | LLMAzureConfig | LLMConfig, Field(union_mode="left_to_right")

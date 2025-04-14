@@ -238,6 +238,7 @@ async def test_siliconflow(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         pytest.skip("need environment variable SILICONFLOW_API_KEY to run this test")
     await _run_the_test(config)
 
+
 @pytest.mark.asyncio
 async def test_azure(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
