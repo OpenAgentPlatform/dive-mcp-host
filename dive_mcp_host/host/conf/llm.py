@@ -124,6 +124,10 @@ class LLMBedrockConfig(BaseLLMConfig):
         model_kwargs["disable_streaming"] = (
             False if self.disable_streaming is None else self.disable_streaming
         )
+        model_kwargs["streaming"] = (
+            True if self.disable_streaming is None else not self.disable_streaming
+        )
+
         return model_kwargs
 
 
