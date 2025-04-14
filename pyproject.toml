@@ -8,7 +8,11 @@ version = "0.0.1"
 description = "A MCP host for Dive"
 readme = "README.md"
 requires-python = ">=3.12"
-authors = [{ name = "Louis Liu", email = "louis@funmula.com" }]
+authors = [
+    { name = "Alex Fang", email = "alex@funmula.com" },
+    { name = "Benny Ling", email = "benny@funmula.com" },
+    { name = "Louis Liu", email = "louis@funmula.com" }
+]
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
