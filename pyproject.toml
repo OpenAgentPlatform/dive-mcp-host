@@ -22,7 +22,7 @@ dependencies = [
     "langchain-openai>=0.3.11",
     "langchain-ollama>=0.2",
     "langchain-mistralai>=0.2",
-	"langchain-aws>=0.2",
+    "langchain-aws>=0.2",
     "langchain>=0.3",
     "langgraph-checkpoint-postgres>=0.3",
     "langgraph-checkpoint-sqlite>=2",
@@ -42,6 +42,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "pillow>=11.1.0",
     "websockets >= 15.0",
+    "python-dotenv>=1.0.1",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
