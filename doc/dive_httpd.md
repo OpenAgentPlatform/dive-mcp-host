@@ -61,6 +61,9 @@ Configuration loading priority:
 - `--auto_reload`: Enable configuration auto-reload
   - Default: `false`
   - Description: Automatically reload configurations when changes are detected
+- `--cors_origin <origin>`: CORS origin
+  - Default: Disabled
+  - Description: CORS origin to allow, use full url, e.g. `http://127.0.0.1:1234`
 
 #### Directory and Status Settings
 - `--working_dir <directory>`: Working directory
@@ -72,6 +75,14 @@ Configuration loading priority:
 - `--report_status-fd <fd>`: Status report file descriptor
   - Default: Disabled
   - Description: File descriptor to write server status information
+
+#### Logging Settings
+- `--log_level <level>`: Log level
+  - Default: `INFO`
+  - Description: Log level
+- `--log_dir <directory>`: Log directory
+  - Default: Disabled
+  - Description: log file directory
 
 ### Configuration File Structure
 

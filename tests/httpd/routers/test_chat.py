@@ -578,6 +578,115 @@ def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0915
 
             yield "values", {"messages": current_messages}
 
+            yield (
+                "updates",
+                {
+                    "chat": {
+                        "messages": [
+                            AIMessage(
+                                content=[
+                                    {
+                                        "text": "I'll help you calculate that by using the calculator function.",  # noqa: E501
+                                        "type": "text",
+                                    },
+                                    {
+                                        "id": "toolu_01AiUPAqBGGDR8RL1uz6SUuE",
+                                        "input": {"expression": "2+2"},
+                                        "name": "calculator",
+                                        "type": "tool_use",
+                                    },
+                                ],
+                                additional_kwargs={},
+                                response_metadata={
+                                    "id": "msg_01VPZAfL674xURgFGEbUXLhD",
+                                    "model": "claude-3-5-haiku-20241022",
+                                    "stop_reason": "tool_use",
+                                    "stop_sequence": None,
+                                    "usage": {
+                                        "cache_creation_input_tokens": 0,
+                                        "cache_read_input_tokens": 0,
+                                        "input_tokens": 345,
+                                        "output_tokens": 85,
+                                    },
+                                    "model_name": "claude-3-5-haiku-20241022",
+                                },
+                                id="run-c6574da4-41f2-4d64-9a88-77e398113e2f-0",
+                                tool_calls=[
+                                    {
+                                        "name": "calculator",
+                                        "args": {"expression": "2+2"},
+                                        "id": "toolu_01AiUPAqBGGDR8RL1uz6SUuE",
+                                        "type": "tool_call",
+                                    }
+                                ],
+                                usage_metadata={
+                                    "input_tokens": 345,
+                                    "output_tokens": 85,
+                                    "total_tokens": 430,
+                                    "input_token_details": {
+                                        "cache_read": 0,
+                                        "cache_creation": 0,
+                                    },
+                                },
+                            )
+                        ]
+                    }
+                },
+            )
+
+            yield (
+                "updates",
+                {
+                    "tools": {
+                        "messages": [
+                            ToolMessage(
+                                content="4",
+                                name="calculator",
+                                id="6a15648d-6498-4f81-b1f6-5c9f71abbd15",
+                                tool_call_id="toolu_01AiUPAqBGGDR8RL1uz6SUuE",
+                            )
+                        ]
+                    }
+                },
+            )
+
+            yield (
+                "updates",
+                {
+                    "chat": {
+                        "messages": [
+                            AIMessage(
+                                content="The result is 4. 2 + 2 = 4.",
+                                additional_kwargs={},
+                                response_metadata={
+                                    "id": "ms g_01K6igyvdVwf8sAoKiHH32fZ",
+                                    "model": "claude-3-5-haiku-20241022",
+                                    "stop_reason": "end_turn",
+                                    "stop_sequence": None,
+                                    "usage": {
+                                        "cache_creation _input_tokens": 0,
+                                        "cache_read_input_tokens": 0,
+                                        "input_tokens": 442,
+                                        "output_tokens": 21,
+                                    },
+                                    "model_name": "claude-3-5-haiku-20241022",
+                                },
+                                id="ru n-415bff33-6772-4e4a-9d25-bdba8e5470fc-0",
+                                usage_metadata={
+                                    "input_tokens": 442,
+                                    "output_tokens": 21,
+                                    "total_tokens": 463,
+                                    "input_token_details ": {
+                                        "cache_read": 0,
+                                        "cache_creation": 0,
+                                    },
+                                },
+                            )
+                        ]
+                    }
+                },
+            )
+
         return response_generator()
 
     # mock the query method

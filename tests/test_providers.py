@@ -12,6 +12,7 @@ from dive_mcp_host.host.chat import MessageChunkHolder
 from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.conf.llm import (
     Credentials,
+    LLMAzureConfig,
     LLMBedrockConfig,
     LLMConfig,
     LLMConfiguration,
@@ -185,7 +186,10 @@ async def test_bedrock(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
             mcp_servers=echo_tool_stdio_config,
         )
     else:
-        pytest.skip("need environment variable GOOGLE_API_KEY to run this test")
+        pytest.skip(
+            "need environment variable BEDROCK_ACCESS_KEY_ID,"
+            " BEDROCK_SECRET_ACCESS_KEY, BEDROCK_SESSION_TOKEN to run this test"
+        )
 
     await _run_the_test(config)
 
@@ -232,4 +236,38 @@ async def test_siliconflow(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         )
     else:
         pytest.skip("need environment variable SILICONFLOW_API_KEY to run this test")
+    await _run_the_test(config)
+
+
+@pytest.mark.asyncio
+async def test_azure(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+    """Test the host context initialization."""
+    if (
+        (api_key := environ.get("AZURE_OPENAI_API_KEY"))
+        and (endpoint := environ.get("AZURE_OPENAI_ENDPOINT"))
+        and (deployment_name := environ.get("AZURE_OPENAI_DEPLOYMENT_NAME"))
+        and (api_version := environ.get("AZURE_OPENAI_API_VERSION"))
+    ):
+        config = HostConfig(
+            llm=LLMAzureConfig(
+                model="gpt4",
+                model_provider="azure_openai",
+                api_key=api_key,
+                azure_endpoint=endpoint,
+                azure_deployment=deployment_name,
+                api_version=api_version,
+                max_tokens=800,
+                configuration=LLMConfiguration(
+                    temperature=0.7,
+                    top_p=0,
+                ),
+            ),
+            mcp_servers=echo_tool_stdio_config,
+        )
+    else:
+        pytest.skip(
+            "need environment variable AZURE_API_KEY, AZURE_ENDPOINT,"
+            " AZURE_DEPLOYMENT_NAME, AZURE_API_VERSION to run this test"
+        )
+
     await _run_the_test(config)

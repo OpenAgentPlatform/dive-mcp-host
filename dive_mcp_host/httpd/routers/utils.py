@@ -14,7 +14,6 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel
 from starlette.datastructures import State
 
-from dive_mcp_host.host.chat import MessageChunkHolder
 from dive_mcp_host.httpd.database.models import (
     Message,
     NewMessage,
@@ -409,7 +408,9 @@ class ChatProcessor:
                 )
             await stack.enter_async_context(chat)
             response_generator = chat.query(
-                messages, stream_mode=["messages", "values"], is_resend=is_resend
+                messages,
+                stream_mode=["messages", "values", "updates"],
+                is_resend=is_resend,
             )
             return await self._handle_response(response_generator)
 
@@ -445,7 +446,7 @@ class ChatProcessor:
             )
         )
 
-    async def _handle_response(
+    async def _handle_response(  # noqa: C901, PLR0912
         self, response: AsyncIterator[dict[str, Any] | Any]
     ) -> tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage]]:
         """Handle response.
@@ -458,7 +459,6 @@ class ChatProcessor:
         ai_message = None
         values_messages: list[BaseMessage] = []
         current_messages: list[BaseMessage] = []
-        message_chunk_holder = MessageChunkHolder()
         async for res_type, res_content in response:
             if res_type == "messages":
                 message, _ = res_content
@@ -466,10 +466,6 @@ class ChatProcessor:
                     logger.log(TRACE, "got AI message: %s", message.model_dump_json())
                     if message.content:
                         await self._stream_text_msg(message)
-                    elif (
-                        combined_message := message_chunk_holder.feed(message)
-                    ) and combined_message.tool_calls:
-                        await self._stream_tool_calls_msg(combined_message)
                 elif isinstance(message, ToolMessage):
                     logger.log(TRACE, "got tool message: %s", message.model_dump_json())
                     await self._stream_tool_result_msg(message)
@@ -478,6 +474,24 @@ class ChatProcessor:
                     logger.warning("Unknown message type: %s", message)
             elif res_type == "values" and len(res_content["messages"]) >= 2:  # type: ignore  # noqa: PLR2004
                 values_messages = res_content["messages"]  # type: ignore
+            elif res_type == "updates":
+                # Get tool call message
+                if not isinstance(res_content, dict):
+                    continue
+
+                for value in res_content.values():
+                    if not isinstance(value, dict):
+                        continue
+
+                    msgs = value.get("messages", [])
+                    for msg in msgs:
+                        if isinstance(msg, AIMessage) and msg.tool_calls:
+                            logger.log(
+                                TRACE,
+                                "got tool call message: %s",
+                                msg.model_dump_json(),
+                            )
+                            await self._stream_tool_calls_msg(msg)
 
         # Find the most recent user and AI messages from newest to oldest
         user_message = next(
