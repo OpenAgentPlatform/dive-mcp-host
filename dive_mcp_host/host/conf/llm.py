@@ -43,8 +43,12 @@ class BaseLLMConfig(BaseModel):
     model: str = "gpt-4o"
     model_provider: str | SpecialProvider = Field(default="openai")
     streaming: bool | None = True
-    max_tokens: int | None = Field(default=None)
+    disable_streaming: bool | Literal["tool_calling"] = False
+    """Has precedence over streaming.
 
+    Disable streaming entirely or only when tool calling.
+    """
+    max_tokens: int | None = Field(default=None)
     model_config = pydantic_model_config
 
 
