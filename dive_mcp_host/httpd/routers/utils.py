@@ -209,7 +209,7 @@ class ChatProcessor:
             return "", TokenUsage()
         assert user_message.id
         assert ai_message.id
-        result = str(ai_message.content)
+        result = self._str_output_parser.invoke(ai_message)
 
         if title_await:
             title = await title_await
@@ -230,6 +230,7 @@ class ChatProcessor:
                             text=query_input.text or "",
                             images=query_input.images or [],
                             documents=query_input.documents or [],
+                            tool_calls=query_input.tool_calls,
                         ),
                     )
 
@@ -269,26 +270,16 @@ class ChatProcessor:
                         else 0,
                         total_run_time=duration,
                     )
-                    if message.tool_calls:
-                        await db.create_message(
-                            NewMessage(
-                                chatId=chat_id,
-                                role=Role.TOOL_CALL,
-                                messageId=message.id,
-                                content=json.dumps(message.tool_calls),
-                                resource_usage=resource_usage,
-                            ),
-                        )
-                    else:
-                        await db.create_message(
-                            NewMessage(
-                                chatId=chat_id,
-                                role=Role.ASSISTANT,
-                                messageId=message.id,
-                                content=result,
-                                resource_usage=resource_usage,
-                            ),
-                        )
+                    await db.create_message(
+                        NewMessage(
+                            chatId=chat_id,
+                            role=Role.ASSISTANT,
+                            messageId=message.id,
+                            content=result,
+                            tool_calls=message.tool_calls,
+                            resource_usage=resource_usage,
+                        ),
+                    )
                 elif isinstance(message, ToolMessage):
                     if isinstance(message.content, list):
                         content = json.dumps(message.content)

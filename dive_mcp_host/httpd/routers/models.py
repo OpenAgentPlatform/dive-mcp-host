@@ -233,19 +233,7 @@ class ModelFullConfigs(BaseModel):
 
 
 class UserInputError(Exception):
-    """User input error.
-
-    Args:
-        Exception (Exception): The exception.
-    """
-
-    def __init__(self, message: str) -> None:
-        """Initialize the error.
-
-        Args:
-            message (str): The error message.
-        """
-        self.message = message
+    """User input error."""
 
 
 class SortBy(StrEnum):

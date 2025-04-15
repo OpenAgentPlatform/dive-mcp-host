@@ -770,6 +770,7 @@ def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0915
     assert response_data["data"]["messages"] is not None
     for msg in response_data["data"]["messages"]:
         assert isinstance(msg, dict)
+        # NOTE: tool_call is included in the assistant message for this test
         if msg["role"] == "tool_call":
             has_tool_call_msg = True
             tool_call_content = json.loads(msg["content"])
@@ -788,6 +789,19 @@ def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0915
 
         if msg["role"] == "assistant" and "The result of 2+2 is 4." in msg["content"]:
             has_assistant_msg = True
+
+            # NOTE: tool_call might be included in the assistant message
+            tool_call_content = msg["toolCalls"]
+            if len(tool_call_content) > 0:
+                has_tool_call_msg = True
+                assert tool_call_content == [
+                    {
+                        "name": "calculator",
+                        "args": {"expression": "2+2"},
+                        "id": "tool-call-id",
+                        "type": "tool_call",
+                    }
+                ]
 
     assert has_tool_call_msg, "Tool call message not found in database"
     assert has_tool_result_msg, "Tool result message not found in database"
