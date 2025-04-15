@@ -21,7 +21,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver, V
 from langgraph.graph import END, StateGraph
 from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import MessagesState
-from langgraph.managed import IsLastStep
+from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.prebuilt.tool_node import ToolNode
 from langgraph.store.base import BaseStore
 from langgraph.utils.runnable import RunnableCallable
@@ -40,7 +40,7 @@ class AgentState(MessagesState):
 
     is_last_step: IsLastStep
     today_datetime: str
-    remaining_steps: int
+    remaining_steps: RemainingSteps
     structured_response: StructuredResponse
 
 
