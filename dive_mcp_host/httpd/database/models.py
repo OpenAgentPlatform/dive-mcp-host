@@ -1,7 +1,8 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from langchain_core.messages import ToolCall
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ResourceUsage(BaseModel):
@@ -13,13 +14,13 @@ class ResourceUsage(BaseModel):
     total_run_time: float
 
 
-# NOTE: Currently not used
 class QueryInput(BaseModel):
     """User input for a query with text, images and documents."""
 
     text: str | None
     images: list[str] | None
     documents: list[str] | None
+    tool_calls: list[ToolCall] = Field(default_factory=list)
 
 
 class Chat(BaseModel):
@@ -49,6 +50,9 @@ class NewMessage(BaseModel):
     message_id: str = Field(alias="messageId")
     resource_usage: ResourceUsage | None = None
     files: list[str] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = Field(default_factory=list, alias="toolCalls")
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
 class Message(BaseModel):
@@ -62,6 +66,9 @@ class Message(BaseModel):
     message_id: str = Field(alias="messageId")
     resource_usage: ResourceUsage | None = None
     files: list[str] = Field(default_factory=list)
+    tool_calls: list[ToolCall] = Field(default_factory=list, alias="toolCalls")
+
+    model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
 class ChatMessage(BaseModel):

@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from langchain_core.messages import ToolCall
 from sqlalchemy import (
     CHAR,
     BigInteger,
@@ -10,6 +11,8 @@ from sqlalchemy import (
     Integer,
     Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB as PGJSONB
+from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON  # noqa: N811
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -103,6 +106,7 @@ class Message(Base):
         chat_id: Chat ID.
         message_id: Message ID.
         files: Message files.
+        tool_calls: Message tool calls.
     """
 
     __tablename__ = "messages"
@@ -124,6 +128,9 @@ class Message(Base):
     chat_id: Mapped[str] = mapped_column(ForeignKey("chats.id", ondelete="CASCADE"))
     message_id: Mapped[str] = mapped_column(Text(), unique=True)
     files: Mapped[str] = mapped_column(Text())
+    tool_calls: Mapped[list[ToolCall] | None] = mapped_column(
+        PGJSONB().with_variant(SQLiteJSON(), "sqlite"), default=[]
+    )
 
     chat: Mapped["Chat"] = relationship(
         foreign_keys=chat_id,

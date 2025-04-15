@@ -2,6 +2,7 @@ import asyncio
 import json
 from collections.abc import Callable, Generator
 from contextlib import AsyncExitStack, contextmanager
+from logging import getLogger
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -15,6 +16,8 @@ from dive_mcp_host.host.tools.misc import TestTool
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.utils import EventStreamContextManager
 from dive_mcp_host.httpd.server import DiveHostAPI
+
+logger = getLogger(__name__)
 
 model_verify = APIRouter(tags=["model_verify"])
 
@@ -127,15 +130,15 @@ class ModelVerifyService:
             n_step = steps
             if "connection" in subjects:
                 n_step += 1
-                con_ok = await self._check_connection(host)
+                con_ok, con_error = await self._check_connection(host)
                 await self._report_progress(
-                    n_step, llm_config.model, "connection", con_ok, None
+                    n_step, llm_config.model, "connection", con_ok, con_error
                 )
             if "tools" in subjects:
                 n_step += 1
-                tools_ok = await self._check_tools(host)
+                tools_ok, tools_error = await self._check_tools(host)
                 await self._report_progress(
-                    n_step, llm_config.model, "tools", tools_ok, None
+                    n_step, llm_config.model, "tools", tools_ok, tools_error
                 )
             return ModelVerifyResult(
                 success=True,
@@ -143,27 +146,31 @@ class ModelVerifyService:
                 supportTools=tools_ok,
             )
 
-    async def _check_connection(self, host: DiveMcpHost) -> bool:
+    async def _check_connection(self, host: DiveMcpHost) -> tuple[bool, str | None]:
         """Check if the model is connected."""
-        chat = host.chat(volatile=True)
-        async with AsyncExitStack() as stack:
-            await stack.enter_async_context(chat)
-            stack.enter_context(self._handle_abort(chat.abort))
-            _responses = [
-                response
-                async for response in chat.query(
-                    "Only return 'Hi' strictly", stream_mode=["updates"]
-                )
-            ]
-            return True
-        return False
+        try:
+            chat = host.chat(volatile=True)
+            async with AsyncExitStack() as stack:
+                await stack.enter_async_context(chat)
+                stack.enter_context(self._handle_abort(chat.abort))
+                _responses = [
+                    response
+                    async for response in chat.query(
+                        "Only return 'Hi' strictly", stream_mode=["updates"]
+                    )
+                ]
+            return True, None
+        except Exception as e:
+            logger.exception("Failed to check connection")
+            return False, str(e)
 
-    async def _check_tools(self, host: DiveMcpHost) -> bool:
+    async def _check_tools(self, host: DiveMcpHost) -> tuple[bool, str | None]:
         """Check if the model supports tools."""
-        test_tool = TestTool()
-        chat = host.chat(volatile=True, tools=[test_tool])
-        async with AsyncExitStack() as stack:
-            await stack.enter_async_context(chat)
+        try:
+            test_tool = TestTool()
+            chat = host.chat(volatile=True, tools=[test_tool])
+            async with AsyncExitStack() as stack:
+                await stack.enter_async_context(chat)
             stack.enter_context(self._handle_abort(chat.abort))
             _responses = [
                 response
@@ -171,14 +178,22 @@ class ModelVerifyService:
                     "run test_tool", stream_mode=["updates"]
                 )
             ]
-            return test_tool.called
-        return False
+            return test_tool.called, None
+        except Exception as e:
+            logger.exception("Failed to check tools")
+            return False, str(e)
+
+
+class ModelVerifyRequest(BaseModel):
+    """Model verify request."""
+
+    model_settings: LLMConfig | None = Field(alias="modelSettings", default=None)
 
 
 @model_verify.post("")
 async def do_verify_model(
     app: DiveHostAPI = Depends(get_app),
-    settings: dict[str, LLMConfig] | None = None,
+    settings: ModelVerifyRequest | None = None,
 ) -> ModelVerifyResult:
     """Verify if a model supports streaming capabilities.
 
@@ -187,7 +202,7 @@ async def do_verify_model(
     """
     dive_host = app.dive_host["default"]
 
-    llm_config = settings.get("modelSettings") if settings else None
+    llm_config = settings.model_settings if settings else None
 
     if not llm_config:
         llm_config = dive_host._config.llm  # noqa: SLF001

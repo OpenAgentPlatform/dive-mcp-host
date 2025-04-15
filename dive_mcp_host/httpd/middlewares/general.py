@@ -17,15 +17,21 @@ async def error_handler(_: Request, exc: Exception) -> Response:
     Returns:
         ResultResponse: The response object.
     """
+    msg = ResultResponse(success=False, message=str(exc)).model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
     if isinstance(exc, UserInputError):
         return JSONResponse(
             status_code=400,
-            content=ResultResponse(success=False, message=exc.message).model_dump(
-                mode="json",
-                by_alias=True,
-            ),
+            content=msg,
         )
-    return JSONResponse(status_code=500, content="unhandled error")
+
+    return JSONResponse(
+        status_code=500,
+        content=msg,
+    )
 
 
 class DiveUser(TypedDict):
