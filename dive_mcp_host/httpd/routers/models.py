@@ -221,6 +221,9 @@ class ModelFullConfigs(BaseModel):
     enable_tools: bool
     configs: dict[str, ModelSingleConfig] = Field(default_factory=dict)
 
+    disable_dive_system_prompt: bool = False
+    # If True, custom rules will be used directly without extra system prompt from Dive.
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         arbitrary_types_allowed=True,

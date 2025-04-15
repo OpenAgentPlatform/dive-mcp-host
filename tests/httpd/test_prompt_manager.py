@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 
-from dive_mcp_host.httpd.conf.prompt import PromptManager
+from dive_mcp_host.httpd.conf.prompt import PromptKey, PromptManager
 
 # Register custom mark
 integration = pytest.mark.integration
@@ -90,16 +90,20 @@ class TestPromptManager:
         custom_rules = manager.load_custom_rules()
         assert custom_rules == ""
 
-    def test_update_system_prompt(self, mock_custom_rules_file):
-        """Test updating system prompt."""
+    def test_update_prompts(self, mock_custom_rules_file):
+        """Test updating prompts."""
         manager = PromptManager(mock_custom_rules_file)
         # Update the system prompt
-        manager.update_system_prompt()
+        manager.update_prompts()
 
         # Verify the system prompt has been updated
-        system_prompt_text = manager.get_prompt("system")
+        system_prompt_text = manager.get_prompt(PromptKey.SYSTEM)
         assert system_prompt_text is not None
         assert "Test custom rules content" in system_prompt_text
+
+        custom_prompt_text = manager.get_prompt(PromptKey.CUSTOM)
+        assert custom_prompt_text is not None
+        assert custom_prompt_text == "Test custom rules content"
 
     def test_system_prompt_initialization(self, mock_custom_rules_file):
         """Test system prompt initialization during PromptManager initialization."""
@@ -108,9 +112,13 @@ class TestPromptManager:
         manager.initialize()
 
         # Verify system prompt contains custom rules
-        system_prompt_text = manager.get_prompt("system")
+        system_prompt_text = manager.get_prompt(PromptKey.SYSTEM)
         assert system_prompt_text is not None
         assert "Test custom rules content" in system_prompt_text
+
+        custom_prompt_text = manager.get_prompt(PromptKey.CUSTOM)
+        assert custom_prompt_text is not None
+        assert custom_prompt_text == "Test custom rules content"
 
     def test_env_variable_precedence(self, mock_custom_rules_file):
         """Test that environment variable takes precedence over file."""
@@ -155,19 +163,23 @@ class TestPromptManagerIntegration:
         manager.initialize()
 
         # Verify system prompt contains custom rules
-        system_prompt_text = manager.get_prompt("system")
+        system_prompt_text = manager.get_prompt(PromptKey.SYSTEM)
         assert system_prompt_text is not None
         assert "Integration test custom rules content" in system_prompt_text
+
+        custom_prompt_text = manager.get_prompt(PromptKey.CUSTOM)
+        assert custom_prompt_text is not None
+        assert custom_prompt_text == "Integration test custom rules content"
 
         # Update custom rules file
         with Path(test_custom_rules_path).open("w") as f:
             f.write("Updated custom rules content")
 
         # Update the system prompt
-        manager.update_system_prompt()
+        manager.update_prompts()
 
         # Verify system prompt has been updated
-        updated_system_prompt = manager.get_prompt("system")
+        updated_system_prompt = manager.get_prompt(PromptKey.SYSTEM)
         assert updated_system_prompt is not None
         assert "Updated custom rules content" in updated_system_prompt
 

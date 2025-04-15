@@ -262,5 +262,5 @@ async def post_custom_rules(
     raw_rules = await request.body()
     rules = raw_rules.decode("utf-8")
     app.prompt_config_manager.write_custom_rules(rules)
-    app.prompt_config_manager.update_system_prompt()
+    app.prompt_config_manager.update_prompts()
     return ResultResponse(success=True)

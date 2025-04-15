@@ -14,6 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel
 from starlette.datastructures import State
 
+from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.database.models import (
     Message,
     NewMessage,
@@ -147,6 +148,11 @@ class ChatProcessor:
         self.store: Store = app.store
         self.dive_host: DiveMcpHost = app.dive_host["default"]
         self._str_output_parser = StrOutputParser()
+        self.disable_dive_system_prompt = (
+            app.model_config_manager.full_config.disable_dive_system_prompt
+            if app.model_config_manager.full_config
+            else False
+        )
 
     async def handle_chat(  # noqa: C901, PLR0912, PLR0915
         self,
@@ -392,8 +398,14 @@ class ChatProcessor:
         prompt: str | Callable[..., list[BaseMessage]] | None = None
         if any(isinstance(m, SystemMessage) for m in messages):
             prompt = _prompt_cb
-        elif user_prompt := self.app.prompt_config_manager.get_prompt("system"):
-            prompt = user_prompt
+        elif self.disable_dive_system_prompt and (
+            custom_prompt := self.app.prompt_config_manager.get_prompt(PromptKey.CUSTOM)
+        ):
+            prompt = custom_prompt
+        elif system_prompt := self.app.prompt_config_manager.get_prompt(
+            PromptKey.SYSTEM
+        ):
+            prompt = system_prompt
 
         chat = self.dive_host.chat(
             chat_id=chat_id,
