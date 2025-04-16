@@ -1,12 +1,20 @@
 import logging
 import os
+from enum import StrEnum
 from pathlib import Path
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR
+from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
 from dive_mcp_host.httpd.conf.system_prompt import system_prompt
 
 # Logger setup
 logger = logging.getLogger(__name__)
+
+
+class PromptKey(StrEnum):
+    """Prompt key enum."""
+
+    SYSTEM = "system"
+    CUSTOM = "custom"
 
 
 class PromptManager:
@@ -33,11 +41,14 @@ class PromptManager:
         """Initialize the PromptManager."""
         logger.info("Initializing PromptManager from %s", self.custom_rules_path)
         if custom_rules := os.environ.get("DIVE_CUSTOM_RULES_CONTENT"):
-            self.prompts["system"] = system_prompt(custom_rules)
+            self.prompts[PromptKey.SYSTEM] = system_prompt(custom_rules)
+            self.prompts[PromptKey.CUSTOM] = custom_rules
         elif (path := Path(self.custom_rules_path)) and path.exists():
-            self.prompts["system"] = system_prompt(path.read_text("utf-8"))
+            self.prompts[PromptKey.SYSTEM] = system_prompt(path.read_text("utf-8"))
+            self.prompts[PromptKey.CUSTOM] = path.read_text("utf-8")
         else:
-            self.prompts["system"] = system_prompt("")
+            self.prompts[PromptKey.SYSTEM] = system_prompt("")
+            self.prompts[PromptKey.CUSTOM] = ""
 
     def set_prompt(self, key: str, prompt: str) -> None:
         """Set a prompt by key.
@@ -65,7 +76,7 @@ class PromptManager:
         Args:
             prompt: The prompt text.
         """
-        Path(self.custom_rules_path).write_text(prompt, encoding="utf-8")
+        write_then_replace(Path(self.custom_rules_path), prompt)
 
     def load_custom_rules(self) -> str:
         """Load custom rules from file or environment variable.
@@ -81,7 +92,8 @@ class PromptManager:
             logger.warning("Cannot read %s: %s", self.custom_rules_path, error)
             return ""
 
-    def update_system_prompt(self) -> None:
+    def update_prompts(self) -> None:
         """Update the system prompt with current custom rules."""
         custom_rules = self.load_custom_rules()
-        self.prompts["system"] = system_prompt(custom_rules)
+        self.prompts[PromptKey.SYSTEM] = system_prompt(custom_rules)
+        self.prompts[PromptKey.CUSTOM] = custom_rules

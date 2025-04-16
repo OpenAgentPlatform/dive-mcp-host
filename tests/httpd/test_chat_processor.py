@@ -6,6 +6,7 @@ import pytest
 import pytest_asyncio
 
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
+from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, HumanMessage
 from dive_mcp_host.httpd.server import DiveHostAPI
 from tests.httpd.routers.conftest import config_files  # noqa: F401
@@ -47,8 +48,8 @@ async def test_prompt(processor: ChatProcessor, monkeypatch):
 
     custom_rules = "You are a helpful assistant."
     server.prompt_config_manager.write_custom_rules(custom_rules)
-    server.prompt_config_manager.update_system_prompt()
-    prompt = server.prompt_config_manager.get_prompt("system")
+    server.prompt_config_manager.update_prompts()
+    prompt = server.prompt_config_manager.get_prompt(PromptKey.SYSTEM)
 
     mock_called = False
 
