@@ -3,6 +3,7 @@ from typing import Annotated, Literal
 from pydantic import AnyUrl, BaseModel, Field, UrlConstraints
 
 from dive_mcp_host.host.conf.llm import LLMConfigTypes
+from dive_mcp_host.httpd.routers.models import EmbedConfig
 
 
 class CheckpointerConfig(BaseModel):
@@ -33,6 +34,7 @@ class HostConfig(BaseModel):
     """Configuration for the MCP host."""
 
     llm: LLMConfigTypes
+    embed: EmbedConfig | None = None
     checkpointer: CheckpointerConfig | None = None
     mcp_servers: dict[str, ServerConfig]
 

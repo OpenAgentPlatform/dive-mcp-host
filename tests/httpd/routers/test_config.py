@@ -7,7 +7,11 @@ from fastapi import status
 from fastapi.testclient import TestClient
 
 from dive_mcp_host.httpd.routers.config import SaveModelSettingsRequest
-from dive_mcp_host.httpd.routers.models import McpServerConfig, ModelFullConfigs
+from dive_mcp_host.httpd.routers.models import (
+    EmbedConfig,
+    McpServerConfig,
+    ModelFullConfigs,
+)
 
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.server import DiveHostAPI
@@ -370,6 +374,66 @@ def test_post_model(test_client):
                             "topP": None,
                         },
                     },
+                },
+            },
+        },
+    )
+
+
+def test_post_model_embedding(test_client):
+    """Test the /api/config/model-embedding POST endpoint."""
+    client, _ = test_client
+    # Prepare request data
+    embed_config = EmbedConfig(
+        provider="openai",
+        model="text-embedding-3-small",
+        api_key="openai-api-key",
+        embed_dims=1024,
+    )
+
+    response = client.post(
+        "/api/config/model-embedding",
+        json=embed_config.model_dump(by_alias=True),
+    )
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+        },
+    )
+    response = client.get("/api/config/model")
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "config": {
+                "activeProvider": "dive",
+                "enableTools": True,
+                "configs": {
+                    "dive": {
+                        "modelProvider": "dive",
+                        "model": "fake",
+                        "maxTokens": None,
+                        "apiKey": None,
+                        "configuration": {
+                            "baseURL": None,
+                            "temperature": 0.0,
+                            "topP": None,
+                        },
+                        "active": True,
+                        "checked": False,
+                    }
+                },
+                "embedConfig": {
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "embed_dims": 1024,
+                    "api_key": "openai-api-key",
                 },
             },
         },
