@@ -179,6 +179,9 @@ class DiveHostAPI(FastAPI):
         if self._command_alias_config_manager.current_config is None:
             raise ValueError("Command alias config manager is not initialized")
 
+        if self._model_config_manager.full_config is None:
+            raise ValueError("Model config manager is not initialized")
+
         mcp_servers: dict[str, ServerConfig] = {}
         for (
             server_name,
@@ -205,8 +208,11 @@ class DiveHostAPI(FastAPI):
                 transport=server_config.transport or "stdio",
             )
 
+        logger.debug("got %s mcp servers in config", len(mcp_servers))
+
         return HostConfig(
             llm=model_setting,
+            embed=self._model_config_manager.full_config.embed_config,
             checkpointer=self._service_config_manager.current_setting.checkpointer,
             mcp_servers=mcp_servers,
         )
