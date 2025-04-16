@@ -8,6 +8,7 @@ from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 from .models import (
+    EmbedConfig,
     McpServerError,
     McpServers,
     ModelFullConfigs,
@@ -160,6 +161,32 @@ async def post_model(
         upload_model_settings=model_settings.model_settings,
         enable_tools=model_settings.enable_tools,
     )
+
+    # Reload model config
+    if not app.model_config_manager.initialize():
+        raise ValueError("Failed to reload model configuration")
+
+    # Reload host
+    await app.dive_host["default"].reload(new_config=app.load_host_config())
+
+    return ResultResponse(success=True)
+
+
+@config.post("/model-embedding")
+async def post_model_embedding(
+    embed_config: EmbedConfig,
+    app: DiveHostAPI = Depends(get_app),
+) -> ResultResponse:
+    """Save embedding model settings.
+
+    Args:
+        embed_config (EmbedConfig): The embedding model settings to save.
+        app (DiveHostAPI): The DiveHostAPI instance.
+
+    Returns:
+        ResultResponse: Result of the save operation.
+    """
+    app.model_config_manager.save_embed_settings(embed_config)
 
     # Reload model config
     if not app.model_config_manager.initialize():
