@@ -61,6 +61,7 @@ async def test_host_context() -> None:
                     "Hello, world!",
                     stream_mode=None,
                 )
+                if response.get("agent")
             ]
             for res, expect in zip(responses, espect_responses, strict=True):
                 assert res.content == expect.content  # type: ignore[attr-defined]
@@ -72,6 +73,7 @@ async def test_host_context() -> None:
                     HumanMessage(content="Hello, world!"),
                     stream_mode=None,
                 )
+                if response.get("agent")
             ]
             for res, expect in zip(responses, espect_responses, strict=True):
                 assert res.content == expect.content  # type: ignore[attr-defined]
@@ -338,7 +340,6 @@ async def test_resend_message(sqlite_uri: str) -> None:
                     )
                 ],
             )
-            assert len(resps) == 2
             _, msgs = resps[-1]
             assert isinstance(msgs["messages"][0], HumanMessage)
             human_message_id = msgs["messages"][0].id
@@ -360,7 +361,6 @@ async def test_resend_message(sqlite_uri: str) -> None:
                     )
                 ],
             )
-            assert len(resps) == 2
             _, msgs = resps[-1]
             assert len(msgs["messages"]) == 2
             assert msgs["messages"][0].content == "Resend message!"

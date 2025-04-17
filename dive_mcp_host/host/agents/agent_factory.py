@@ -67,7 +67,7 @@ class AgentFactory[T: MessagesState](Protocol):
                 "max_input_tokens": max_input_tokens,
                 "oversize_policy": oversize_policy,
             },
-            "recursion_limit": 100,
+            "recursion_limit": 102,
         }
 
     def create_initial_state(
