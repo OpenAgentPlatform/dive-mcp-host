@@ -209,7 +209,6 @@ class ChatProcessor:
             return "", TokenUsage()
         assert user_message.id
         assert ai_message.id
-        result = self._str_output_parser.invoke(ai_message)
 
         if title_await:
             title = await title_await
@@ -270,13 +269,18 @@ class ChatProcessor:
                         else 0,
                         total_run_time=duration,
                     )
+                    result = (
+                        self._str_output_parser.invoke(message)
+                        if message.content
+                        else ""
+                    )
                     await db.create_message(
                         NewMessage(
                             chatId=chat_id,
                             role=Role.ASSISTANT,
                             messageId=message.id,
                             content=result,
-                            tool_calls=message.tool_calls,
+                            toolCalls=message.tool_calls,
                             resource_usage=resource_usage,
                         ),
                     )

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
@@ -74,7 +75,6 @@ class DiveMcpHost(ContextProtocol):
         """
         self._config = config
         self._model: BaseChatModel | None = None
-        self._tools: Sequence[BaseTool] = []
         self._checkpointer: BaseCheckpointSaver[str] | None = None
         self._tool_manager: ToolManager = ToolManager(self._config.mcp_servers)
         self._exit_stack: AsyncExitStack | None = None
@@ -89,7 +89,6 @@ class DiveMcpHost(ContextProtocol):
                 await self._checkpointer.setup()
             await stack.enter_async_context(self._tool_manager)
             try:
-                self._tools = self._tool_manager.langchain_tools()
                 yield self
             except Exception as e:
                 raise e
@@ -184,7 +183,6 @@ class DiveMcpHost(ContextProtocol):
             await self._tool_manager.reload(
                 new_configs=new_config.mcp_servers, force=force_mcp
             )
-            self._tools = self._tool_manager.langchain_tools()
 
             # Reload checkpointer if needed
             if old_config.checkpointer != new_config.checkpointer:
@@ -218,12 +216,20 @@ class DiveMcpHost(ContextProtocol):
         return deepcopy(self._config)
 
     @property
+    def tools_initialized_event(self) -> asyncio.Event:
+        """Get tools initialized event.
+
+        Only useful on initial startup, not when reloading.
+        """
+        return self._tool_manager.initialized_event
+
+    @property
     def tools(self) -> Sequence[BaseTool]:
         """The ACTIVE tools to the host.
 
         This property is read-only. Call `reload` to change the tools.
         """
-        return self._tools
+        return self._tool_manager.langchain_tools()
 
     @property
     def mcp_server_info(self) -> dict[str, McpServerInfo]:

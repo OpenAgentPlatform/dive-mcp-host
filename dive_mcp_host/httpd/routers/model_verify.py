@@ -171,13 +171,13 @@ class ModelVerifyService:
             chat = host.chat(volatile=True, tools=[test_tool])
             async with AsyncExitStack() as stack:
                 await stack.enter_async_context(chat)
-            stack.enter_context(self._handle_abort(chat.abort))
-            _responses = [
-                response
-                async for response in chat.query(
-                    "run test_tool", stream_mode=["updates"]
-                )
-            ]
+                stack.enter_context(self._handle_abort(chat.abort))
+                _responses = [
+                    response
+                    async for response in chat.query(
+                        "run test_tool", stream_mode=["updates"]
+                    )
+                ]
             return test_tool.called, None
         except Exception as e:
             logger.exception("Failed to check tools")

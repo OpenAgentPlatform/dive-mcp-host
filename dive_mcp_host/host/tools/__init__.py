@@ -8,11 +8,7 @@ import os
 import signal
 import time
 from collections.abc import AsyncGenerator
-from contextlib import (
-    AbstractAsyncContextManager,
-    asynccontextmanager,
-    suppress,
-)
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from enum import Enum, auto
 from itertools import chain
 from json import JSONDecodeError
@@ -22,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 import anyio
 import httpx
 from langchain_core.tools import BaseTool, ToolException
-from mcp import ClientSession, McpError, StdioServerParameters, stdio_client, types
+from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
 from mcp.client.websocket import websocket_client
 from pydantic import BaseModel, ConfigDict
@@ -35,6 +31,7 @@ from dive_mcp_host.host.errors import (
     McpSessionNotInitializedError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.stdio_server import stdio_client
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable, Iterable, Mapping
@@ -90,6 +87,7 @@ class ToolManager(ContextProtocol):
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
         self._lock = asyncio.Lock()
+        self._initialized_event = asyncio.Event()
 
         self._mcp_servers = {
             name: McpServer(name=name, config=config)
@@ -103,7 +101,7 @@ class ToolManager(ContextProtocol):
         """Get the langchain tools for the MCP servers."""
         return list(
             chain.from_iterable(
-                [i.get_tools() for i in self._mcp_servers.values() if tool_filter(i)],
+                [i.mcp_tools for i in self._mcp_servers.values() if tool_filter(i)],
             ),
         )
 
@@ -114,6 +112,7 @@ class ToolManager(ContextProtocol):
             async with server:
                 ready.set()
                 await exit_signal.wait()
+            logger.debug("Tool process %s exited", server.name)
 
         async def _launch_task(name: str, server: McpServer) -> None:
             event = asyncio.Event()
@@ -126,18 +125,25 @@ class ToolManager(ContextProtocol):
             for name, server in servers.items():
                 tg.create_task(_launch_task(name, server))
 
+        self._initialized_event.set()
+
     async def _shutdown_tools(self, servers: Iterable[str]) -> None:
         async def _shutdown_task(name: str) -> None:
             task, event = self._mcp_servers_task.pop(name, (None, None))
             if not (task and event):
+                logger.warning(
+                    "task or event not found for %s. %s %s", name, task, event
+                )
                 return
             event.set()
+            logger.debug("ToolManager shutting down %s", name)
             await task
             del self._mcp_servers[name]
 
         async with self._lock, asyncio.TaskGroup() as tg:
             for name in servers:
                 tg.create_task(_shutdown_task(name))
+        logger.debug("ToolManager shutdown complete")
 
     async def reload(
         self, new_configs: dict[str, ServerConfig], force: bool = False
@@ -177,11 +183,16 @@ class ToolManager(ContextProtocol):
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         """Get the langchain tools for the MCP servers."""
         # we can manipulate the stack to add or remove tools
-        await self._launch_tools(self._mcp_servers)
+        launch_tools_task = asyncio.create_task(
+            self._launch_tools(self._mcp_servers),
+            name="init-launch-tools",
+        )
         try:
             yield self
         finally:
             await self._shutdown_tools(list(self._mcp_servers.keys()))
+            launch_tools_task.cancel()
+            await launch_tools_task
 
     @property
     def mcp_server_info(self) -> dict[str, McpServerInfo]:
@@ -192,6 +203,14 @@ class ToolManager(ContextProtocol):
             If the mcp server is not initialized, the value will be `None`.
         """
         return {name: i.server_info for name, i in self._mcp_servers.items()}
+
+    @property
+    def initialized_event(self) -> asyncio.Event:
+        """Get the initialization event.
+
+        Only useful on initial startup, not when reloading.
+        """
+        return self._initialized_event
 
 
 class ClientState(Enum):
@@ -320,6 +339,11 @@ class McpServer(ContextProtocol):
                             lambda: self._client_status
                             in [ClientState.CLOSED, ClientState.RESTARTING],
                         )
+                        logger.debug(
+                            "client watcher %s exited. status: %s",
+                            self.name,
+                            self._client_status,
+                        )
             # cannot launch local sse server
             except* InvalidMcpServerError as e:
                 self._exception = e
@@ -342,6 +366,11 @@ class McpServer(ContextProtocol):
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
             ) as eg:
+                logger.exception(
+                    "Client initialization error for %s: %s",
+                    self.name,
+                    eg.exceptions,
+                )
                 self._exception = InvalidMcpServerError(self.name, str(eg.exceptions))
                 should_break = True
             except* httpx.HTTPStatusError as eg:
@@ -373,7 +402,7 @@ class McpServer(ContextProtocol):
                     await keep_alive_task
                     logger.debug("Keep-alive task awaited for %s", self.name)
             if self._client_status == ClientState.CLOSED:
-                logger.debug("Client %s closed, stopping watcher", self.name)
+                logger.info("Client %s closed, stopping watcher", self.name)
                 return
             if self._retries >= self.RETRY_LIMIT or should_break:
                 logger.warning(
@@ -405,6 +434,7 @@ class McpServer(ContextProtocol):
         try:
             yield self
         finally:
+            logger.debug("mcp server shutting down %s", self.name)
             async with self._cond:
                 self._session = None
                 self.__change_state(
@@ -429,6 +459,7 @@ class McpServer(ContextProtocol):
                 async with asyncio.timeout(10):
                     task.cancel()
                     await task
+                logger.debug("MCP server %s exited", self.name)
 
     def _get_client(
         self,
@@ -472,9 +503,12 @@ class McpServer(ContextProtocol):
             )
         raise InvalidMcpServerError(self.name, "No url or command provided.")
 
-    def get_tools(self) -> list[McpTool]:
+    @property
+    def mcp_tools(self) -> list[McpTool]:
         """Get the tools."""
-        return self._mcp_tools
+        if self._client_status == ClientState.RUNNING:
+            return self._mcp_tools
+        return []
 
     def __change_state(
         self,
@@ -610,7 +644,8 @@ class McpServer(ContextProtocol):
             # We should handle different exception types appropriately
             # For example, connection errors might need restart
             # while application-level errors might just need to be propagated
-            except ToolException:
+            except (ToolException, McpError) as e:
+                logger.error("Tool exception for %s: %s", self.name, e)
                 raise
             except (
                 httpx.HTTPError,
@@ -620,7 +655,6 @@ class McpServer(ContextProtocol):
                 anyio.BrokenResourceError,
                 anyio.ClosedResourceError,
                 anyio.EndOfStream,
-                McpError,
                 Exception,  # Before we know the exception type
             ) as e:
                 async with self._cond:
