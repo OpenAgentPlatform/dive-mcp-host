@@ -183,7 +183,6 @@ class PluginManager:
                 )
                 continue
 
-
             if await registered_hook.hook_info.register(
                 callback_func, hook_info, plugin_name
             ):
