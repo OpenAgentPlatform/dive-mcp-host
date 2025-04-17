@@ -4,16 +4,18 @@ It uses langgraph.prebuilt.create_react_agent to create the agent.
 """
 
 from collections.abc import Sequence
-from typing import cast
+from typing import Literal, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
     HumanMessage,
+    RemoveMessage,
     SystemMessage,
     ToolMessage,
 )
+from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
@@ -92,7 +94,6 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         """Initialize the chat agent factory."""
         self._model = model
         self._tools = tools
-        self._prompt: Runnable = get_prompt_runnable(None)
         self._response_format: (
             StructuredResponseSchema | tuple[str, StructuredResponseSchema] | None
         ) = None
@@ -101,6 +102,9 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         self._tool_classes: list[BaseTool] = []
         self._should_return_direct: set[str] = set()
         self._graph: StateGraph | None = None
+
+        # changed when self.create_agent is called
+        self._prompt: Runnable = get_prompt_runnable(None)
 
         self._build_graph()
 
@@ -162,6 +166,27 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         response = model_with_structured_output.invoke(messages, config)
         return cast(AgentState, {"structured_response": response})
 
+    def _before_agent(self, state: AgentState, config: RunnableConfig) -> AgentState:
+        configurable = config.get("configurable", {})
+        max_input_tokens: int | None = configurable.get("max_input_tokens")
+        oversize_policy: Literal["window"] | None = configurable.get("oversize_policy")
+        if max_input_tokens is None or oversize_policy is None:
+            return cast(AgentState, {})
+        if oversize_policy == "window":
+            messages: list[BaseMessage] = trim_messages(
+                state["messages"],
+                max_tokens=max_input_tokens,
+                token_counter=count_tokens_approximately,
+            )
+            remove_messages = [
+                RemoveMessage(id=m.id)  # type: ignore
+                for m in state["messages"]
+                if m not in messages
+            ]
+            return cast(AgentState, {"messages": remove_messages})
+
+        return {}
+
     def _after_agent(self, state: AgentState) -> str:
         last_message = state["messages"][-1]
         if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
@@ -176,14 +201,17 @@ class ChatAgentFactory(AgentFactory[AgentState]):
                 break
             if m.name in self._should_return_direct:
                 return END
-        return "agent"
+        return "before_agent"
 
     def _build_graph(self) -> None:
         graph = StateGraph(AgentState)
 
+        graph.add_node("before_agent", self._before_agent)
+        graph.set_entry_point("before_agent")
+
         # create agent node
         graph.add_node("agent", self._call_model)
-        graph.set_entry_point("agent")
+        graph.add_edge("before_agent", "agent")
 
         tool_node = (
             self._tools if isinstance(self._tools, ToolNode) else ToolNode(self._tools)
@@ -213,7 +241,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         if self._should_return_direct:
             graph.add_conditional_edges("tools", self._after_tools)
         else:
-            graph.add_edge("tools", "agent")
+            graph.add_edge("tools", "before_agent")
 
         self._graph = graph
 
