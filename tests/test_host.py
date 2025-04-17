@@ -139,6 +139,7 @@ async def test_get_messages(
             ),
         ]
         cast("FakeMessageToolModel", mcp_host.model).responses = fake_responses
+        await mcp_host.tools_initialized_event.wait()
         chat = mcp_host.chat()
         async with chat:
             async for _ in chat.query(
@@ -414,6 +415,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
 
     # Test reload functionality
     async with DiveMcpHost(initial_config) as host:
+        await host.tools_initialized_event.wait()
+
         # Verify initial state
         assert len(host.tools) == 2  # echo and ignore tools
         assert isinstance(host.config.llm, LLMConfig)

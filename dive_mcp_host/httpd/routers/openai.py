@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
+from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import ResultResponse, StreamMessage
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, EventStreamContextManager
@@ -176,13 +177,23 @@ async def create_chat_completion(
         else:
             messages.append(HumanMessage(content=message.content))
 
-    if not has_system_message and (
-        system_prompt := app.prompt_config_manager.get_prompt("system")
-    ):
-        messages.insert(
-            0,
-            SystemMessage(content=system_prompt),
+    if not has_system_message:
+        disable_dive_system_prompt = (
+            app.model_config_manager.full_config.disable_dive_system_prompt
+            if app.model_config_manager.full_config
+            else False
         )
+
+        if disable_dive_system_prompt:
+            system_prompt = app.prompt_config_manager.get_prompt(PromptKey.CUSTOM)
+        else:
+            system_prompt = app.prompt_config_manager.get_prompt(PromptKey.SYSTEM)
+
+        if system_prompt:
+            messages.insert(
+                0,
+                SystemMessage(content=system_prompt),
+            )
 
     dive_host = app.dive_host["default"]
 

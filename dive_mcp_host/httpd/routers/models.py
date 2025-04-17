@@ -214,12 +214,25 @@ class ModelSingleConfig(BaseModel):
         return self
 
 
+class EmbedConfig(BaseModel):
+    """Config for embedding model."""
+
+    provider: str | None = None
+    model: str | None = None
+    embed_dims: int | None = None
+    api_key: str | None = None
+
+
 class ModelFullConfigs(BaseModel):
     """Configuration for the model."""
 
     active_provider: str
     enable_tools: bool
     configs: dict[str, ModelSingleConfig] = Field(default_factory=dict)
+    embed_config: EmbedConfig | None = None
+
+    disable_dive_system_prompt: bool = False
+    # If True, custom rules will be used directly without extra system prompt from Dive.
 
     model_config = ConfigDict(
         alias_generator=to_camel,

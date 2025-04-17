@@ -59,6 +59,7 @@ async def test_tool_manager_sse(
         echo_tool_sse_server as (port, configs),
         ToolManager(configs) as tool_manager,
     ):
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
         for tool in tools:
@@ -83,6 +84,7 @@ async def test_tool_manager_stdio(
 ) -> None:
     """Test the tool manager."""
     async with ToolManager(echo_tool_stdio_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
         for tool in tools:
@@ -107,6 +109,7 @@ async def test_tool_manager_reload(
 ) -> None:
     """Test the tool manager's reload."""
     async with ToolManager(echo_tool_stdio_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
 
@@ -160,6 +163,7 @@ async def test_stdio_parallel(echo_tool_stdio_config: dict[str, ServerConfig]) -
     simultaneously and respond correctly.
     """
     async with ToolManager(echo_tool_stdio_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         echo_tool = None
         ignore_tool = None
@@ -219,6 +223,7 @@ async def test_tool_manager_massive_tools(
             update={"name": f"echo_{i}"},
         )
     async with ToolManager(echo_tool_stdio_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 2 * (more_tools + 1)
 
@@ -236,7 +241,7 @@ async def test_mcp_tool_exception_handling(
     """
     async with McpServer("echo", echo_tool_stdio_config["echo"]) as server:
         server.RESTART_INTERVAL = 0.1
-        tools = server.get_tools()
+        tools = server.mcp_tools
         session = server._session
         with patch("mcp.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
@@ -302,6 +307,7 @@ async def test_tool_manager_local_sse(
 ) -> None:
     """Test the tool manager."""
     async with ToolManager(echo_tool_local_sse_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
         for tool in tools:
@@ -332,6 +338,7 @@ async def test_host_with_tools(echo_tool_stdio_config: dict[str, ServerConfig]) 
         mcp_servers=echo_tool_stdio_config,
     )
     async with DiveMcpHost(config) as mcp_host:
+        await mcp_host._tool_manager.initialized_event.wait()
         fake_responses = [
             AIMessage(
                 content="Call echo tool",
@@ -378,6 +385,7 @@ async def test_mcp_server_info(echo_tool_stdio_config: dict[str, ServerConfig]) 
     import dive_mcp_host.host.tools.echo as echo_tool
 
     async with DiveMcpHost(config) as mcp_host:
+        await mcp_host._tool_manager.initialized_event.wait()
         assert list(mcp_host.mcp_server_info.keys()) == ["echo"]
         assert isinstance(mcp_host.mcp_server_info["echo"], McpServerInfo)
         assert mcp_host.mcp_server_info["echo"].initialize_result is not None
@@ -401,6 +409,7 @@ async def test_mcp_server_info_no_such_file(
         mcp_servers=no_such_file_mcp_server,
     )
     async with DiveMcpHost(config) as mcp_host:
+        await mcp_host._tool_manager.initialized_event.wait()
         assert list(mcp_host.mcp_server_info.keys()) == [
             "no_such_file",
             "sse",
@@ -429,6 +438,7 @@ async def test_mcp_server_info_sse_connection_refused(
         async with (
             ToolManager(configs) as tool_manager,
         ):
+            await tool_manager.initialized_event.wait()
             tools = tool_manager.langchain_tools()
             assert len(tools) == 0
             assert tool_manager.mcp_server_info["echo"].error is not None
@@ -443,6 +453,7 @@ async def test_tool_kwargs(
 ) -> None:
     """Some LLM set the tool call argument in kwargs."""
     async with ToolManager(echo_tool_stdio_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
         for tool in tools:
@@ -488,5 +499,6 @@ async def test_tool_manager_uvx_failed() -> None:
         ),
     }
     async with asyncio.timeout(15), ToolManager(config) as tool_manager:
+        await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 0

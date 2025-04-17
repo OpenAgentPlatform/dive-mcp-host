@@ -439,7 +439,7 @@ def test_retry_chat_missing_params(test_client):
     assert "Chat ID and Message ID are required" in body.get("message")
 
 
-def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0915
+def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0912, PLR0915
     """Test the chat endpoint with tool calls."""
     client, app = test_client
 
@@ -787,12 +787,11 @@ def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0915
             tool_result_content = json.loads(msg["content"])
             assert tool_result_content == 4
 
-        if msg["role"] == "assistant" and "The result of 2+2 is 4." in msg["content"]:
-            has_assistant_msg = True
-
-            # NOTE: tool_call might be included in the assistant message
-            tool_call_content = msg["toolCalls"]
-            if len(tool_call_content) > 0:
+        if msg["role"] == "assistant":
+            if "The result of 2+2 is 4." in msg["content"]:
+                has_assistant_msg = True
+            if tool_call_content := msg.get("toolCalls"):
+                # NOTE: tool_call might be included in the assistant message
                 has_tool_call_msg = True
                 assert tool_call_content == [
                     {
