@@ -3,7 +3,6 @@ from typing import Any
 
 from starlette.requests import Request
 from starlette.responses import Response
-from starlette.types import ASGIApp
 
 from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
 
@@ -20,9 +19,8 @@ type MiddlewareHook = HookInfo[
 class PluginMiddlewaresManager:
     """The middleware that chains the plugins."""
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(self) -> None:
         """Initialize the middleware."""
-        self._app = app
         self.plugins: list[tuple[MiddlewareCallback, PluginCallbackDef, str]] = []
 
     async def dispatch(

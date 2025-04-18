@@ -38,6 +38,11 @@ class Arguments(BaseModel):
         default="",
     )
 
+    plugin_config: Annotated[StrPath | None, AfterValidator(_convert_path)] = Field(
+        description="Plugin configuration file.",
+        default="",
+    )
+
     custom_rules: Annotated[StrPath | None, AfterValidator(_convert_path)] = Field(
         description="Custom rules for LLM.",
         default="",

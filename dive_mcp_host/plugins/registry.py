@@ -1,14 +1,16 @@
 import logging
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
-from contextlib import AbstractAsyncContextManager, AsyncExitStack
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from importlib import import_module
+from pathlib import Path
 from types import ModuleType, TracebackType
-from typing import Any, Self
+from typing import Any, Protocol, Self
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, RootModel
 
+from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.plugins.error import (
     PluginAlreadyRegisteredError,
     PluginError,
@@ -55,8 +57,7 @@ class PluginDef(BaseModel):
     name: str
     module: str
     config: dict[str, Any]
-    ctx_manager: CallbackName | None = None
-    callbacks: list[PluginCallbackDef]
+    ctx_manager: CallbackName
 
 
 @dataclass
@@ -74,6 +75,24 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
     ]
 
 
+type Callbacks[**HOOK_PARAMS, HOOK_RET] = dict[
+    HookPoint,
+    tuple[Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]], PluginCallbackDef],
+]
+
+
+class CtxManager[**HOOK_PARAMS, HOOK_RET](ContextProtocol, Protocol):
+    """Context manager for plugin."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize method."""
+        ...
+
+    def callbacks(self) -> Callbacks[HOOK_PARAMS, HOOK_RET]:
+        """Get the callbacks."""
+        ...
+
+
 @dataclass
 class LoadedPlugin[**HOOK_PARAMS, HOOK_RET]:
     """已經載入的 plugin."""
@@ -81,12 +100,8 @@ class LoadedPlugin[**HOOK_PARAMS, HOOK_RET]:
     name: str
     module: ModuleType
     config: dict[str, Any]
-    callbacks: dict[
-        HookPoint,
-        tuple[Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]], PluginCallbackDef],
-    ]
     info: PluginDef
-    ctx_manager: Callable[[dict[str, Any]], AbstractAsyncContextManager[Any]] | None
+    ctx_manager: Callable[[dict[str, Any]], CtxManager[HOOK_PARAMS, HOOK_RET]] | None
 
 
 @dataclass
@@ -160,11 +175,16 @@ class PluginManager:
         loaded_plugin = _load_plugin(plugin)
         self._plugins[plugin_name] = loaded_plugin
         if loaded_plugin.ctx_manager:
-            await self._ctx_stack.enter_async_context(
-                loaded_plugin.ctx_manager(loaded_plugin.config)
-            )
+            ctx_manager = loaded_plugin.ctx_manager(loaded_plugin.config)
+            await self._ctx_stack.enter_async_context(ctx_manager)
+        else:
+            return ret
 
-        for hook_point, (callback_func, hook_info) in loaded_plugin.callbacks.items():
+        callbacks = ctx_manager.callbacks()
+        for hook_point, (
+            callback_func,
+            hook_info,
+        ) in callbacks.items():
             try:
                 registered_hook = self._hooks[hook_point]
             except KeyError:
@@ -208,30 +228,31 @@ def _load_plugin(plugin_info: PluginDef) -> LoadedPlugin:
         # Import the plugin module
         module = import_module(plugin_info.module)
 
-        callbacks: dict[HookPoint, tuple[Callable[..., Any], PluginCallbackDef]] = {}
-        for callback_def in plugin_info.callbacks:
-            module_path, func_name = callback_def.callback.rsplit(".", 1)
-            try:
-                callback_module = import_module(module_path)
-                callback_func = getattr(callback_module, func_name)
-            except Exception as e:
-                raise PluginLoadError(
-                    f"Failed to load callback {callback_def.callback}: {e}"
-                ) from e
-
-            callbacks[callback_def.hook_point] = (callback_func, callback_def)
-        ctx_manager = None
-        if plugin_info.ctx_manager:
-            module_path, func_name = plugin_info.ctx_manager.rsplit(".", 1)
-            ctx_manager = getattr(import_module(module_path), func_name)
+        module_path, func_name = plugin_info.ctx_manager.rsplit(".", 1)
+        ctx_manager = getattr(import_module(module_path), func_name)
 
         return LoadedPlugin(
             name=plugin_info.name,
             module=module,
             config=plugin_info.config,
-            callbacks=callbacks,
             info=plugin_info,
             ctx_manager=ctx_manager,
         )
     except Exception as e:
         raise PluginLoadError(f"Failed to load plugin {plugin_info.name}: {e}") from e
+
+
+def load_plugins_config(path: str | None) -> list[PluginDef]:
+    """Load the plugins config from the given path.
+
+    Args:
+        path: The path to the plugins config.
+
+    Returns:
+        The plugins config.
+    """
+    if path is None:
+        return []
+    model = RootModel.model_construct(list[PluginDef])
+    with Path(path).open(encoding="utf-8") as f:
+        return model.model_validate_json(f.read()).root

@@ -1,7 +1,11 @@
+from typing import Any
+
 import pytest
 import pytest_asyncio
 
+from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.plugins.registry import (
+    Callbacks,
     HookInfo,
     PluginCallbackDef,
     PluginDef,
@@ -21,6 +25,40 @@ async def callback_func1(arg1: str) -> str:
 async def callback_func2(arg1: str) -> str:
     """Test callback function 2."""
     return f"callback2: {arg1}"
+
+
+class PluginA(ContextProtocol):
+    """Test plugin A."""
+
+    def __init__(self, config: dict[str, Any]) -> None:
+        """Initialize method."""
+        self.config = config
+
+    def callbacks(self) -> Callbacks:
+        """Test callbacks."""
+        return {
+            "hook1": (
+                callback_func1,
+                PluginCallbackDef(hook_point="hook1", callback="callback_func1"),
+            ),
+            "hook2": (
+                callback_func2,
+                PluginCallbackDef(hook_point="hook2", callback="callback_func2"),
+            ),
+        }
+
+
+class PluginB(PluginA):
+    """Test plugin B."""
+
+    def callbacks(self) -> Callbacks:
+        """Test callbacks."""
+        return {
+            "hookx": (
+                callback_func2,
+                PluginCallbackDef(hook_point="hookx", callback="callback_func2"),
+            ),
+        }
 
 
 @pytest_asyncio.fixture
@@ -68,14 +106,7 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
         name="test_plugin1",
         module="tests.plugin.test_registry",
         config={"key1": "value1"},
-        callbacks=[
-            PluginCallbackDef(
-                hook_point="hook1", callback="tests.plugin.test_registry.callback_func1"
-            ),
-            PluginCallbackDef(
-                hook_point="hook2", callback="tests.plugin.test_registry.callback_func2"
-            ),
-        ],
+        ctx_manager="tests.plugin.test_registry.PluginA",
     )
 
     # Test plugin registration
@@ -102,11 +133,7 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
         name="test_plugin2",
         module="tests.plugin.test_registry",
         config={"key2": "value2"},
-        callbacks=[
-            PluginCallbackDef(
-                hook_point="hookx", callback="tests.plugin.test_registry.callback_func2"
-            ),
-        ],
+        ctx_manager="tests.plugin.test_registry.PluginB",
     )
     results2 = await plugin_manager_ctx.register_plugin(plugin2)
     assert len(results2) == 1
