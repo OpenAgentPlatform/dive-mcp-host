@@ -30,7 +30,7 @@ pip install -e .
 uv pip install -e .
 
 # Or using uv sync (recommended, will respect uv.lock file)
-uv sync
+uv sync --frozen
 ```
 
 ### Starting the HTTP Service
@@ -85,7 +85,7 @@ pip install -e ".[dev]"
 ```
 or
 ```bash
-uv sync --extra dev
+uv sync --extra dev --frozen
 ```
 
 (Optional) Start local PostgreSQL
@@ -100,7 +100,7 @@ pytest
 ```
 or with uv, (no need to activate enviroment)
 ```bash
-uv run --extra dev pytest
+uv run --extra dev --frozen pytest
 ```
 
 ## License

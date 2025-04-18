@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+from sqlalchemy import make_url
 
 from dive_mcp_host.host.conf import CheckpointerConfig
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, RESOURCE_DIR
@@ -15,13 +16,26 @@ class DBConfig(BaseModel):
     """DB Config."""
 
     uri: str = Field(default="sqlite:///db.sqlite")
-    async_uri: str = Field(default="sqlite+aiosqlite:///db.sqlite")
     pool_size: int = 5
     pool_recycle: int = 60
     max_overflow: int = 10
     echo: bool = False
     pool_pre_ping: bool = True
     migrate: bool = True
+
+    @property
+    def async_uri(self) -> str:
+        """Get the async URI."""
+        url = make_url(self.uri)
+
+        if url.get_backend_name() == "sqlite":
+            url = url.set(drivername="sqlite+aiosqlite")
+        elif url.get_backend_name() == "postgresql":
+            url = url.set(drivername="postgresql+asyncpg")
+        else:
+            raise ValueError(f"Unsupported database: {url.get_backend_name()}")
+
+        return str(url)
 
 
 class ConfigLocation(BaseModel):
