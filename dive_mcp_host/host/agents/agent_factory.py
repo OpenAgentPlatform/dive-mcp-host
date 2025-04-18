@@ -1,4 +1,4 @@
-from typing import Protocol
+from typing import Literal, Protocol
 
 from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -45,6 +45,8 @@ class AgentFactory[T: MessagesState](Protocol):
         *,
         user_id: str,
         thread_id: str,
+        max_input_tokens: int | None = None,
+        oversize_policy: Literal["window"] | None = None,
     ) -> RunnableConfig | None:
         """Create a config for the agent.
 
@@ -62,8 +64,10 @@ class AgentFactory[T: MessagesState](Protocol):
             "configurable": {
                 "thread_id": thread_id,
                 "user_id": user_id,
+                "max_input_tokens": max_input_tokens,
+                "oversize_policy": oversize_policy,
             },
-            "recursion_limit": 100,
+            "recursion_limit": 102,
         }
 
     def create_initial_state(

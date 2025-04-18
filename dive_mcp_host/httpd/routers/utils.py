@@ -522,10 +522,11 @@ class ChatProcessor:
             volatile=True,
         )
         async with chat:
-            responses = [
-                response async for response in chat.query(query, stream_mode="updates")
-            ]
-            return responses[0]["agent"]["messages"][0].content
+            response = await chat.active_agent.ainvoke(
+                {"messages": [HumanMessage(content=query)]}
+            )
+            if isinstance(response["messages"][-1], AIMessage):
+                return response["messages"][-1].content
         return "New Chat"
 
     async def _process_history_messages(
