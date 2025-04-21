@@ -4,14 +4,13 @@ from collections.abc import Generator
 from os import getenv
 from typing import Any
 
+from sqlalchemy import make_url
+
 POSTGRES_URI = getenv("POSTGRES_URI", "postgresql://mcp:mcp@localhost:5432/mcp")
 SQLITE_URI = getenv("SQLITE_URI", "sqlite:///dummy.db")
 
-POSTGRES_URI_ASYNC = getenv(
-    "POSTGRES_URI_ASYNC",
-    "postgresql+asyncpg://mcp:mcp@localhost:5432/mcp",
-)
-SQLITE_URI_ASYNC = getenv("SQLITE_URI_ASYNC", "sqlite+aiosqlite:///dummy.db")
+POSTGRES_URI_ASYNC = make_url(POSTGRES_URI).set(drivername="postgresql+asyncpg")
+SQLITE_URI_ASYNC = make_url(SQLITE_URI).set(drivername="sqlite+aiosqlite")
 
 
 def dict_subset(superset: dict, subset: dict) -> bool:

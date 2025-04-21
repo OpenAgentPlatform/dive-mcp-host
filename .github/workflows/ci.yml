@@ -5,6 +5,7 @@ on: push
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    container: node:20-slim
     strategy:
       matrix:
         python-version:
@@ -18,8 +19,10 @@ jobs:
           POSTGRES_PASSWORD: mcp
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Install git
+      run: apt update && apt install -y git
 
+    - uses: actions/checkout@v4
     - name: Install uv and set the python version
       uses: astral-sh/setup-uv@v5
       with:
@@ -28,25 +31,21 @@ jobs:
     # Pip will not respect uv.lock, use uv sync to make sure we have the same dependencies
     - name: Install dependencies
       run: |
-        uv sync --extra dev
+        uv sync --extra dev --frozen
 
     - name: Test with pytest
       if: ${{ github.ref != 'refs/heads/main' && github.ref != 'refs/heads/development'}}
       env:
         POSTGRES_URI: postgresql://mcp:mcp@postgres:5432/mcp
-        POSTGRES_URI_ASYNC: postgresql+asyncpg://mcp:mcp@postgres:5432/mcp
         SQLITE_URI: sqlite:///dummy.db
-        SQLITE_URI_ASYNC: sqlite+aiosqlite:///dummy.db
       run: |
-        uv run --extra dev pytest
+        uv run --extra dev --frozen pytest
 
     - name: Test with pytest
       if: ${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/development' }}
       env:
         POSTGRES_URI: postgresql://mcp:mcp@postgres:5432/mcp
-        POSTGRES_URI_ASYNC: postgresql+asyncpg://mcp:mcp@postgres:5432/mcp
         SQLITE_URI: sqlite:///dummy.db
-        SQLITE_URI_ASYNC: sqlite+aiosqlite:///dummy.db
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         BEDROCK_ACCESS_KEY_ID: ${{ secrets.BEDROCK_ACCESS_KEY_ID }}
         BEDROCK_SECRET_ACCESS_KEY: ${{ secrets.BEDROCK_SECRET_ACCESS_KEY }}
@@ -57,7 +56,7 @@ jobs:
         OLLAMA_URL: ${{ vars.OLLAMA_URL }}
         OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL }}
       run: |
-        uv run --extra dev pytest
+        uv run --extra dev --frozen pytest
 
     - name: Lint with Ruff
       if: ${{always()}}
