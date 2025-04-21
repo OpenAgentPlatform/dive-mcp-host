@@ -181,10 +181,11 @@ class PluginManager:
             return ret
 
         callbacks = ctx_manager.callbacks()
-        for hook_point, (
+        for _, (
             callback_func,
             hook_info,
         ) in callbacks.items():
+            hook_point = hook_info.hook_point
             try:
                 registered_hook = self._hooks[hook_point]
             except KeyError:
@@ -253,6 +254,13 @@ def load_plugins_config(path: str | None) -> list[PluginDef]:
     """
     if path is None:
         return []
-    model = RootModel.model_construct(list[PluginDef])
+
+    class PluginDefList(RootModel):
+        root: list[PluginDef]
+
     with Path(path).open(encoding="utf-8") as f:
-        return model.model_validate_json(f.read()).root
+        try:
+            return PluginDefList.model_validate_json(f.read()).root
+        except:
+            logger.exception("Failed to load plugins config from %s", path)
+            raise
