@@ -75,33 +75,33 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
     ]
 
 
-type Callbacks[**HOOK_PARAMS, HOOK_RET] = dict[
+type Callbacks = dict[
     HookPoint,
-    tuple[Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]], PluginCallbackDef],
+    tuple[Callable[..., Coroutine[Any, Any, Any]], PluginCallbackDef],
 ]
 
 
-class CtxManager[**HOOK_PARAMS, HOOK_RET](ContextProtocol, Protocol):
+class CtxManager(ContextProtocol, Protocol):
     """Context manager for plugin."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize method."""
         ...
 
-    def callbacks(self) -> Callbacks[HOOK_PARAMS, HOOK_RET]:
+    def callbacks(self) -> Callbacks:
         """Get the callbacks."""
         ...
 
 
 @dataclass
-class LoadedPlugin[**HOOK_PARAMS, HOOK_RET]:
+class LoadedPlugin:
     """已經載入的 plugin."""
 
     name: str
     module: ModuleType
     config: dict[str, Any]
     info: PluginDef
-    ctx_manager: Callable[[dict[str, Any]], CtxManager[HOOK_PARAMS, HOOK_RET]] | None
+    ctx_manager: Callable[[dict[str, Any]], CtxManager] | None
 
 
 @dataclass
