@@ -234,9 +234,6 @@ class ModelFullConfigs(BaseModel):
     disable_dive_system_prompt: bool = False
     # If True, custom rules will be used directly without extra system prompt from Dive.
 
-    disable_dive_system_prompt: bool = False
-    # If True, custom rules will be used directly without extra system prompt from Dive.
-
     model_config = ConfigDict(
         alias_generator=to_camel,
         arbitrary_types_allowed=True,
