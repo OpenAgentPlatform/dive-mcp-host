@@ -1,5 +1,4 @@
-from collections.abc import AsyncGenerator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from fastapi import APIRouter
