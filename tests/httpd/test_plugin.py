@@ -4,7 +4,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 import pytest_asyncio
-from fastapi import Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.testclient import TestClient
 
 from dive_mcp_host.host.helpers.context import ContextProtocol
@@ -26,8 +26,9 @@ async def server(config_files: ConfigFileNames) -> AsyncGenerator[DiveHostAPI, N
                     {
                         "name": "test_plugin",
                         "config": {"header": "header_plugin"},
-                        "module": "tests.httpd.test_plugin_middleware",
-                        "ctx_manager": "tests.httpd.test_plugin_middleware.MiddlewarePlugin",  # noqa: E501
+                        "module": "tests.httpd.test_plugin",
+                        "ctx_manager": "tests.httpd.test_plugin.HttpdPlugin",
+                        "static_callbacks": "tests.httpd.test_plugin.static_callbacks",
                     }
                 ]
             ).encode("utf-8")
@@ -45,7 +46,7 @@ async def server(config_files: ConfigFileNames) -> AsyncGenerator[DiveHostAPI, N
             yield server
 
 
-class MiddlewarePlugin(ContextProtocol):
+class HttpdPlugin(ContextProtocol):
     """Middleware plugin."""
 
     def __init__(self, config: dict[str, Any]) -> None:
@@ -81,9 +82,36 @@ class MiddlewarePlugin(ContextProtocol):
         return response
 
 
+plugin_router = APIRouter()
+
+
+@plugin_router.get("/")
+async def plugin_router_get(request: Request):
+    """Plugin router get."""
+    return {"message": "Hello, plugin!"}
+
+
+def static_callbacks():
+    """Static callbacks."""
+    return {
+        "routers": (
+            lambda: plugin_router,
+            PluginCallbackDef(hook_point="httpd.routers", callback="plugin_router"),
+        )
+    }
+
+
 def test_plugin_middleware(server: DiveHostAPI):
     """Test plugin middleware."""
     with TestClient(server) as client:
         response = client.get("/")
         assert response.status_code == 404
         assert response.headers["X-Custom-Header"] == "header_plugin"
+
+
+def test_plugin_router(server: DiveHostAPI):
+    """Test plugin router."""
+    with TestClient(server) as client:
+        response = client.get("/api/plugins/test_plugin/")
+        assert response.status_code == 200
+        assert response.json() == {"message": "Hello, plugin!"}

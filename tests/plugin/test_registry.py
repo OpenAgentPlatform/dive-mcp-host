@@ -1,7 +1,7 @@
+from contextlib import AsyncExitStack
 from typing import Any
 
 import pytest
-import pytest_asyncio
 
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.plugins.registry import (
@@ -11,7 +11,6 @@ from dive_mcp_host.plugins.registry import (
     PluginDef,
     PluginError,
     PluginHookNameAlreadyRegisteredError,
-    PluginHookNotFoundError,
     PluginManager,
 )
 
@@ -61,15 +60,8 @@ class PluginB(PluginA):
         }
 
 
-@pytest_asyncio.fixture
-async def plugin_manager_ctx():
-    """Plugin manager context."""
-    async with PluginManager() as manager:
-        yield manager
-
-
 @pytest.mark.asyncio
-async def test_plugin_manager(plugin_manager_ctx: PluginManager):
+async def test_plugin_manager():
     """Create plugin manager."""
     # Create a registry to track registered hookers
     callback_registry = {}
@@ -93,13 +85,8 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
     hooks.append(hook_info1)
     hooks.append(hook_info2)
 
-    # Register hooks
-    plugin_manager_ctx.register_hookable(hook_info1)
-    plugin_manager_ctx.register_hookable(hook_info2)
-
-    # Test duplicate hook registration
-    with pytest.raises(PluginHookNameAlreadyRegisteredError):
-        plugin_manager_ctx.register_hookable(hook_info1)
+    exit_stack = AsyncExitStack()
+    plugin_manager_ctx = PluginManager()
 
     # Create plugin definitions
     plugin1 = PluginDef(
@@ -108,11 +95,17 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
         config={"key1": "value1"},
         ctx_manager="tests.plugin.test_registry.PluginA",
     )
+    plugin_manager_ctx.register_plugin(plugin1)
 
-    # Test plugin registration
-    results1 = await plugin_manager_ctx.register_plugin(plugin1)
-    assert len(results1) == 2
-    assert all(result[1] is None for result in results1)  # No errors
+    # Register hooks
+    plugin_manager_ctx.register_hookable(hook_info1)
+    plugin_manager_ctx.register_hookable(hook_info2)
+
+    # Test duplicate hook registration
+    with pytest.raises(PluginHookNameAlreadyRegisteredError):
+        plugin_manager_ctx.register_hookable(hook_info1)
+
+    await exit_stack.enter_async_context(plugin_manager_ctx)
 
     # Test hooker execution
     test_input = "test_input"
@@ -126,7 +119,7 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
     )
     # Test duplicate plugin registration
     with pytest.raises(PluginError):
-        await plugin_manager_ctx.register_plugin(plugin1)
+        plugin_manager_ctx.register_plugin(plugin1)
 
     # Test plugin with non-existent hook
     plugin2 = PluginDef(
@@ -135,7 +128,4 @@ async def test_plugin_manager(plugin_manager_ctx: PluginManager):
         config={"key2": "value2"},
         ctx_manager="tests.plugin.test_registry.PluginB",
     )
-    results2 = await plugin_manager_ctx.register_plugin(plugin2)
-    assert len(results2) == 1
-    assert results2[0][0] == "hookx"
-    assert isinstance(results2[0][1], PluginHookNotFoundError)
+    plugin_manager_ctx.register_plugin(plugin2)
