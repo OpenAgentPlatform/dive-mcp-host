@@ -27,9 +27,11 @@ type CallbackName = str
 
 
 class PluginCallbackDef(BaseModel):
-    """Plugin callback info.
+    """Plugin callback definition.
 
-    callback: str  # 掛載的 callback 名稱
+    Attributes:
+        callback: The name of the callback function to be hooked
+        hook_point: The hook point where this callback should be registered
     """
 
     hook_point: HookPoint
@@ -39,19 +41,22 @@ class PluginCallbackDef(BaseModel):
 
 
 class PluginDef(BaseModel):
-    """Plugin 的定義.
+    """Plugin definition.
 
     ex:
     name: "test"
     module: "this.is.module.name"
     config: {"key": "value"}
-    callbacks: [
-        {
-            "hook_point": "on_start",
-            "callback": "this.is.module.name",
-            "configs": {"key": "value"}
-        }
-    ]
+    ctx_manager: "this.is.module.name.ctx_manager"
+    static_callbacks: "this.is.module.name.get_static_callbacks"
+
+    Attributes:
+        name: The name of the plugin.
+        module: The module name of the plugin.
+        config: The configuration of the plugin.
+        ctx_manager: The context manager of the plugin.
+        static_callbacks: The function name to retrieve static callbacks.
+            The return format is the same as LoadedPlugin.static_callbacks.
     """
 
     name: str
@@ -63,7 +68,10 @@ class PluginDef(BaseModel):
 
 @dataclass
 class HookInfo[**HOOK_PARAMS, HOOK_RET]:
-    """Hook 的資訊."""
+    """Information about a hook.
+
+    Defines the hook name and registration functions for both async and sync callbacks.
+    """
 
     hook_name: HookPoint
     register: Callable[
@@ -94,7 +102,10 @@ type Callbacks = dict[
 
 
 class CtxManager(ContextProtocol, Protocol):
-    """Context manager for plugin."""
+    """Context manager for plugins.
+
+    Overwrite _run_in_context to control the context of the plugin.
+    """
 
     def __init__(self, config: dict[str, Any]) -> None:
         """Initialize method."""
@@ -107,21 +118,30 @@ class CtxManager(ContextProtocol, Protocol):
 
 @dataclass
 class LoadedPlugin:
-    """已經載入的 plugin."""
+    """Loaded plugin information.
+
+    Contains the loaded plugin module, configuration, and callback information.
+    Stores both the context manager factory and any static callbacks registered
+    by the plugin.
+    """
 
     name: str
     module: ModuleType
     config: dict[str, Any]
     info: PluginDef
     ctx_manager: Callable[[dict[str, Any]], CtxManager] | None
-    static_callbacks: dict[str, tuple[Callable[[], Any], PluginCallbackDef]] = field(
+    static_callbacks: dict[str, tuple[Callable[..., Any], PluginCallbackDef]] = field(
         default_factory=dict
     )
 
 
 @dataclass
 class _RegistedHook:
-    """儲存 Hook 的資訊."""
+    """Stores information about a registered hook.
+
+    Contains the hook information and a mapping of plugin names to loaded plugin
+    instances that have registered with this hook.
+    """
 
     hook_info: HookInfo[Any, Any]
     hooked_plugins: dict[str, LoadedPlugin] = field(default_factory=dict)
@@ -131,7 +151,7 @@ class PluginManager:
     """Plugin registry."""
 
     def __init__(self) -> None:
-        """初始化."""
+        """Initialize the plugin manager."""
         self._hooks: dict[str, _RegistedHook] = {}
         self._plugins: dict[str, LoadedPlugin] = {}
         self._plugin_used: defaultdict[str, list[str]] = defaultdict(list)
@@ -164,7 +184,10 @@ class PluginManager:
         self._hooks[hook_info.hook_name] = _RegistedHook(hook_info=hook_info)
 
     async def __aenter__(self) -> Self:
-        """Enter the context."""
+        """Enter the context.
+
+        It will enter the context of the plugin and register the callbacks.
+        """
         for plugin_name, loaded_plugin in self._plugins.items():
             if loaded_plugin.ctx_manager:
                 ctx_manager = loaded_plugin.ctx_manager(loaded_plugin.config)
@@ -213,7 +236,18 @@ class PluginManager:
         return True
 
     def register_plugin[T](self, plugin: PluginDef) -> None:
-        """Register a plugin module."""
+        """Register a plugin module.
+
+        It will load the plugin module and register the static callbacks.
+        Only static callbacks are registered into hooks at this point. Other callbacks
+        will be registered when entering the PluginManager context.
+
+        Args:
+            plugin: The plugin information.
+
+        Raises:
+            PluginAlreadyRegisteredError: If the plugin is already registered.
+        """
         plugin_name = plugin.name
         if plugin_name in self._plugins:
             raise PluginAlreadyRegisteredError(
