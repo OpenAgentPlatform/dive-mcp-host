@@ -29,7 +29,8 @@ class ContextProtocol(Protocol):
             pass
     """
 
-    async def _run_in_context(self) -> AsyncGenerator[Self, None]: ...
+    async def _run_in_context(self) -> AsyncGenerator[Self, None]:
+        yield self
 
     __gen: AsyncGenerator[Self, None] | None = None
 

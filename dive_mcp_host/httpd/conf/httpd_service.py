@@ -45,6 +45,7 @@ class ConfigLocation(BaseModel):
     model_config_path: str | None = None
     prompt_config_path: str | None = None
     command_alias_config_path: str | None = None
+    plugin_config_path: str | None = None
 
 
 class ServiceConfig(BaseModel):

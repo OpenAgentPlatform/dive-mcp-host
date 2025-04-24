@@ -6,7 +6,7 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from dive_mcp_host.host.conf import HostConfig, ServerConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
@@ -28,8 +29,11 @@ from dive_mcp_host.httpd.conf.prompt import PromptManager
 from dive_mcp_host.httpd.database.migrate import db_migration
 from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.msg_store.sqlite import SQLiteMessageStore
+from dive_mcp_host.httpd.middlewares.plugins import PluginMiddlewaresManager
+from dive_mcp_host.httpd.routers.plugins import RouterPlugin
 from dive_mcp_host.httpd.store.cache import LocalFileCache
 from dive_mcp_host.httpd.store.local import LocalStore
+from dive_mcp_host.plugins.registry import PluginManager, load_plugins_config
 
 logger = getLogger(__name__)
 
@@ -101,6 +105,24 @@ class DiveHostAPI(FastAPI):
             self._service_config_manager.current_setting.config_location.command_alias_config_path
         )
 
+        self._plugin_manager = PluginManager()
+
+        self._plugin_middlewares_manager = PluginMiddlewaresManager()
+        self.add_middleware(
+            BaseHTTPMiddleware, dispatch=self._plugin_middlewares_manager.dispatch
+        )
+        self._plugin_middlewares_manager.register_hook(self._plugin_manager)
+
+        self._plugin_router = APIRouter(tags=["plugins"])
+        self._router_plugin = RouterPlugin(self._plugin_router)
+        self._router_plugin.register_hook(self._plugin_manager)
+
+        plugins_config = load_plugins_config(
+            self._service_config_manager.current_setting.config_location.plugin_config_path
+        )
+        for plugin_config in plugins_config:
+            self._plugin_manager.register_plugin(plugin_config)
+
         self._abort_controller = AbortController()
 
     def _load_configs(self) -> None:
@@ -157,6 +179,8 @@ class DiveHostAPI(FastAPI):
         # ================================================
         config = self.load_host_config()
         async with AsyncExitStack() as stack:
+            await stack.enter_async_context(self._plugin_manager)
+            self.include_router(self._plugin_router, prefix="/api/plugins")
             default_host = DiveMcpHost(config)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
