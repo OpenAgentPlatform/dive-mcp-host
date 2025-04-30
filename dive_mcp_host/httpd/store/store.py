@@ -29,3 +29,14 @@ class Store(ABC):
     @abstractmethod
     async def get_image(self, file_path: str) -> str:
         """Get the base64 encoded image from the store."""
+
+    @abstractmethod
+    async def get_document(self, file_path: str) -> tuple[str, str | None]:
+        """Get the base64 encoded document from the store.
+
+        Args:
+            file_path: The path to the document.
+
+        Returns:
+            tuple[str, str | None]: The base64 encoded document and the mime type.
+        """

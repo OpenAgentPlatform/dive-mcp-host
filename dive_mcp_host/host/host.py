@@ -18,6 +18,7 @@ from dive_mcp_host.host.errors import ThreadNotFoundError
 from dive_mcp_host.host.helpers.checkpointer import get_checkpointer
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
+from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.models import load_model
 
 if TYPE_CHECKING:
@@ -76,7 +77,10 @@ class DiveMcpHost(ContextProtocol):
         self._config = config
         self._model: BaseChatModel | None = None
         self._checkpointer: BaseCheckpointSaver[str] | None = None
-        self._tool_manager: ToolManager = ToolManager(self._config.mcp_servers)
+        self._tool_manager: ToolManager = ToolManager(
+            configs=self._config.mcp_servers,
+            log_config=self.config.log_config,
+        )
         self._exit_stack: AsyncExitStack | None = None
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
@@ -114,6 +118,7 @@ class DiveMcpHost(ContextProtocol):
             AgentFactory[T],
         ] = get_chat_agent_factory,
         system_prompt: str | Callable[[T], list[BaseMessage]] | None = None,
+        disable_default_system_prompt: bool = False,
         volatile: bool = False,
     ) -> Chat[T]:
         """Start or resume a chat.
@@ -125,6 +130,7 @@ class DiveMcpHost(ContextProtocol):
             system_prompt: Use a custom system prompt for the chat.
             get_agent_factory_method: The method to get the agent factory.
             volatile: if True, the chat will not be saved.
+            disable_default_system_prompt: disable default system prompt
 
         If the chat ID is not provided, a new chat will be created.
         Customize the agent factory to use a different model or tools.
@@ -143,6 +149,7 @@ class DiveMcpHost(ContextProtocol):
             model=self._model,
             agent_factory=agent_factory,
             system_prompt=system_prompt,
+            disable_default_system_prompt=disable_default_system_prompt,
             chat_id=chat_id,
             user_id=user_id,
             checkpointer=None if volatile else self._checkpointer,
@@ -274,3 +281,8 @@ class DiveMcpHost(ContextProtocol):
         ):
             return ckp["channel_values"].get("messages", [])
         raise ThreadNotFoundError(thread_id)
+
+    @property
+    def log_manager(self) -> LogManager:
+        """Get the log manager."""
+        return self._tool_manager.log_manager

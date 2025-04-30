@@ -33,6 +33,12 @@ uv pip install -e .
 uv sync --frozen
 ```
 
+4. Activate the virtual environment
+
+```bash
+source .venv/bin/activate
+```
+
 ### Starting the HTTP Service
 
 Use the following command to start the HTTP service:
@@ -43,7 +49,7 @@ dive_httpd
 
 The server will start on:
 - Host: 0.0.0.0
-- Port: 8000
+- Port: 61990
 - Log Level: INFO (configurable in the service config)
 
 ### Using the Command Line Tool

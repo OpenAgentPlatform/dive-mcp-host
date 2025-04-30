@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_serializer
 from pydantic.alias_generators import to_camel, to_snake
 
 SpecialProvider = Literal["dive", "__load__"]
@@ -29,12 +29,27 @@ pydantic_model_config = ConfigDict(
 class Credentials(BaseModel):
     """Credentials for the LLM model."""
 
-    access_key_id: str = ""
-    secret_access_key: str = ""
-    session_token: str = ""
+    access_key_id: SecretStr = Field(default_factory=lambda: SecretStr(""))
+    secret_access_key: SecretStr = Field(default_factory=lambda: SecretStr(""))
+    session_token: SecretStr = Field(default_factory=lambda: SecretStr(""))
     credentials_profile_name: str = ""
 
     model_config = pydantic_model_config
+
+    @field_serializer("access_key_id", when_used="json")
+    def dump_access_key_id(self, v: SecretStr | None) -> str | None:
+        """Serialize the access_key_id field to plain text."""
+        return v.get_secret_value() if v else None
+
+    @field_serializer("secret_access_key", when_used="json")
+    def dump_secret_access_key(self, v: SecretStr | None) -> str | None:
+        """Serialize the secret_access_key field to plain text."""
+        return v.get_secret_value() if v else None
+
+    @field_serializer("session_token", when_used="json")
+    def dump_session_token(self, v: SecretStr | None) -> str | None:
+        """Serialize the session_token field to plain text."""
+        return v.get_secret_value() if v else None
 
 
 class BaseLLMConfig(BaseModel):
@@ -74,7 +89,7 @@ class LLMConfiguration(BaseModel):
 class LLMConfig(BaseLLMConfig):
     """Configuration for general LLM models."""
 
-    api_key: str | None = Field(default=None)
+    api_key: SecretStr | None = Field(default=None)
     configuration: LLMConfiguration | None = Field(default=None)
 
     model_config = pydantic_model_config
@@ -100,6 +115,11 @@ class LLMConfig(BaseLLMConfig):
         for key in remove_keys:
             kwargs.pop(key, None)
         return to_snake_dict(kwargs)
+
+    @field_serializer("api_key", when_used="json")
+    def dump_api_key(self, v: SecretStr | None) -> str | None:
+        """Serialize the api_key field to plain text."""
+        return v.get_secret_value() if v else None
 
 
 class LLMBedrockConfig(BaseLLMConfig):

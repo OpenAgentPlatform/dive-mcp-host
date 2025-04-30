@@ -299,7 +299,7 @@ def test_get_model(test_client):
     )
 
 
-def test_post_model(test_client):
+def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
     """Test the /api/config/model POST endpoint."""
     app: DiveHostAPI
     client, app = test_client
@@ -326,7 +326,7 @@ def test_post_model(test_client):
     # Send request
     response = client.post(
         "/api/config/model",
-        json=model_settings.model_dump(by_alias=True),
+        content=model_settings.model_dump_json(by_alias=True).encode("utf-8"),
     )
     assert app.dive_host["default"].model._llm_type == "openai-chat"
 
@@ -444,11 +444,11 @@ def test_post_model_replace_all(test_client):
     """Test the /api/config/model/replaceAll POST endpoint."""
     app: DiveHostAPI
     client, app = test_client
-    model_config_data = MOCK_MODEL_CONFIG.model_dump(by_alias=True)
+    model_config_data = MOCK_MODEL_CONFIG.model_dump_json(by_alias=True).encode("utf-8")
 
     response = client.post(
         "/api/config/model/replaceAll",
-        json=model_config_data,
+        content=model_config_data,
     )
 
     assert app.dive_host["default"].model._llm_type == "openai-chat"
@@ -497,11 +497,13 @@ def test_post_model_replace_all_with_none_provider(test_client):
     """Test the /api/config/model/replaceAll POST endpoint."""
     app: DiveHostAPI
     client, app = test_client
-    model_config_data = MOCK_MODEL_CONFIG_WITH_NONE_PROVIDER.model_dump(by_alias=True)
+    model_config_data = MOCK_MODEL_CONFIG_WITH_NONE_PROVIDER.model_dump_json(
+        by_alias=True
+    ).encode("utf-8")
 
     response = client.post(
         "/api/config/model/replaceAll",
-        json=model_config_data,
+        content=model_config_data,
     )
 
     assert app.dive_host["default"].model._llm_type == "fake-model"

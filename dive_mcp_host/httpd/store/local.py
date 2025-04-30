@@ -2,6 +2,7 @@ import base64
 import time
 from hashlib import md5
 from io import BytesIO
+from mimetypes import guess_type
 from pathlib import Path
 from random import randint
 
@@ -10,7 +11,7 @@ from PIL import Image
 
 from dive_mcp_host.httpd.conf.misc import RESOURCE_DIR
 
-from .store import SUPPORTED_DOCUMENT_EXTENSIONS, SUPPORTED_IMAGE_EXTENSIONS, Store
+from .store import SUPPORTED_IMAGE_EXTENSIONS, Store
 
 
 class LocalStore(Store):
@@ -25,7 +26,7 @@ class LocalStore(Store):
     async def upload_files(
         self,
         files: list[UploadFile],
-        file_paths: list[str],
+        file_paths: list[str],  # noqa: ARG002
     ) -> tuple[list[str], list[str]]:
         """Upload files to the local store."""
         images = []
@@ -49,24 +50,21 @@ class LocalStore(Store):
             hash_str = hash_md5.hexdigest()[:12]
             dst_filename = self.upload_dir.joinpath(hash_str + "-" + file.filename)
 
+            current_paths: list[str] = []
             existing_files = list(self.upload_dir.glob(hash_str + "*"))
             if existing_files:
+                current_paths.extend([str(f) for f in existing_files])
                 upload_path.unlink()
             else:
+                current_paths.append(str(dst_filename))
                 upload_path.rename(dst_filename)
 
             ext = ext.lower()
 
             if ext in SUPPORTED_IMAGE_EXTENSIONS:
-                images.append(str(dst_filename))
-            elif ext in SUPPORTED_DOCUMENT_EXTENSIONS:
-                documents.append(str(dst_filename))
-
-        for file_path in file_paths:
-            if Path(file_path).suffix in SUPPORTED_IMAGE_EXTENSIONS:
-                images.append(file_path)
-            elif Path(file_path).suffix in SUPPORTED_DOCUMENT_EXTENSIONS:
-                documents.append(file_path)
+                images.extend(current_paths)
+            else:
+                documents.extend(current_paths)
 
         return images, documents
 
@@ -85,3 +83,20 @@ class LocalStore(Store):
         base64_image = base64.b64encode(buffer.getvalue()).decode("utf-8")
 
         return f"data:image/jpeg;base64,{base64_image}"
+
+    async def get_document(self, file_path: str) -> tuple[str, str | None]:
+        """Get the base64 encoded document from the local store.
+
+        Args:
+            file_path: The path to the document.
+
+        Returns:
+            tuple[str, str | None]: The base64 encoded document and the mime type.
+        """
+        path = Path(file_path)
+
+        with path.open("rb") as f:
+            content = f.read()
+
+        mime_type = guess_type(file_path)[0]
+        return base64.b64encode(content).decode("utf-8"), mime_type

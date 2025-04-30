@@ -16,7 +16,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from dive_mcp_host.host.conf import HostConfig
+from dive_mcp_host.host.conf import HostConfig, LogConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import (
@@ -53,11 +53,12 @@ async def test_tool_manager_sse(
     echo_tool_sse_server: AbstractAsyncContextManager[
         tuple[int, dict[str, ServerConfig]]
     ],
+    log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
     async with (
         echo_tool_sse_server as (port, configs),
-        ToolManager(configs) as tool_manager,
+        ToolManager(configs, log_config) as tool_manager,
     ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
@@ -81,9 +82,10 @@ async def test_tool_manager_sse(
 @pytest.mark.asyncio
 async def test_tool_manager_stdio(
     echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
-    async with ToolManager(echo_tool_stdio_config) as tool_manager:
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
@@ -106,9 +108,10 @@ async def test_tool_manager_stdio(
 @pytest.mark.asyncio
 async def test_tool_manager_reload(
     echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ) -> None:
     """Test the tool manager's reload."""
-    async with ToolManager(echo_tool_stdio_config) as tool_manager:
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
@@ -156,13 +159,15 @@ async def test_tool_manager_reload(
 
 
 @pytest.mark.asyncio
-async def test_stdio_parallel(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+async def test_stdio_parallel(
+    echo_tool_stdio_config: dict[str, ServerConfig], log_config: LogConfig
+) -> None:
     """Test that stdio tools can execute in parallel.
 
     This test is to ensure that the tool manager can handle multiple requests
     simultaneously and respond correctly.
     """
-    async with ToolManager(echo_tool_stdio_config) as tool_manager:
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         echo_tool = None
@@ -214,6 +219,7 @@ async def test_stdio_parallel(echo_tool_stdio_config: dict[str, ServerConfig]) -
 @pytest.mark.asyncio
 async def test_tool_manager_massive_tools(
     echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ) -> None:
     """Test starting the tool manager with a large number of tools."""
     echo_config = echo_tool_stdio_config["echo"]
@@ -222,7 +228,7 @@ async def test_tool_manager_massive_tools(
         echo_tool_stdio_config[f"echo_{i}"] = echo_config.model_copy(
             update={"name": f"echo_{i}"},
         )
-    async with ToolManager(echo_tool_stdio_config) as tool_manager:
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 2 * (more_tools + 1)
@@ -231,6 +237,7 @@ async def test_tool_manager_massive_tools(
 @pytest.mark.asyncio
 async def test_mcp_tool_exception_handling(
     echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ):
     """Test the exception handling of the MCP tool.
 
@@ -239,7 +246,11 @@ async def test_mcp_tool_exception_handling(
     2. The SSE connection is automatically reconnected after failure
     3. Subsequent tool calls succeed after the connection is restored
     """
-    async with McpServer("echo", echo_tool_stdio_config["echo"]) as server:
+    async with McpServer(
+        name="echo",
+        config=echo_tool_stdio_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+    ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
         session = server._session
@@ -304,9 +315,10 @@ async def test_mcp_tool_exception_handling(
 @pytest.mark.asyncio
 async def test_tool_manager_local_sse(
     echo_tool_local_sse_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
-    async with ToolManager(echo_tool_local_sse_config) as tool_manager:
+    async with ToolManager(echo_tool_local_sse_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
@@ -431,12 +443,13 @@ async def test_mcp_server_info_sse_connection_refused(
     echo_tool_sse_server: AbstractAsyncContextManager[
         tuple[int, dict[str, ServerConfig]]
     ],
+    log_config: LogConfig,
 ) -> None:
     """Test the tool manager's SSE connection refused."""
     async with echo_tool_sse_server as (port, configs):
         configs["echo"].url = f"http://localhost:{port + 1}/sse"
         async with (
-            ToolManager(configs) as tool_manager,
+            ToolManager(configs, log_config) as tool_manager,
         ):
             await tool_manager.initialized_event.wait()
             tools = tool_manager.langchain_tools()
@@ -450,9 +463,10 @@ async def test_mcp_server_info_sse_connection_refused(
 @pytest.mark.asyncio
 async def test_tool_kwargs(
     echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
 ) -> None:
     """Some LLM set the tool call argument in kwargs."""
-    async with ToolManager(echo_tool_stdio_config) as tool_manager:
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
@@ -488,7 +502,7 @@ async def test_tool_kwargs(
 
 
 @pytest.mark.asyncio
-async def test_tool_manager_uvx_failed() -> None:
+async def test_tool_manager_uvx_failed(log_config: LogConfig) -> None:
     """Test the tool manager."""
     config = {
         "uvx": ServerConfig(
@@ -498,7 +512,7 @@ async def test_tool_manager_uvx_failed() -> None:
             transport="stdio",
         ),
     }
-    async with asyncio.timeout(15), ToolManager(config) as tool_manager:
+    async with asyncio.timeout(15), ToolManager(config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 0

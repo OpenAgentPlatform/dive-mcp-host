@@ -65,3 +65,11 @@ class McpSessionClosedOrFailedError(MCPHostError):
     def __init__(self, mcp_server: str, state: str) -> None:
         """Initialize the error."""
         super().__init__(f"MCP session {state} for {mcp_server}")
+
+
+class LogBufferNotFoundError(MCPHostError):
+    """Exception raised when a log buffer is not found."""
+
+    def __init__(self, name: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"Log buffer {name} not found")

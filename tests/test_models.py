@@ -6,10 +6,12 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolCall
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.tools import tool
 from langgraph.prebuilt import create_react_agent
+from pydantic import SecretStr
 
 from dive_mcp_host.host.agents.chat_agent import AgentState
 from dive_mcp_host.host.conf.llm import LLMConfig, LLMConfiguration
 from dive_mcp_host.host.helpers import today_datetime
+from dive_mcp_host.httpd.routers.models import ModelSingleConfig
 from dive_mcp_host.models import load_model
 from dive_mcp_host.models.fake import FakeMessageToolModel
 
@@ -82,7 +84,7 @@ def test_load_langchain_model() -> None:
     config = LLMConfig(
         model="gpt-4o",
         model_provider="openai",
-        api_key="API_KEY",
+        api_key=SecretStr("API_KEY"),
         configuration=LLMConfiguration(
             temperature=0.5,
         ),
@@ -104,9 +106,9 @@ def test_llm_config_validate() -> None:
     config = LLMConfig(
         model="gpt-4o",
         model_provider="openai",
-        api_key="fake",
+        api_key=SecretStr("fake"),
     )
-    assert config.api_key == "fake"
+    assert config.api_key == SecretStr("fake")
     assert config.model_provider == "openai"
     assert config.model == "gpt-4o"
 
@@ -117,7 +119,7 @@ def test_llm_config_validate() -> None:
             "apiKey": "fake",
         }
     )
-    assert config.api_key == "fake"
+    assert config.api_key == SecretStr("fake")
     assert config.model_provider == "openai"
     assert config.model == "gpt-4o"
 
@@ -128,7 +130,7 @@ def test_llm_config_validate() -> None:
             "apiKey": "fake",
         }
     )
-    assert config.api_key == "fake"
+    assert config.api_key == SecretStr("fake")
     assert config.model_provider == "openai"
     assert config.model == "gpt-4o"
 
@@ -148,3 +150,26 @@ def test_llm_config_validate() -> None:
             "modelProvider": "bedrock",
         }
     )
+
+
+def test_model_single_config_validate() -> None:
+    """Test the ModelSingleConfig can accept both camelCase and snake_case keys."""
+    config = ModelSingleConfig(
+        model="gpt-4o",
+        model_provider="openai",
+        api_key=SecretStr("fake"),
+    )
+    assert config.api_key == SecretStr("fake")
+    assert config.model_provider == "openai"
+    assert config.model == "gpt-4o"
+
+    config = ModelSingleConfig.model_validate(
+        {
+            "model": "gpt-4o",
+            "modelProvider": "openai",
+            "apiKey": "fake",
+        }
+    )
+    assert config.api_key == SecretStr("fake")
+    assert config.model_provider == "openai"
+    assert config.model == "gpt-4o"

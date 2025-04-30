@@ -24,13 +24,21 @@ from mcp.client.websocket import websocket_client
 from pydantic import BaseModel, ConfigDict
 from pydantic_core import to_json
 
-from dive_mcp_host.host.conf import ServerConfig  # noqa: TC001 Pydantic Need this
+from dive_mcp_host.host.conf import (
+    LogConfig,
+    ServerConfig,
+)
 from dive_mcp_host.host.errors import (
     InvalidMcpServerError,
     McpSessionClosedOrFailedError,
     McpSessionNotInitializedError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.log import (
+    LogBuffer,
+    LogManager,
+    LogProxy,
+)
 from dive_mcp_host.host.tools.stdio_server import stdio_client
 
 if TYPE_CHECKING:
@@ -81,16 +89,28 @@ class ToolManager(ContextProtocol):
             tool_manager.tools()
     """
 
-    def __init__(self, configs: dict[str, ServerConfig]) -> None:
+    def __init__(
+        self,
+        configs: dict[str, ServerConfig],
+        log_config: LogConfig = LogConfig(),
+    ) -> None:
         """Initialize the ToolManager."""
         self._configs = configs
+        self._log_config = log_config
+        self._log_manager = LogManager(
+            log_dir=log_config.log_dir, rotation_files=log_config.rotation_files
+        )
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
         self._lock = asyncio.Lock()
         self._initialized_event = asyncio.Event()
 
         self._mcp_servers = {
-            name: McpServer(name=name, config=config)
+            name: McpServer(
+                name=name,
+                config=config,
+                log_buffer_length=log_config.buffer_length,
+            )
             for name, config in self._configs.items()
         }
 
@@ -109,7 +129,7 @@ class ToolManager(ContextProtocol):
         async def tool_process(
             server: McpServer, exit_signal: asyncio.Event, ready: asyncio.Event
         ) -> None:
-            async with server:
+            async with self._log_manager.register_buffer(server.log_buffer), server:
                 ready.set()
                 await exit_signal.wait()
             logger.debug("Tool process %s exited", server.name)
@@ -175,7 +195,11 @@ class ToolManager(ContextProtocol):
 
         launch_servers = {}
         for l_key in to_launch:
-            new_server = McpServer(name=l_key, config=new_configs[l_key])
+            new_server = McpServer(
+                name=l_key,
+                config=new_configs[l_key],
+                log_buffer_length=self._log_config.buffer_length,
+            )
             launch_servers[l_key] = new_server
             self._mcp_servers[l_key] = new_server
         await self._launch_tools(launch_servers)
@@ -212,6 +236,11 @@ class ToolManager(ContextProtocol):
         """
         return self._initialized_event
 
+    @property
+    def log_manager(self) -> LogManager:
+        """Get the log manager."""
+        return self._log_manager
+
 
 class ClientState(Enum):
     """The state of the client.
@@ -238,10 +267,20 @@ class McpServer(ContextProtocol):
     KEEP_ALIVE_INTERVAL: float = 60
     RESTART_INTERVAL: float = 3
 
-    def __init__(self, name: str, config: ServerConfig) -> None:
+    def __init__(
+        self,
+        name: str,
+        config: ServerConfig,
+        log_buffer_length: int = 1000,
+    ) -> None:
         """Initialize the McpToolKit."""
         self.name = name
         self.config = config
+        self._log_buffer = LogBuffer(name=name, size=log_buffer_length)
+        self._log_proxy = LogProxy(
+            callback=self._log_buffer.push_log,
+            mcp_server_name=self.name,
+        )
         self._cond = asyncio.Condition()
         """The condition variable to synchronize access to shared variables."""
         self._client_status: ClientState = ClientState.INIT
@@ -278,7 +317,7 @@ class McpServer(ContextProtocol):
             except BaseException as e:
                 logger.error("Keep-alive error for %s: %s", self.name, e)
                 async with self._cond:
-                    self.__change_state(
+                    await self.__change_state(
                         ClientState.RESTARTING, [ClientState.RUNNING], e
                     )
                 raise
@@ -321,7 +360,7 @@ class McpServer(ContextProtocol):
                         self._mcp_tools = mcp_tools
                         self._exception = None
                         self._retries = 0
-                        self.__change_state(ClientState.RUNNING, None, None)
+                        await self.__change_state(ClientState.RUNNING, None, None)
                         logger.debug(
                             "Client %s initialized successfully with %d tools",
                             self.name,
@@ -394,6 +433,9 @@ class McpServer(ContextProtocol):
                     eg.exceptions,
                 )
 
+            if self._exception:
+                await self._log_buffer.push_session_error(self._exception)
+
             self._retries += 1
             self._session = None
             if keep_alive_task:
@@ -413,7 +455,7 @@ class McpServer(ContextProtocol):
                 )
                 async with self._cond:
                     if self._client_status != ClientState.CLOSED:
-                        self.__change_state(ClientState.FAILED, None, False)
+                        await self.__change_state(ClientState.FAILED, None, False)
                 return
             logger.debug(
                 "Retrying client initialization for %s (attempt %d/%d)",
@@ -437,7 +479,7 @@ class McpServer(ContextProtocol):
             logger.debug("mcp server shutting down %s", self.name)
             async with self._cond:
                 self._session = None
-                self.__change_state(
+                await self.__change_state(
                     ClientState.CLOSED, [ClientState.INIT, ClientState.RUNNING], False
                 )
                 logger.debug(
@@ -473,18 +515,20 @@ class McpServer(ContextProtocol):
             env.update(self.config.env)
             if self.config.transport in ("stdio", None):
                 return stdio_client(
-                    StdioServerParameters(
+                    server=StdioServerParameters(
                         command=self.config.command,
                         args=self.config.args,
                         env=env,
                     ),
+                    errlog=self._log_proxy,
                 )
             if self.config.transport in ("sse", "websocket") and self.config.url:
                 return local_mcp_net_server_client(
-                    self.config,
-                    self.config.command,
-                    self.config.args,
-                    env,
+                    config=self.config,
+                    command=self.config.command,
+                    args=self.config.args,
+                    env=env,
+                    errlog=self._log_proxy,
                 )
             raise InvalidMcpServerError(
                 self.name, "Only stdio is supported for command."
@@ -510,7 +554,7 @@ class McpServer(ContextProtocol):
             return self._mcp_tools
         return []
 
-    def __change_state(
+    async def __change_state(
         self,
         new_state: ClientState,
         orig_state: list[ClientState] | None,
@@ -533,12 +577,9 @@ class McpServer(ContextProtocol):
             if e is not False:
                 self._exception = e
             self._client_status = new_state
-            logger.debug(
-                "client status changed, %s %s %s,",
-                self.name,
-                new_state,
-                e,
-            )
+            log_msg = f"client status changed, {self.name} {new_state}, error: {e}"
+            logger.debug(log_msg)
+            await self._log_buffer.push_state_change(log_msg)
             self._cond.notify_all()
 
     async def _wait_for_session(self) -> ClientSession:
@@ -593,7 +634,7 @@ class McpServer(ContextProtocol):
                         },
                     )
                     async with self._cond:
-                        self.__change_state(
+                        await self.__change_state(
                             ClientState.RESTARTING, [ClientState.RUNNING], e
                         )
             if self._client_status == ClientState.RUNNING and self._session:
@@ -658,7 +699,7 @@ class McpServer(ContextProtocol):
                 Exception,  # Before we know the exception type
             ) as e:
                 async with self._cond:
-                    self.__change_state(
+                    await self.__change_state(
                         ClientState.RESTARTING, [ClientState.RUNNING], e
                     )
                 logger.warning(
@@ -677,6 +718,11 @@ class McpServer(ContextProtocol):
                     self._cond.notify_all()
 
         return session_ctx()
+
+    @property
+    def log_buffer(self) -> LogBuffer:
+        """Get the log buffer."""
+        return self._log_buffer
 
     @property
     def server_info(self) -> McpServerInfo:
@@ -745,8 +791,9 @@ class McpTool(BaseTool):
 
 
 @asynccontextmanager
-async def local_mcp_net_server_client(
+async def local_mcp_net_server_client(  # noqa: PLR0913
     config: ServerConfig,
+    errlog: LogProxy,
     command: str | None = None,
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
@@ -760,26 +807,43 @@ async def local_mcp_net_server_client(
         args: The arguments to start the MCP server. if None, use config.args.
         env: The environment variables to start the MCP server. if None, use config.env.
         max_connection_retries: The maximum number of connection creaation.
+        errlog: The log proxy to write the stderr of the subprocess.
     """
     command = command or config.command
     args = args or config.args
     env = env or config.env
     assert config.url is not None, "url is required"
     get_client = sse_client if config.transport == "sse" else websocket_client
-    logger.debug(
-        "Starting local MCP server %s with command: %s %s", config.name, command, args
-    )
+    logger.debug("Starting local MCP server %s with command: %s", config.name, command)
     if not (
         subprocess := await asyncio.create_subprocess_exec(
             command,
             *args,
             env=env,
+            stderr=asyncio.subprocess.PIPE,
         )
     ):
         logger.error("Failed to start subprocess for %s", config.name)
         raise RuntimeError("failed to start subprocess")
     retried = 0
     # it tooks time to start the server, so we need to retry
+
+    async def _read_stderr(
+        stream: asyncio.StreamReader | None,
+    ) -> None:
+        """Read the stderr of the subprocess."""
+        if not stream:
+            return
+
+        async for line in stream:
+            await errlog.write(line.decode())
+            await errlog.flush()
+
+    read_stderr_task = asyncio.create_task(
+        _read_stderr(subprocess.stderr),
+        name="read-stderr",
+    )
+
     try:
         while retried < max_connection_retries:
             await asyncio.sleep(0.3 if retried == 0 else 1)
@@ -809,12 +873,16 @@ async def local_mcp_net_server_client(
     finally:
         with suppress(TimeoutError):
             logger.debug("Terminating subprocess for %s", config.name)
+            read_stderr_task.cancel()
             subprocess.terminate()
             subprocess.send_signal(signal.SIGINT)
             await asyncio.wait_for(subprocess.wait(), timeout=10)
+            await read_stderr_task
             subprocess = None
         if subprocess:
             logger.info("Timeout to terminate mcp-server %s. Kill it.", config.name)
             with suppress(TimeoutError):
+                read_stderr_task.cancel()
                 subprocess.kill()
                 await asyncio.wait_for(subprocess.wait(), timeout=10)
+                await read_stderr_task

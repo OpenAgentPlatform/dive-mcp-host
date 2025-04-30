@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
 
 from dive_mcp_host.httpd.database.models import Chat, Message
+from dive_mcp_host.models.fake import FakeMessageToolModel
 from tests import helper
 
 from .conftest import TEST_CHAT_ID
@@ -283,7 +284,6 @@ def test_edit_chat(test_client):
         data={
             "chatId": test_chat_id,
             "message": "test message",
-            "filepaths": ["test_path.txt"],
         },
         files={"files": ("test.txt", test_file, "text/plain")},
     )
@@ -319,7 +319,6 @@ def test_edit_chat(test_client):
             "chatId": test_chat_id,
             "messageId": user_message_id,
             "content": "edited message",
-            "filepaths": ["test_edit_path.txt"],
         },
         files={"files": ("test_edit.txt", test_file, "text/plain")},
     )
@@ -377,7 +376,7 @@ def test_edit_chat_missing_params(test_client):
     assert "Chat ID and Message ID are required" in body["message"]  # type: ignore
 
 
-def test_retry_chat(test_client):
+def test_retry_chat(test_client):  # noqa: C901, PLR0915
     """Test the /api/chat/retry endpoint."""
     client, app = test_client
 
@@ -386,6 +385,64 @@ def test_retry_chat(test_client):
     assert response.status_code == SUCCESS_CODE
     response_data = response.json()
     message_id = response_data["data"]["messages"][0]["messageId"]  # type: ignore
+
+    host = cast("dict[str, DiveMcpHost]", app.dive_host)["default"]
+    model = cast(FakeMessageToolModel, host.model)
+    model.responses = [
+        AIMessage(content="retry response"),
+    ]
+    response = client.post(
+        "/api/chat/retry",
+        json={
+            "chatId": TEST_CHAT_ID,
+            "messageId": message_id,
+        },
+    )
+
+    assert response.status_code == SUCCESS_CODE
+    assert "text/event-stream" in response.headers.get("Content-Type")
+
+    has_chat_info = False
+    has_message_info = False
+
+    # extract and parse the JSON data
+    for json_obj in helper.extract_stream(response.text):
+        assert "message" in json_obj
+        if json_obj["message"]:
+            inner_json = json.loads(json_obj["message"])
+            assert "type" in inner_json
+            assert "content" in inner_json
+
+            # assert the specific type of message
+            if inner_json["type"] == "chat_info":
+                has_chat_info = True
+                helper.dict_subset(
+                    inner_json["content"],
+                    {
+                        "id": TEST_CHAT_ID,
+                    },
+                )
+                assert "title" in inner_json["content"]
+            if inner_json["type"] == "message_info":
+                has_message_info = True
+                assert "userMessageId" in inner_json["content"]
+                assert "assistantMessageId" in inner_json["content"]
+            if inner_json["type"] == "text":
+                assert inner_json["content"] == "retry response"
+
+    assert has_chat_info
+    assert has_message_info
+
+    # call retry api with the ai message
+    response = client.get(f"/api/chat/{TEST_CHAT_ID}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert len(response_data["data"]["messages"]) == 2  # type: ignore
+    message_id = response_data["data"]["messages"][1]["messageId"]  # type: ignore
+
+    model.responses = [
+        AIMessage(content="retry response 2"),
+    ]
 
     response = client.post(
         "/api/chat/retry",
@@ -423,9 +480,100 @@ def test_retry_chat(test_client):
                 has_message_info = True
                 assert "userMessageId" in inner_json["content"]
                 assert "assistantMessageId" in inner_json["content"]
+            if inner_json["type"] == "text":
+                assert inner_json["content"] == "retry response 2"
 
     assert has_chat_info
     assert has_message_info
+
+    response = client.get(f"/api/chat/{TEST_CHAT_ID}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert len(response_data["data"]["messages"]) == 2  # type: ignore
+
+
+def test_retry_chat_with_files(test_client):
+    """Test the /api/chat/retry endpoint with files."""
+    client, app = test_client
+    test_file = io.BytesIO(b"test file content")
+    test_chat_id = "test_retry_with_files"
+    response = client.post(
+        "/api/chat",
+        data={
+            "chatId": test_chat_id,
+            "message": "message with files",
+        },
+        files={"files": ("test.txt", test_file, "text/plain")},
+    )
+    assert response.status_code == SUCCESS_CODE
+    assert response.headers.get("Content-Type").startswith("text/event-stream")
+
+    user_message_id = ""
+    ai_message_id = ""
+    for json_obj in helper.extract_stream(response.text):
+        message = json.loads(json_obj["message"])  # type: ignore
+        content = message["content"]
+        match message["type"]:
+            case "chat_info":
+                assert content["id"] == test_chat_id  # type: ignore
+            case "message_info":
+                user_message_id = content["userMessageId"]  # type: ignore
+                ai_message_id = content["assistantMessageId"]  # type: ignore
+                assert user_message_id
+                assert ai_message_id
+
+    host = cast("dict[str, DiveMcpHost]", app.dive_host)["default"]
+    model = cast(FakeMessageToolModel, host.model)
+    model.responses = [
+        AIMessage(content="retry response"),
+    ]
+    response = client.post(
+        "/api/chat/retry",
+        json={
+            "chatId": test_chat_id,
+            "messageId": ai_message_id,
+        },
+    )
+
+    assert response.status_code == SUCCESS_CODE
+    assert "text/event-stream" in response.headers.get("Content-Type")
+
+    has_chat_info = False
+    has_message_info = False
+
+    # extract and parse the JSON data
+    for json_obj in helper.extract_stream(response.text):
+        assert "message" in json_obj
+        if json_obj["message"]:
+            inner_json = json.loads(json_obj["message"])
+            assert "type" in inner_json
+            assert "content" in inner_json
+
+            # assert the specific type of message
+            if inner_json["type"] == "chat_info":
+                has_chat_info = True
+                helper.dict_subset(
+                    inner_json["content"],
+                    {
+                        "id": test_chat_id,
+                    },
+                )
+                assert "title" in inner_json["content"]
+            if inner_json["type"] == "message_info":
+                has_message_info = True
+                assert "userMessageId" in inner_json["content"]
+                assert "assistantMessageId" in inner_json["content"]
+            if inner_json["type"] == "text":
+                assert inner_json["content"] == "retry response"
+
+    assert has_chat_info
+    assert has_message_info
+
+    response = client.get(f"/api/chat/{test_chat_id}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert len(response_data["data"]["messages"]) == 2  # type: ignore
+    assert response_data["data"]["messages"][0]["messageId"] == user_message_id  # type: ignore
 
 
 def test_retry_chat_missing_params(test_client):

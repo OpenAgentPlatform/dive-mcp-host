@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from pydantic import SecretStr
 
 from dive_mcp_host.httpd.conf.models import ModelManager
 
@@ -93,7 +94,7 @@ class TestModelManager:
         assert settings is not None
         assert settings.model == "test_model"  # type: ignore
         assert settings.model_provider == "test_provider"  # type: ignore
-        assert settings.api_key == "test_key"  # type: ignore
+        assert settings.api_key == SecretStr("test_key")  # type: ignore
         assert settings.configuration is not None  # type: ignore
         assert settings.configuration.base_url == "http://test.url"  # type: ignore
 
@@ -107,7 +108,7 @@ class TestModelManager:
         assert settings is not None
         assert settings.model == "test_model"  # type: ignore
         assert settings.model_provider == "test_provider"  # type: ignore
-        assert settings.api_key == "test_key"  # type: ignore
+        assert settings.api_key == SecretStr("test_key")  # type: ignore
         assert settings.configuration is not None  # type: ignore
         assert settings.configuration.base_url == "http://test.url"  # type: ignore
 

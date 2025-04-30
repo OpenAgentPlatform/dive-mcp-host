@@ -49,12 +49,23 @@ def test_do_verify_model_with_env_api_key(test_client):
     # Parse JSON response
     response_data = cast("dict", response.json())
 
-    # Validate response structure
-    assert response_data["success"] is True
-
     # Validate result structure
-    assert isinstance(response_data["connectingSuccess"], bool)
-    assert isinstance(response_data["supportTools"], bool)
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "connecting": {
+                "success": True,
+                "final_state": "CONNECTED",
+                "error_msg": None,
+            },
+            "supportTools": {
+                "success": True,
+                "final_state": "TOOL_RESPONDED",
+                "error_msg": None,
+            },
+        },
+    )
 
 
 def test_verify_model_streaming_with_env_api_key(test_client):
@@ -111,7 +122,8 @@ def test_verify_model_streaming_with_env_api_key(test_client):
                             "step": 1,
                             "modelName": "gpt-4o-mini",
                             "testType": "connection",
-                            "status": "success",
+                            "ok": True,
+                            "finalState": "CONNECTED",
                             "error": None,
                         },
                     )
@@ -122,7 +134,8 @@ def test_verify_model_streaming_with_env_api_key(test_client):
                             "step": 2,
                             "modelName": "gpt-4o-mini",
                             "testType": "tools",
-                            "status": "success",
+                            "ok": True,
+                            "finalState": "TOOL_RESPONDED",
                             "error": None,
                         },
                     )
@@ -136,10 +149,14 @@ def test_verify_model_streaming_with_env_api_key(test_client):
                             {
                                 "modelName": "gpt-4o-mini",
                                 "connection": {
-                                    "status": "success",
+                                    "ok": True,
+                                    "finalState": "CONNECTED",
+                                    "error": None,
                                 },
                                 "tools": {
-                                    "status": "success",
+                                    "ok": True,
+                                    "finalState": "TOOL_RESPONDED",
+                                    "error": None,
                                 },
                             },
                         ],
@@ -214,7 +231,8 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
                         "step": 1,
                         "modelName": model_name,
                         "testType": "connection",
-                        "status": "success",
+                        "ok": True,
+                        "finalState": "CONNECTED",
                         "error": None,
                     },
                 )
@@ -226,7 +244,8 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
                         "step": 2,
                         "modelName": model_name,
                         "testType": "tools",
-                        "status": "success",
+                        "ok": True,
+                        "finalState": "TOOL_RESPONDED",
                         "error": None,
                     },
                 )
@@ -240,10 +259,14 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
                         {
                             "modelName": model_name,
                             "connection": {
-                                "status": "success",
+                                "ok": True,
+                                "finalState": "CONNECTED",
+                                "error": None,
                             },
                             "tools": {
-                                "status": "success",
+                                "ok": True,
+                                "finalState": "TOOL_RESPONDED",
+                                "error": None,
                             },
                         },
                     ],

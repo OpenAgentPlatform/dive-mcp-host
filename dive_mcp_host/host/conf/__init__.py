@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import AnyUrl, BaseModel, Field, UrlConstraints
@@ -30,6 +31,20 @@ class ServerConfig(BaseModel):
     transport: Literal["stdio", "sse", "websocket"]
 
 
+class LogConfig(BaseModel):
+    """Config for mcp server logs.
+
+    Attributes:
+        log_dir: base directory for log files.
+        rotation_files: max log rotation files per mcp server.
+        buffer_length: the amount of log entries in log buffer.
+    """
+
+    log_dir: Path = Field(default_factory=lambda: Path.cwd() / "logs")
+    rotation_files: int = 5
+    buffer_length: int = 1000
+
+
 class HostConfig(BaseModel):
     """Configuration for the MCP host."""
 
@@ -37,6 +52,7 @@ class HostConfig(BaseModel):
     embed: EmbedConfig | None = None
     checkpointer: CheckpointerConfig | None = None
     mcp_servers: dict[str, ServerConfig]
+    log_config: LogConfig = Field(default_factory=LogConfig)
 
 
 class AgentConfig(BaseModel):

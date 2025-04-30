@@ -14,6 +14,7 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel
 from starlette.datastructures import State
 
+from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
 from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.database.models import (
     Message,
@@ -220,9 +221,9 @@ class ChatProcessor:
                     chat_id, title, dive_user["user_id"], dive_user["user_type"]
                 )
 
-            if regenerate_message_id:
-                await db.delete_messages_after(chat_id, regenerate_message_id)
-                if query_input and query_message:
+            if regenerate_message_id and query_message:
+                await db.delete_messages_after(chat_id, query_message.id)  # type: ignore
+                if query_input:
                     await db.update_message_content(
                         query_message.id,  # type: ignore
                         QueryInput(
@@ -407,6 +408,7 @@ class ChatProcessor:
             user_id=dive_user.get("user_id") or "default",
             tools=tools,
             system_prompt=prompt,
+            disable_default_system_prompt=self.disable_dive_system_prompt,
         )
         async with AsyncExitStack() as stack:
             if chat_id:
@@ -427,6 +429,13 @@ class ChatProcessor:
         content = self._str_output_parser.invoke(message)
         if content:
             await self.stream.write(StreamMessage(type="text", content=content))
+        if message.response_metadata.get("stop_reason") == "max_tokens":
+            await self.stream.write(
+                StreamMessage(
+                    type="error",
+                    content="stop_reason: max_tokens",
+                )
+            )
 
     async def _stream_tool_calls_msg(self, message: AIMessage) -> None:
         await self.stream.write(
@@ -578,17 +587,18 @@ class ChatProcessor:
                             }
                         )
                     else:
+                        base64_document, _ = await self.store.get_document(local_path)
                         content.append(
                             {
                                 "type": "text",
-                                "text": f"![Document]({local_path})",
-                            }
+                                "text": f"source: {local_path}, content: {base64_document}",  # noqa: E501
+                            },
                         )
 
                 if message.role == Role.ASSISTANT:
-                    history.append(AIMessage(content=content))
+                    history.append(AIMessage(content=content, id=message.message_id))
                 else:
-                    history.append(HumanMessage(content=content))
+                    history.append(HumanMessage(content=content, id=message.message_id))
 
         return history
 
@@ -626,28 +636,34 @@ class ChatProcessor:
 
         for document in query_input.documents or []:
             local_path = document
+            base64_document, _ = await self.store.get_document(local_path)
             content.append(
                 {
                     "type": "text",
-                    "text": f"![Document]({local_path})",
-                }
+                    "text": f"source: {local_path}, content: {base64_document}",
+                },
             )
+
         return HumanMessage(content=content, id=message_id)
 
     async def _get_history_user_input(
         self, chat_id: str, message_id: str
     ) -> BaseMessage:
-        """Get history user input."""
+        """Get the last user input message from history."""
         dive_user: DiveUser = self.request_state.dive_user
         async with self.app.db_sessionmaker() as session:
             db = self.app.msg_store(session)
             chat = await db.get_chat_with_messages(chat_id, dive_user["user_id"])
             if chat is None:
                 raise ChatError("chat not found")
-            message = next(
-                (msg for msg in chat.messages if msg.message_id == message_id),
-                None,
-            )
+            message = None
+            for i in chat.messages:
+                if i.role == Role.USER:
+                    message = i
+                if i.message_id == message_id:
+                    break
+            else:
+                message = None
             if message is None:
                 raise ChatError("message not found")
 
@@ -657,3 +673,41 @@ class ChatProcessor:
                     [],
                 )
             )[0]
+
+
+class LogStreamHandler:
+    """Handles streaming of logs."""
+
+    def __init__(
+        self,
+        stream: EventStreamContextManager,
+        log_manager: LogManager,
+    ) -> None:
+        """Initialize the log processor."""
+        self._stream = stream
+        self._log_manager = log_manager
+
+    async def _log_listener(self, msg: LogMsg) -> None:
+        await self._stream.write(msg.model_dump_json())
+
+    async def stream_logs(self, server_name: str) -> None:
+        """Stream logs from specific MCP server.
+
+        Keep the connection open until client disconnects.
+        """
+        try:
+            async with self._log_manager.listen_log(
+                name=server_name,
+                listener=self._log_listener,
+            ):
+                with suppress(asyncio.CancelledError):
+                    await asyncio.Future()
+
+        except Exception as e:
+            logger.exception("Error in log streaming for server %s", server_name)
+            msg = LogMsg(
+                event=LogEvent.STREAMING_ERROR,
+                body=f"Error streaming logs: {e}",
+                mcp_server_name=server_name,
+            )
+            await self._stream.write(msg.model_dump_json())

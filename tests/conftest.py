@@ -8,6 +8,7 @@ import httpx
 import pytest
 import pytest_asyncio
 
+from dive_mcp_host.host.conf import LogConfig
 from dive_mcp_host.host.tools import ServerConfig
 
 
@@ -94,3 +95,9 @@ async def echo_tool_sse_server(
     finally:
         proc.send_signal(signal.SIGKILL)
         await proc.wait()
+
+
+@pytest.fixture
+def log_config() -> LogConfig:
+    """Fixture for log Config."""
+    return LogConfig()

@@ -7,6 +7,8 @@ from pydantic import (
     ConfigDict,
     Field,
     RootModel,
+    SecretStr,
+    field_serializer,
     model_validator,
 )
 from pydantic.alias_generators import to_camel
@@ -194,7 +196,7 @@ class ModelSingleConfig(BaseModel):
     model_provider: str
     model: str
     max_tokens: int | None = None
-    api_key: str | None = None
+    api_key: SecretStr | None = None
     configuration: LLMConfiguration | None = None
     active: bool = Field(default=True)
     checked: bool = Field(default=False)
@@ -212,6 +214,11 @@ class ModelSingleConfig(BaseModel):
         """Validate the model config by converting to LLMConfigTypes."""
         get_llm_config_type(self.model_provider).model_validate(self.model_dump())
         return self
+
+    @field_serializer("api_key", when_used="json")
+    def dump_api_key(self, v: SecretStr | None) -> str | None:
+        """Serialize the api_key field to plain text."""
+        return v.get_secret_value() if v else None
 
 
 class EmbedConfig(BaseModel):

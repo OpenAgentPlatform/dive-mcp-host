@@ -6,7 +6,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import make_url
 
-from dive_mcp_host.host.conf import CheckpointerConfig
+from dive_mcp_host.host.conf import CheckpointerConfig, LogConfig
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, RESOURCE_DIR
 
 logger = logging.getLogger(__name__)
@@ -57,6 +57,7 @@ class ServiceConfig(BaseModel):
     local_file_cache_prefix: str = "dive_mcp_host"
     config_location: ConfigLocation = Field(default_factory=ConfigLocation)
     cors_origin: str | None = None
+    mcp_server_log: LogConfig = Field(default_factory=LogConfig)
 
     logging_config: dict[str, Any] = {
         "disable_existing_loggers": False,

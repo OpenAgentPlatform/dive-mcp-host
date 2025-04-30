@@ -2,12 +2,16 @@ import asyncio
 import json
 from collections.abc import Callable, Generator
 from contextlib import AsyncExitStack, contextmanager
+from enum import StrEnum
 from logging import getLogger
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.pregel.io import AddableUpdatesDict
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic.alias_generators import to_camel
 
 from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig, LLMConfigTypes
@@ -22,14 +26,70 @@ logger = getLogger(__name__)
 model_verify = APIRouter(tags=["model_verify"])
 
 
+class ToolVerifyState(StrEnum):
+    """Tool verify state."""
+
+    TOOL_NOT_USED = "TOOL_NOT_USED"
+    TOOL_CALLED = "TOOL_CALLED"
+    TOOL_RESPONDED = "TOOL_RESPONDED"
+    ERROR = "ERROR"
+
+
+class ToolVerifyResult(BaseModel):
+    """Tool verify result."""
+
+    success: bool = False
+    final_state: ToolVerifyState | None = None
+    error_msg: str | None = None
+
+
+class ConnectionVerifyState(StrEnum):
+    """Connection verify state."""
+
+    CONNECTED = "CONNECTED"
+    ERROR = "ERROR"
+
+
+class ConnectionVerifyResult(BaseModel):
+    """Connection verify result."""
+
+    success: bool = False
+    final_state: ConnectionVerifyState | None = None
+    error_msg: str | None = None
+
+
 class ModelVerifyResult(BaseModel):
     """Model verify result."""
 
     success: bool = False
-    connecting_success: bool = Field(default=False, alias="connectingSuccess")
-    # connecting_result: str = Field(default="", alias="connectingResult")
-    support_tools: bool = Field(default=False, alias="supportTools")
-    # support_tools_result: str = Field(default="", alias="supportToolsResult")
+    connecting: ConnectionVerifyResult = Field(default_factory=ConnectionVerifyResult)
+    support_tools: ToolVerifyResult = Field(default_factory=ToolVerifyResult)
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        validate_by_name=True,
+        validate_by_alias=True,
+        serialize_by_alias=True,
+    )
+
+
+class ModelVerifyProgress(BaseModel):
+    """Model verify progress."""
+
+    type: Literal["progress"] = "progress"
+    step: int
+    model_name: str
+    test_type: Literal["connection", "tools"]
+    ok: bool
+    final_state: ToolVerifyState | ConnectionVerifyState | None
+    error: str | None
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        validate_by_name=True,
+        validate_by_alias=True,
+        serialize_by_alias=True,
+    )
 
 
 class ModelVerifyService:
@@ -86,25 +146,26 @@ class ModelVerifyService:
         finally:
             task.cancel()
 
-    async def _report_progress(
+    async def _report_progress(  # noqa: PLR0913
         self,
         step: int,
         model_name: str,
-        test_type: str,
-        status: bool,
+        test_type: Literal["connection", "tools"],
+        ok: bool,
+        final_state: ToolVerifyState | ConnectionVerifyState | None,
         error: str | None,
     ) -> None:
         if not self._stream_progress:
             return
         await self._stream_progress(
-            {
-                "type": "progress",
-                "step": step,
-                "modelName": model_name,
-                "testType": test_type,
-                "status": "success" if status else "error",
-                "error": error,
-            }
+            ModelVerifyProgress(
+                step=step,
+                model_name=model_name,
+                test_type=test_type,
+                ok=ok,
+                final_state=final_state,
+                error=error,
+            ).model_dump()
         )
 
     async def test_model(
@@ -131,19 +192,42 @@ class ModelVerifyService:
             if "connection" in subjects:
                 n_step += 1
                 con_ok, con_error = await self._check_connection(host)
+                final_state = (
+                    ConnectionVerifyState.CONNECTED
+                    if con_ok
+                    else ConnectionVerifyState.ERROR
+                )
                 await self._report_progress(
-                    n_step, llm_config.model, "connection", con_ok, con_error
+                    step=n_step,
+                    model_name=llm_config.model,
+                    test_type="connection",
+                    ok=con_ok,
+                    final_state=final_state,
+                    error=con_error,
                 )
             if "tools" in subjects:
                 n_step += 1
-                tools_ok, tools_error = await self._check_tools(host)
+                tools_ok, tools_error, tools_state = await self._check_tools(host)
                 await self._report_progress(
-                    n_step, llm_config.model, "tools", tools_ok, tools_error
+                    step=n_step,
+                    model_name=llm_config.model,
+                    test_type="tools",
+                    ok=tools_ok,
+                    final_state=tools_state,
+                    error=tools_error,
                 )
             return ModelVerifyResult(
                 success=True,
-                connectingSuccess=con_ok,
-                supportTools=tools_ok,
+                connecting=ConnectionVerifyResult(
+                    success=con_ok,
+                    final_state=final_state,
+                    error_msg=con_error,
+                ),
+                support_tools=ToolVerifyResult(
+                    success=tools_ok,
+                    final_state=tools_state,
+                    error_msg=tools_error,
+                ),
             )
 
     async def _check_connection(self, host: DiveMcpHost) -> tuple[bool, str | None]:
@@ -164,24 +248,35 @@ class ModelVerifyService:
             logger.exception("Failed to check connection")
             return False, str(e)
 
-    async def _check_tools(self, host: DiveMcpHost) -> tuple[bool, str | None]:
+    async def _check_tools(
+        self, host: DiveMcpHost
+    ) -> tuple[bool, str | None, ToolVerifyState | None]:
         """Check if the model supports tools."""
         try:
+            state = ToolVerifyState.TOOL_NOT_USED
+
             test_tool = TestTool()
-            chat = host.chat(volatile=True, tools=[test_tool])
+            chat = host.chat(volatile=True, tools=[test_tool.weather_tool])
+
             async with AsyncExitStack() as stack:
                 await stack.enter_async_context(chat)
                 stack.enter_context(self._handle_abort(chat.abort))
-                _responses = [
-                    response
-                    async for response in chat.query(
-                        "run test_tool", stream_mode=["updates"]
-                    )
-                ]
-            return test_tool.called, None
+                async for _, data in chat.query(
+                    "run weather_tool to get weather information for Tokyo",
+                    stream_mode=["updates"],
+                ):
+                    if isinstance(data, AddableUpdatesDict):
+                        for _, v in data.items():
+                            for msg in v.get("messages", []):
+                                if isinstance(msg, AIMessage) and msg.tool_calls:
+                                    state = ToolVerifyState.TOOL_CALLED
+                                if isinstance(msg, ToolMessage):
+                                    state = ToolVerifyState.TOOL_RESPONDED
+
+            return test_tool.called, None, state
         except Exception as e:
             logger.exception("Failed to check tools")
-            return False, str(e)
+            return False, str(e), ToolVerifyState.ERROR
 
 
 class ModelVerifyRequest(BaseModel):
@@ -259,14 +354,14 @@ async def verify_model(
                             {
                                 "modelName": n,
                                 "connection": {
-                                    "status": "success"
-                                    if r.connecting_success
-                                    else "error",
-                                    "result": "",  # r.connecting_result,
+                                    "ok": r.connecting.success,
+                                    "finalState": r.connecting.final_state,
+                                    "error": r.connecting.error_msg,
                                 },
                                 "tools": {
-                                    "status": "success" if r.support_tools else "error",
-                                    "result": "",  # r.support_tools_result,
+                                    "ok": r.support_tools.success,
+                                    "finalState": r.support_tools.final_state,
+                                    "error": r.support_tools.error_msg,
                                 },
                             }
                             for n, r in results.items()
