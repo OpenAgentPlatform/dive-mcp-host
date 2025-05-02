@@ -92,9 +92,12 @@ class DiveHostAPI(FastAPI):
         if self._service_config_manager.current_setting is None:
             raise ValueError("Service manager is not initialized")
 
+        self._plugin_manager = PluginManager()
+
         self._mcp_server_config_manager = MCPServerManager(
             self._service_config_manager.current_setting.config_location.mcp_server_config_path
         )
+        self._mcp_server_config_manager.register_hook(self._plugin_manager)
         self._model_config_manager = ModelManager(
             self._service_config_manager.current_setting.config_location.model_config_path
         )
@@ -104,8 +107,6 @@ class DiveHostAPI(FastAPI):
         self._command_alias_config_manager = CommandAliasManager(
             self._service_config_manager.current_setting.config_location.command_alias_config_path
         )
-
-        self._plugin_manager = PluginManager()
 
         self._plugin_middlewares_manager = PluginMiddlewaresManager()
         self.add_middleware(
