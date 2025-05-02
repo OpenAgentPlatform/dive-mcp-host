@@ -74,14 +74,17 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
     """
 
     hook_name: HookPoint
-    register: Callable[
-        [
-            Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]],
-            PluginCallbackDef,
-            PlugInName,
-        ],
-        Coroutine[Any, Any, bool],
-    ]
+    register: (
+        Callable[
+            [
+                Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]],
+                PluginCallbackDef,
+                PlugInName,
+            ],
+            Coroutine[Any, Any, bool],
+        ]
+        | None
+    ) = None
     static_register: (
         Callable[
             [
@@ -93,6 +96,10 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
         ]
         | None
     ) = None
+
+    def __post_init__(self) -> None:
+        if self.register is None and self.static_register is None:
+            raise ValueError("Either register or static_register must be provided")
 
 
 type Callbacks = dict[
@@ -217,8 +224,11 @@ class PluginManager:
                     )
                     continue
 
-                if await registered_hook.hook_info.register(
-                    callback_func, hook_info, plugin_name
+                if (
+                    registered_hook.hook_info.register
+                    and await registered_hook.hook_info.register(
+                        callback_func, hook_info, plugin_name
+                    )
                 ):
                     self._plugin_used[hook_point].append(plugin_name)
                     registered_hook.hooked_plugins[plugin_name] = loaded_plugin

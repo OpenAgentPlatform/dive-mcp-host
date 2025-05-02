@@ -1,12 +1,15 @@
 import json
 import logging
 import os
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field
 
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
+from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
 
 
 # Define necessary types for configuration
@@ -33,6 +36,10 @@ class Config(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(alias="mcpServers")
 
 
+type McpServerConfigCallback = Callable[[Config], Config]
+UpdateAllConfigsHookName = "httpd.config.mcp_servers.update_all_configs"
+CurrentConfigHookName = "httpd.config.mcp_servers.current_config"
+
 # Logger setup
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,13 @@ class MCPServerManager:
         self._config_path: str = config_path or str(DIVE_CONFIG_DIR / "mcp_config.json")
         self._current_config: Config | None = None
 
+        self._update_config_callbacks: list[
+            tuple[McpServerConfigCallback, PluginCallbackDef, str]
+        ] = []
+        self._current_config_callbacks: list[
+            tuple[McpServerConfigCallback, PluginCallbackDef, str]
+        ] = []
+
     @property
     def config_path(self) -> str:
         """Get the configuration path."""
@@ -59,6 +73,13 @@ class MCPServerManager:
     @property
     def current_config(self) -> Config | None:
         """Get the current configuration."""
+        if self._current_config is None:
+            return None
+        if self._current_config_callbacks:
+            config = self._current_config.model_copy(deep=True)
+            for i in self._current_config_callbacks:
+                config = i[0](config)
+            return config
         return self._current_config
 
     def initialize(self) -> None:
@@ -88,12 +109,12 @@ class MCPServerManager:
         Returns:
             Dictionary of enabled server names and their configurations.
         """
-        if not self._current_config:
+        if not self.current_config:
             return {}
 
         return {
             server_name: config
-            for server_name, config in self._current_config.mcp_servers.items()
+            for server_name, config in self.current_config.mcp_servers.items()
             if config.enabled
         }
 
@@ -106,6 +127,10 @@ class MCPServerManager:
         Returns:
             True if successful, False otherwise.
         """
+        if self._update_config_callbacks:
+            new_config = new_config.model_copy(deep=True)
+            for i in self._update_config_callbacks:
+                new_config = i[0](new_config)
         write_then_replace(
             Path(self._config_path),
             new_config.model_dump_json(by_alias=True),
@@ -113,3 +138,41 @@ class MCPServerManager:
 
         self._current_config = new_config
         return True
+
+    def register_plugin(
+        self,
+        callback: McpServerConfigCallback,
+        callback_def: PluginCallbackDef,
+        plugin_name: str,
+        hook_name: str,
+    ) -> bool:
+        """Register the static plugin."""
+        if hook_name == CurrentConfigHookName:
+            self._current_config_callbacks.append((callback, callback_def, plugin_name))
+        elif hook_name == UpdateAllConfigsHookName:
+            self._update_config_callbacks.append((callback, callback_def, plugin_name))
+        else:
+            return False
+        return True
+
+    def register_hook(self, manager: PluginManager) -> None:
+        """Register the hook."""
+        manager.register_hookable(
+            HookInfo(
+                hook_name=CurrentConfigHookName,
+                static_register=partial(
+                    self.register_plugin,
+                    hook_name=CurrentConfigHookName,
+                ),
+            )
+        )
+
+        manager.register_hookable(
+            HookInfo(
+                hook_name=UpdateAllConfigsHookName,
+                static_register=partial(
+                    self.register_plugin,
+                    hook_name=UpdateAllConfigsHookName,
+                ),
+            )
+        )
