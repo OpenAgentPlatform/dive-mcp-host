@@ -38,11 +38,8 @@ from dive_mcp_host.host.agents.tools_in_prompt import (
 from dive_mcp_host.host.helpers import today_datetime
 from dive_mcp_host.host.prompt import PromptType, tools_prompt
 
-StructuredResponse = dict | BaseModel
-StructuredResponseSchema = dict | type[BaseModel]
-
-StructuredResponse = dict | BaseModel
-StructuredResponseSchema = dict | type[BaseModel]
+type StructuredResponse = dict | BaseModel
+type StructuredResponseSchema = dict | type[BaseModel]
 
 
 class AgentState(MessagesState):
