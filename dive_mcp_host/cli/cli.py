@@ -39,6 +39,13 @@ def setup_argument_parser() -> type[CLIArgs]:
         help="Continue from given CHAT_ID.",
         dest="chat_id",
     )
+    parser.add_argument(
+        "-p",
+        type=str,
+        default=None,
+        help="With given system prompt in the file.",
+        dest="prompt_file",
+    )
     return parser.parse_args(namespace=CLIArgs)
 
 
@@ -55,9 +62,16 @@ async def run() -> None:
     config = load_config(args.config_path)
 
     current_chat_id: str | None = args.chat_id
+    system_prompt = None
+    if args.prompt_file:
+        with Path(args.prompt_file).open("r") as f:
+            system_prompt = f.read()
 
     async with DiveMcpHost(config) as mcp_host:
-        chat = mcp_host.chat(chat_id=current_chat_id)
+        print("Waiting for tools to initialize...")
+        await mcp_host.tools_initialized_event.wait()
+        print("Tools initialized")
+        chat = mcp_host.chat(chat_id=current_chat_id, system_prompt=system_prompt)
         current_chat_id = chat.chat_id
         async with chat:
             async for response in chat.query(query, stream_mode="messages"):

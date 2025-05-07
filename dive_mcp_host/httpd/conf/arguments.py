@@ -141,7 +141,7 @@ class Arguments(BaseModel):
                     "store_false" if kw.get("default", True) else "store_true"
                 )
                 if "default" in kw:
-                    del kw["default"]
+                    kw.pop("default")
             elif (
                 field.annotation is str
                 or field.annotation == StrPath

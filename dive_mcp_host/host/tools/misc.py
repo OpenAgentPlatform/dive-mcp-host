@@ -19,9 +19,9 @@ class TestTool:
         """Weather tool."""
 
         @tool
-        def weather_tool(city: str) -> str:
+        def check_weather_location(city: str) -> str:
             """Get current weather information."""
             self._called = True
             return f"The weather in {city} is sunny."
 
-        return weather_tool
+        return check_weather_location

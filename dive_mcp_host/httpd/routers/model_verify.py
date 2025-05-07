@@ -15,6 +15,7 @@ from pydantic.alias_generators import to_camel
 
 from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig, LLMConfigTypes
+from dive_mcp_host.host.errors import ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools.misc import TestTool
 from dive_mcp_host.httpd.dependencies import get_app
@@ -26,6 +27,14 @@ logger = getLogger(__name__)
 model_verify = APIRouter(tags=["model_verify"])
 
 
+VERIFY_SUBJECTS = Literal["connection", "tools", "tools_in_prompt"]
+DEFAULT_VERIFY_SUBJECTS: list[VERIFY_SUBJECTS] = [
+    "connection",
+    "tools",
+    "tools_in_prompt",
+]
+
+
 class ToolVerifyState(StrEnum):
     """Tool verify state."""
 
@@ -33,6 +42,9 @@ class ToolVerifyState(StrEnum):
     TOOL_CALLED = "TOOL_CALLED"
     TOOL_RESPONDED = "TOOL_RESPONDED"
     ERROR = "ERROR"
+
+    # Tool use is successful, no need to check tool in prompt
+    SKIPPED = "SKIPPED"
 
 
 class ToolVerifyResult(BaseModel):
@@ -46,6 +58,7 @@ class ToolVerifyResult(BaseModel):
 class ConnectionVerifyState(StrEnum):
     """Connection verify state."""
 
+    SKIPPED = "SKIPPED"
     CONNECTED = "CONNECTED"
     ERROR = "ERROR"
 
@@ -64,6 +77,7 @@ class ModelVerifyResult(BaseModel):
     success: bool = False
     connecting: ConnectionVerifyResult = Field(default_factory=ConnectionVerifyResult)
     support_tools: ToolVerifyResult = Field(default_factory=ToolVerifyResult)
+    support_tools_in_prompt: ToolVerifyResult = Field(default_factory=ToolVerifyResult)
 
     model_config = ConfigDict(
         alias_generator=to_camel,
@@ -79,7 +93,7 @@ class ModelVerifyProgress(BaseModel):
     type: Literal["progress"] = "progress"
     step: int
     model_name: str
-    test_type: Literal["connection", "tools"]
+    test_type: VERIFY_SUBJECTS
     ok: bool
     final_state: ToolVerifyState | ConnectionVerifyState | None
     error: str | None
@@ -110,13 +124,11 @@ class ModelVerifyService:
     async def test_models(
         self,
         llm_configs: list[LLMConfigTypes],
-        subjects: list[Literal["connection", "tools"]],
     ) -> dict[str, ModelVerifyResult]:
         """Test the models.
 
         Args:
-            llm_configs (list[LLMConfig]): The LLM configurations.
-            subjects (list[Literal["connection", "tools"]]): The subjects to verify.
+            llm_configs: The LLM configurations.
 
         Returns:
             dict[str, ModelVerifyResult]: The results.
@@ -125,8 +137,11 @@ class ModelVerifyService:
         for llm_config in llm_configs:
             if self._abort_signal.is_set():
                 break
+            verify_subjects = get_verify_subjects(llm_config)
             results[llm_config.model] = await self.test_model(
-                llm_config, subjects, llm_configs.index(llm_config) * len(subjects)
+                llm_config,
+                verify_subjects,
+                llm_configs.index(llm_config) * len(DEFAULT_VERIFY_SUBJECTS),
             )
         return results
 
@@ -150,7 +165,7 @@ class ModelVerifyService:
         self,
         step: int,
         model_name: str,
-        test_type: Literal["connection", "tools"],
+        test_type: VERIFY_SUBJECTS,
         ok: bool,
         final_state: ToolVerifyState | ConnectionVerifyState | None,
         error: str | None,
@@ -171,15 +186,15 @@ class ModelVerifyService:
     async def test_model(
         self,
         llm_config: LLMConfigTypes,
-        subjects: list[Literal["connection", "tools"]],
+        subjects: list[VERIFY_SUBJECTS],
         steps: int,
     ) -> ModelVerifyResult:
         """Run the model.
 
         Args:
-            llm_config (LLMConfig): The LLM configuration.
-            subjects (list[Literal["connection", "tools"]]): The subjects to verify.
-            steps (int): The steps to verify.
+            llm_config: The LLM configuration.
+            subjects: Subjects to verify.
+            steps: The steps to verify.
 
         Returns:
             ModelVerifyResult
@@ -187,40 +202,67 @@ class ModelVerifyService:
         host = DiveMcpHost(HostConfig(llm=llm_config, mcp_servers={}))
         async with host:
             con_ok = False
+            con_state = ConnectionVerifyState.SKIPPED
+            con_error = None
+
             tools_ok = False
+            tools_state = ToolVerifyState.SKIPPED
+            tools_error = None
+
+            tools_in_prompt_ok = False
+            tools_in_prompt_state = ToolVerifyState.SKIPPED
+            tools_in_prompt_error = None
+
             n_step = steps
+
             if "connection" in subjects:
-                n_step += 1
-                con_ok, con_error = await self._check_connection(host)
-                final_state = (
-                    ConnectionVerifyState.CONNECTED
-                    if con_ok
-                    else ConnectionVerifyState.ERROR
-                )
-                await self._report_progress(
-                    step=n_step,
-                    model_name=llm_config.model,
-                    test_type="connection",
-                    ok=con_ok,
-                    final_state=final_state,
-                    error=con_error,
-                )
+                con_ok, con_error, con_state = await self._check_connection(host)
+
+            n_step += 1
+            await self._report_progress(
+                step=n_step,
+                model_name=llm_config.model,
+                test_type="connection",
+                ok=con_ok,
+                final_state=con_state,
+                error=con_error,
+            )
+
             if "tools" in subjects:
-                n_step += 1
                 tools_ok, tools_error, tools_state = await self._check_tools(host)
-                await self._report_progress(
-                    step=n_step,
-                    model_name=llm_config.model,
-                    test_type="tools",
-                    ok=tools_ok,
-                    final_state=tools_state,
-                    error=tools_error,
-                )
+
+            n_step += 1
+            await self._report_progress(
+                step=n_step,
+                model_name=llm_config.model,
+                test_type="tools",
+                ok=tools_ok,
+                final_state=tools_state,
+                error=tools_error,
+            )
+
+            if not tools_ok and "tools_in_prompt" in subjects:
+                (
+                    tools_in_prompt_ok,
+                    tools_in_prompt_error,
+                    tools_in_prompt_state,
+                ) = await self._check_tools_in_prompt(host)
+
+            n_step += 1
+            await self._report_progress(
+                step=n_step,
+                model_name=llm_config.model,
+                test_type="tools_in_prompt",
+                ok=tools_in_prompt_ok,
+                final_state=tools_in_prompt_state,
+                error=tools_in_prompt_error,
+            )
+
             return ModelVerifyResult(
                 success=True,
                 connecting=ConnectionVerifyResult(
                     success=con_ok,
-                    final_state=final_state,
+                    final_state=con_state,
                     error_msg=con_error,
                 ),
                 support_tools=ToolVerifyResult(
@@ -228,10 +270,18 @@ class ModelVerifyService:
                     final_state=tools_state,
                     error_msg=tools_error,
                 ),
+                support_tools_in_prompt=ToolVerifyResult(
+                    success=tools_in_prompt_ok,
+                    final_state=tools_in_prompt_state,
+                    error_msg=tools_in_prompt_error,
+                ),
             )
 
-    async def _check_connection(self, host: DiveMcpHost) -> tuple[bool, str | None]:
+    async def _check_connection(
+        self, host: DiveMcpHost
+    ) -> tuple[bool, str | None, ConnectionVerifyState]:
         """Check if the model is connected."""
+        logger.debug("Checking connection, llm: %s", host.config.llm)
         try:
             chat = host.chat(volatile=True)
             async with AsyncExitStack() as stack:
@@ -243,26 +293,34 @@ class ModelVerifyService:
                         "Only return 'Hi' strictly", stream_mode=["updates"]
                     )
                 ]
-            return True, None
+            return True, None, ConnectionVerifyState.CONNECTED
+        except ThreadQueryError as e:
+            logger.exception("Failed to check connection")
+            return False, str(e.error), ConnectionVerifyState.ERROR
         except Exception as e:
             logger.exception("Failed to check connection")
-            return False, str(e)
+            return False, str(e), ConnectionVerifyState.ERROR
 
     async def _check_tools(
         self, host: DiveMcpHost
     ) -> tuple[bool, str | None, ToolVerifyState | None]:
         """Check if the model supports tools."""
+        logger.debug("Checking tools, llm: %s", host.config.llm)
         try:
             state = ToolVerifyState.TOOL_NOT_USED
 
             test_tool = TestTool()
-            chat = host.chat(volatile=True, tools=[test_tool.weather_tool])
+            chat = host.chat(
+                volatile=True,
+                tools=[test_tool.weather_tool],
+                tools_in_prompt=False,
+            )
 
             async with AsyncExitStack() as stack:
                 await stack.enter_async_context(chat)
                 stack.enter_context(self._handle_abort(chat.abort))
                 async for _, data in chat.query(
-                    "run weather_tool to get weather information for Tokyo",
+                    "Use tool to check the weather of Taipei",
                     stream_mode=["updates"],
                 ):
                     if isinstance(data, AddableUpdatesDict):
@@ -274,8 +332,49 @@ class ModelVerifyService:
                                     state = ToolVerifyState.TOOL_RESPONDED
 
             return test_tool.called, None, state
+        except ThreadQueryError as e:
+            logger.exception("Failed to check tools")
+            return False, str(e.error), ToolVerifyState.ERROR
         except Exception as e:
             logger.exception("Failed to check tools")
+            return False, str(e), ToolVerifyState.ERROR
+
+    async def _check_tools_in_prompt(
+        self, host: DiveMcpHost
+    ) -> tuple[bool, str | None, ToolVerifyState | None]:
+        """Check if the model supports tools in prompt."""
+        logger.debug("Checking tools in prompt, llm: %s", host.config.llm)
+        try:
+            state = ToolVerifyState.TOOL_NOT_USED
+
+            test_tool = TestTool()
+            chat = host.chat(
+                volatile=True,
+                tools=[test_tool.weather_tool],
+                tools_in_prompt=True,
+            )
+
+            async with AsyncExitStack() as stack:
+                await stack.enter_async_context(chat)
+                stack.enter_context(self._handle_abort(chat.abort))
+                async for _, data in chat.query(
+                    "Use tool to check the weather of Taipei",
+                    stream_mode=["updates"],
+                ):
+                    if isinstance(data, AddableUpdatesDict):
+                        for _, v in data.items():
+                            for msg in v.get("messages", []):
+                                if isinstance(msg, AIMessage) and msg.tool_calls:
+                                    state = ToolVerifyState.TOOL_CALLED
+                                if isinstance(msg, ToolMessage):
+                                    state = ToolVerifyState.TOOL_RESPONDED
+
+            return test_tool.called, None, state
+        except ThreadQueryError as e:
+            logger.exception("Failed to check tools in prompt")
+            return False, str(e.error), ToolVerifyState.ERROR
+        except Exception as e:
+            logger.exception("Failed to check tools in prompt")
             return False, str(e), ToolVerifyState.ERROR
 
 
@@ -283,6 +382,16 @@ class ModelVerifyRequest(BaseModel):
     """Model verify request."""
 
     model_settings: LLMConfig | None = Field(alias="modelSettings", default=None)
+
+
+def get_verify_subjects(llm_config: LLMConfigTypes) -> list[VERIFY_SUBJECTS]:
+    """Get the verify subjects."""
+    if llm_config.model_provider == "ollama":
+        logger.info(
+            "Ollama provider detected, only check connection and tools_in_prompt"
+        )
+        return ["connection", "tools_in_prompt"]
+    return DEFAULT_VERIFY_SUBJECTS
 
 
 @model_verify.post("")
@@ -303,7 +412,8 @@ async def do_verify_model(
         llm_config = dive_host._config.llm  # noqa: SLF001
 
     test_service = ModelVerifyService()
-    return await test_service.test_model(llm_config, ["connection", "tools"], 0)
+    verify_subjects = get_verify_subjects(llm_config)
+    return await test_service.test_model(llm_config, verify_subjects, 0)
 
 
 @model_verify.post("/streaming")
@@ -343,9 +453,7 @@ async def verify_model(
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(stream)
             stack.enter_context(handle_connection())
-            results = await test_service.test_models(
-                llm_configs, ["connection", "tools"]
-            )
+            results = await test_service.test_models(llm_configs)
             await stream.write(
                 json.dumps(
                     {
@@ -362,6 +470,11 @@ async def verify_model(
                                     "ok": r.support_tools.success,
                                     "finalState": r.support_tools.final_state,
                                     "error": r.support_tools.error_msg,
+                                },
+                                "toolsInPrompt": {
+                                    "ok": r.support_tools_in_prompt.success,
+                                    "finalState": r.support_tools_in_prompt.final_state,
+                                    "error": r.support_tools_in_prompt.error_msg,
                                 },
                             }
                             for n, r in results.items()

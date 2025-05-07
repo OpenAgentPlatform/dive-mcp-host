@@ -219,6 +219,7 @@ async def delete_chat(
             user_id=dive_user["user_id"],
         )
         await session.commit()
+    await app.dive_host["default"].delete_thread(chat_id)
     return ResultResponse(success=True, message=None)
 
 

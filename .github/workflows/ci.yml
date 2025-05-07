@@ -55,6 +55,11 @@ jobs:
         SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
         OLLAMA_URL: ${{ vars.OLLAMA_URL }}
         OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL }}
+        OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+        AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+        AZURE_OPENAI_DEPLOYMENT_NAME: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
+        AZURE_OPENAI_API_VERSION: ${{ secrets.AZURE_OPENAI_API_VERSION }}
       run: |
         uv run --extra dev --frozen pytest
 

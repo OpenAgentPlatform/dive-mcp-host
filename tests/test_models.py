@@ -173,3 +173,18 @@ def test_model_single_config_validate() -> None:
     assert config.api_key == SecretStr("fake")
     assert config.model_provider == "openai"
     assert config.model == "gpt-4o"
+
+    config = ModelSingleConfig.model_validate(
+        {
+            "model": "GPT4",
+            "modelProvider": "azure_openai",
+            "apiKey": "fake",
+            "azureEndpoint": "https://fake.openai.azure.com",
+            "azureDeployment": "fake",
+            "apiVersion": "2023-03-15-preview",
+        }
+    )
+    assert config.azure_endpoint == "https://fake.openai.azure.com"
+    assert config.azure_deployment == "fake"
+    assert config.api_key == SecretStr("fake")
+    assert config.api_version == "2023-03-15-preview"

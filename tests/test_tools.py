@@ -20,12 +20,12 @@ from dive_mcp_host.host.conf import HostConfig, LogConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import (
-    ClientState,
     McpServer,
     McpServerInfo,
     ServerConfig,
     ToolManager,
 )
+from dive_mcp_host.host.tools.model_types import ClientState
 
 if TYPE_CHECKING:
     from dive_mcp_host.models.fake import FakeMessageToolModel

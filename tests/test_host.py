@@ -1,6 +1,8 @@
 import asyncio
 import json
+import os
 from typing import Any, cast
+from unittest import mock
 from unittest.mock import MagicMock
 
 import pytest
@@ -16,7 +18,7 @@ from pydantic import AnyUrl
 
 from dive_mcp_host.host.conf import CheckpointerConfig, HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
-from dive_mcp_host.host.errors import ThreadNotFoundError
+from dive_mcp_host.host.errors import ThreadNotFoundError, ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
 from dive_mcp_host.models.fake import FakeMessageToolModel, default_responses
@@ -450,3 +452,57 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         await host.reload(new_config, mock_reloader)
         assert reloader_called
         assert len(host.tools) == 3
+
+
+@pytest.mark.asyncio
+async def test_thread_query_error_with_state(sqlite_uri: str) -> None:
+    """Test that ThreadQueryError includes state when DEBUG is enabled."""
+    """Test the resend_message method."""
+    config = HostConfig(
+        llm=LLMConfig(
+            model="fake",
+            model_provider="dive",
+        ),
+        mcp_servers={},
+        checkpointer=CheckpointerConfig(uri=AnyUrl(sqlite_uri)),
+    )
+    delete_debug = False
+    if "DEBUG" not in os.environ:
+        os.environ["DEBUG"] = "1"
+        delete_debug = True
+
+    async with DiveMcpHost(config) as mcp_host:
+        chat = mcp_host.chat()
+        chat_id = chat.chat_id
+        model = cast("FakeMessageToolModel", mcp_host.model)
+
+        # Make the model raise an exception by using an invalid tool call
+        model.responses = [
+            AIMessage(
+                content="Hello",
+            )
+        ]
+
+        async with chat:
+            async for _ in chat.query("Hello, world!"):
+                pass
+
+        async with mcp_host.chat(chat_id=chat_id) as chat:
+            with mock.patch.object(model, "_generate") as mock_responses:
+                mock_responses.side_effect = Exception("Test exception")
+
+                with pytest.raises(ThreadQueryError) as exc_info:
+                    async for _ in chat.query("Hello, world!"):
+                        pass
+
+            # Verify error contains state
+            assert exc_info.value.state_values is not None
+            assert "messages" in exc_info.value.state_values
+            assert len(exc_info.value.state_values["messages"]) > 0
+
+            # Verify the query is preserved
+            assert exc_info.value.query == "Hello, world!"
+
+    # Clean up DEBUG environment
+    if delete_debug:
+        del os.environ["DEBUG"]

@@ -16,3 +16,4 @@ class CLIArgs:
     chat_id: str | None
     query: list
     config_path: str
+    prompt_file: str | None

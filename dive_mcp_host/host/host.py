@@ -114,11 +114,12 @@ class DiveMcpHost(ContextProtocol):
         user_id: str = "default",
         tools: Sequence[BaseTool] | None = None,
         get_agent_factory_method: Callable[
-            [BaseChatModel, Sequence[BaseTool] | ToolNode],
+            [BaseChatModel, Sequence[BaseTool] | ToolNode, bool],
             AgentFactory[T],
         ] = get_chat_agent_factory,
         system_prompt: str | Callable[[T], list[BaseMessage]] | None = None,
         disable_default_system_prompt: bool = False,
+        tools_in_prompt: bool | None = None,
         volatile: bool = False,
     ) -> Chat[T]:
         """Start or resume a chat.
@@ -131,6 +132,7 @@ class DiveMcpHost(ContextProtocol):
             get_agent_factory_method: The method to get the agent factory.
             volatile: if True, the chat will not be saved.
             disable_default_system_prompt: disable default system prompt
+            tools_in_prompt: if True, the tools will be passed in the prompt.
 
         If the chat ID is not provided, a new chat will be created.
         Customize the agent factory to use a different model or tools.
@@ -141,9 +143,12 @@ class DiveMcpHost(ContextProtocol):
             raise RuntimeError("Model not initialized")
         if tools is None:
             tools = self._tool_manager.langchain_tools()
+        if tools_in_prompt is None:
+            tools_in_prompt = self._config.llm.tools_in_prompt
         agent_factory = get_agent_factory_method(
             self._model,
             tools,
+            tools_in_prompt,
         )
         return Chat(
             model=self._model,
@@ -281,6 +286,15 @@ class DiveMcpHost(ContextProtocol):
         ):
             return ckp["channel_values"].get("messages", [])
         raise ThreadNotFoundError(thread_id)
+
+    async def delete_thread(self, thread_id: str) -> None:
+        """Delete a thread.
+
+        Args:
+            thread_id: The thread ID to delete.
+        """
+        if self._checkpointer:
+            await self._checkpointer.adelete_thread(thread_id)
 
     @property
     def log_manager(self) -> LogManager:

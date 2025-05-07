@@ -71,3 +71,22 @@ async def test_prompt(processor: ChatProcessor, monkeypatch):
         )
 
     assert mock_called
+
+
+def test_strip_title():
+    """Test the strip_title function."""
+    from dive_mcp_host.httpd.routers.utils import strip_title
+
+    # Test basic whitespace normalization
+    assert strip_title("  hello   world  ") == "hello world"
+    assert strip_title("hello\nworld") == "hello world"
+    assert strip_title("hello\tworld") == "hello world"
+
+    # Test HTML tag removal
+    assert (
+        strip_title("  <think>I'm thinking about\nhelloworld</think>hello world\t")
+        == "hello world"
+    )
+    # Test empty or whitespace-only input
+    assert strip_title("hello world") == "hello world"
+    assert strip_title("  hello world  ") == "hello world"

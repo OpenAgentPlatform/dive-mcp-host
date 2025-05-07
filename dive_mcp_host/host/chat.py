@@ -23,6 +23,7 @@ from dive_mcp_host.host.errors import (
     GraphNotCompiledError,
     MessageTypeError,
     ThreadNotFoundError,
+    ThreadQueryError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.prompt import default_system_prompt
@@ -192,16 +193,34 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                 user_id=self._user_id,
                 thread_id=self._chat_id,
             )
-            async for response in self.active_agent.astream(
-                input=init_state,
-                stream_mode=stream_mode,
-                config=config,
-            ):
-                if signal.is_set():
-                    break
-                yield response
+            try:
+                async for response in self.active_agent.astream(
+                    input=init_state,
+                    stream_mode=stream_mode,
+                    config=config,
+                ):
+                    if signal.is_set():
+                        break
+                    yield response
+            except Exception as e:
+                raise ThreadQueryError(
+                    query, state_values=await self.dump_values(), error=e
+                ) from e
 
         return _stream_response()
+
+    async def dump_values(self) -> dict[str, Any] | None:
+        """Dump the values of the state of the chat."""
+        try:
+            if state := await self.active_agent.aget_state(
+                RunnableConfig(
+                    configurable={"thread_id": self._chat_id, "user_id": self._user_id},
+                )
+            ):
+                return state.values
+        except Exception:
+            logger.exception("Failed to dump values")
+            return None
 
 
 def _convert_query_to_messages(

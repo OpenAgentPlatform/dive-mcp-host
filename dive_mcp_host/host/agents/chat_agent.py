@@ -16,6 +16,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
+from langchain_core.prompt_values import ChatPromptValue
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig
 from langchain_core.tools import BaseTool
@@ -30,8 +31,15 @@ from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel
 
 from dive_mcp_host.host.agents.agent_factory import AgentFactory, initial_messages
+from dive_mcp_host.host.agents.tools_in_prompt import (
+    convert_messages,
+    extract_tool_calls,
+)
 from dive_mcp_host.host.helpers import today_datetime
-from dive_mcp_host.host.prompt import PromptType
+from dive_mcp_host.host.prompt import PromptType, tools_prompt
+
+StructuredResponse = dict | BaseModel
+StructuredResponseSchema = dict | type[BaseModel]
 
 StructuredResponse = dict | BaseModel
 StructuredResponseSchema = dict | type[BaseModel]
@@ -61,10 +69,13 @@ def get_prompt_runnable(prompt: PromptType | ChatPromptTemplate | None) -> Runna
         )
     elif isinstance(prompt, str):
         _system_message: BaseMessage = SystemMessage(content=prompt)
-        prompt_runnable = RunnableCallable(
-            lambda state: [_system_message, *state.get("messages", None)],
-            name=PROMPT_RUNNABLE_NAME,
-        )
+
+        def _func(state: AgentState | ChatPromptValue) -> list[BaseMessage]:
+            if isinstance(state, ChatPromptValue):
+                return [_system_message, *state.to_messages()]
+            return [_system_message, *state.get("messages", None)]
+
+        prompt_runnable = RunnableCallable(_func, name=PROMPT_RUNNABLE_NAME)
     elif isinstance(prompt, SystemMessage):
         prompt_runnable = RunnableCallable(
             lambda state: [prompt, *state.get("messages", None)],
@@ -90,10 +101,13 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         self,
         model: BaseChatModel,
         tools: Sequence[BaseTool] | ToolNode,
+        tools_in_prompt: bool = False,
     ) -> None:
         """Initialize the chat agent factory."""
         self._model = model
+        self._model_class = type(model).__name__
         self._tools = tools
+        self._tools_in_prompt = tools_in_prompt
         self._response_format: (
             StructuredResponseSchema | tuple[str, StructuredResponseSchema] | None
         ) = None
@@ -105,6 +119,15 @@ class ChatAgentFactory(AgentFactory[AgentState]):
 
         # changed when self.create_agent is called
         self._prompt: Runnable = get_prompt_runnable(None)
+        self._tool_prompt: Runnable = get_prompt_runnable(None)
+
+        # Initialize the tool prompt
+        if self._tools_in_prompt:
+            if isinstance(self._tools, ToolNode):
+                tools = list(self._tools.tools_by_name.values())
+                self._tool_prompt = get_prompt_runnable(tools_prompt(tools))
+            else:
+                self._tool_prompt = get_prompt_runnable(tools_prompt(self._tools))
 
         self._build_graph()
 
@@ -141,9 +164,21 @@ class ChatAgentFactory(AgentFactory[AgentState]):
 
     def _call_model(self, state: AgentState, config: RunnableConfig) -> AgentState:
         # TODO: _validate_chat_history
-        model = self._model.bind_tools(self._tool_classes)
-        model_runnable = self._prompt | model
+        if not self._tools_in_prompt:
+            model = self._model.bind_tools(self._tool_classes)
+            model_runnable = self._prompt | drop_empty_messages | model
+        else:
+            model_runnable = (
+                self._prompt
+                | self._tool_prompt
+                | convert_messages
+                | drop_empty_messages
+                | self._model
+            )
+
         response = model_runnable.invoke(state, config)
+        if isinstance(response, AIMessage):
+            response = extract_tool_calls(response)
         if self._check_more_steps_needed(state, response):
             response = AIMessage(
                 id=response.id,
@@ -282,6 +317,29 @@ class ChatAgentFactory(AgentFactory[AgentState]):
 def get_chat_agent_factory(
     model: BaseChatModel,
     tools: Sequence[BaseTool] | ToolNode,
+    tools_in_prompt: bool = False,
 ) -> ChatAgentFactory:
     """Get an agent factory."""
-    return ChatAgentFactory(model, tools)
+    return ChatAgentFactory(model, tools, tools_in_prompt)
+
+
+@RunnableCallable
+def drop_empty_messages(inpt: ChatPromptValue | list[BaseMessage]) -> list[BaseMessage]:
+    """Drop empty messages."""
+    messages = inpt.to_messages() if isinstance(inpt, ChatPromptValue) else inpt
+
+    result = []
+    for message in messages:
+        # AIMessage have more constraints
+        if isinstance(message, AIMessage):
+            if (
+                not message.content
+                and not message.tool_calls
+                and not message.invalid_tool_calls
+            ):
+                continue
+        # ToolMessage, SystemMessage, HumanMessage needs to have content
+        elif not message.content:
+            continue
+        result.append(message)
+    return result

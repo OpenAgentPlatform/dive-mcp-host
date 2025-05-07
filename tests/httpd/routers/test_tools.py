@@ -1,13 +1,19 @@
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 from fastapi import status
+from fastapi.testclient import TestClient
 
 from dive_mcp_host.host.tools.echo import ECHO_DESCRIPTION, IGNORE_DESCRIPTION
+from dive_mcp_host.host.tools.log import LogEvent, LogMsg
+from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
 from dive_mcp_host.httpd.routers.models import SimpleToolInfo
 from dive_mcp_host.httpd.routers.tools import McpTool, ToolsResult, list_tools
+from dive_mcp_host.httpd.server import DiveHostAPI
 from tests import helper
 
 
@@ -24,7 +30,7 @@ class MockServerInfo:
 
     def __init__(self, tools=None, error=None):
         self.tools = tools or []
-        self.error = error
+        self.error_str = error
 
 
 def test_initialized(test_client):
@@ -358,3 +364,72 @@ def test_tools_cache_after_update(test_client):
     confirm = response.json()
     confirm["tools"] = sorted(confirm["tools"], key=lambda x: x["name"])
     assert first_time == confirm
+
+
+def test_stream_logs_notfound(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test stream_logs function with not found server."""
+    client, _ = test_client
+    response = client.get("/api/tools/missing_server/logs/stream")
+    for line in response.iter_lines():
+        content = line.removeprefix("data: ")
+        if content in ("[DONE]", ""):
+            continue
+
+        data = LogMsg.model_validate_json(content)
+        assert data.event == LogEvent.STREAMING_ERROR
+        assert data.body == "Error streaming logs: Log buffer missing_server not found"
+        assert data.mcp_server_name == "missing_server"
+
+
+def test_stream_logs_notfound_wait(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test stream_logs before log buffer is registered."""
+    client, _ = test_client
+
+    def update_tools():
+        time.sleep(2)
+        _ = client.post(
+            "/api/config/mcpserver",
+            json={
+                "mcpServers": {
+                    "missing_server": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    }
+                }
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    with ThreadPoolExecutor(1) as executor:
+        executor.submit(update_tools)
+        response = client.get(
+            "/api/tools/missing_server/logs/stream",
+            params={
+                "stop_on_notfound": False,
+                "max_retries": 5,
+                "stream_until": "running",
+            },
+        )
+        responses: list[LogMsg] = []
+        for line in response.iter_lines():
+            content = line.removeprefix("data: ")
+            if content in ("[DONE]", ""):
+                continue
+
+            data = LogMsg.model_validate_json(content)
+            responses.append(data)
+
+        assert len(responses) >= 3
+        assert responses[-3].event == LogEvent.STREAMING_ERROR
+
+        assert responses[-2].event == LogEvent.STDERR
+        assert responses[-2].client_state == ClientState.INIT
+
+        assert responses[-1].event == LogEvent.STATUS_CHANGE
+        assert responses[-1].client_state == ClientState.RUNNING

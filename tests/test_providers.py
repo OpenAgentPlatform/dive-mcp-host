@@ -127,7 +127,7 @@ async def test_anthropic(echo_tool_stdio_config: dict[str, ServerConfig]) -> Non
 
 
 @pytest.mark.asyncio
-async def test_host_openai(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+async def test_openai(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
     echo_tool_stdio_config["fetch"] = ServerConfig(
         name="fetch",
@@ -206,7 +206,7 @@ async def test_bedrock(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
 
 
 @pytest.mark.asyncio
-async def test__mistralai(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+async def test_mistralai(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
     if api_key := environ.get("MISTRAL_API_KEY"):
         config = HostConfig(
@@ -247,6 +247,26 @@ async def test_siliconflow(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         )
     else:
         pytest.skip("need environment variable SILICONFLOW_API_KEY to run this test")
+    await _run_the_test(config)
+
+
+@pytest.mark.asyncio
+async def test_openrouter(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+    """Test the host context initialization."""
+    if api_key := environ.get("OPENROUTER_API_KEY"):
+        config = HostConfig(
+            llm=LLMConfig(
+                model="qwen/qwen3-30b-a3b",
+                model_provider="openai",
+                api_key=api_key,
+                configuration=LLMConfiguration(
+                    temperature=0.5, top_p=0.5, baseURL="https://openrouter.ai/api/v1"
+                ),
+            ),
+            mcp_servers=echo_tool_stdio_config,
+        )
+    else:
+        pytest.skip("need environment variable OPENROUTER_API_KEY to run this test")
     await _run_the_test(config)
 
 
