@@ -8,7 +8,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, SecretStr
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
+from dive_mcp_host.env import DIVE_CONFIG_DIR
+from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
 
 
