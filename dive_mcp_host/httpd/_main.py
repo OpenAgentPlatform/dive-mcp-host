@@ -31,6 +31,7 @@ def main() -> None:
             model_config_path=str(args.llm_config),
             prompt_config_path=str(args.custom_rules),
             command_alias_config_path=str(args.command_alias_config),
+            plugin_config_path=str(args.plugin_config),
         ),
         resource_dir=resource_dir,
     )

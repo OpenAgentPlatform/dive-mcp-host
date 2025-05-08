@@ -1,0 +1,9 @@
+[
+    {
+        "name": "oap platform",
+        "module": "dive_mcp_host.oap_plugin",
+        "config": {},
+        "ctx_manager": "dive_mcp_host.oap_plugin.MCPServerManagerPlugin",
+        "static_callbacks": "dive_mcp_host.oap_plugin.get_static_callbacks"
+    }
+]

@@ -4,7 +4,7 @@ import os
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, Field, SecretStr
 
@@ -29,6 +29,7 @@ class MCPServerConfig(BaseModel):
     env: dict[str, str] | None = None
     url: str | None = None
     headers: dict[str, SecretStr] | None = None
+    extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
 
 
 class Config(BaseModel):
