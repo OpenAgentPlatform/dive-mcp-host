@@ -5,8 +5,9 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.host.conf.llm import LLMConfigTypes, get_llm_config_type
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
+from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.httpd.routers.models import (
     EmbedConfig,
     ModelFullConfigs,

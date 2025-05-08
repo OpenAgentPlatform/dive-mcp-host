@@ -5,7 +5,7 @@ from typing import Annotated, Self
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR
+from dive_mcp_host.env import DIVE_CONFIG_DIR
 
 type StrPath = str | Path
 

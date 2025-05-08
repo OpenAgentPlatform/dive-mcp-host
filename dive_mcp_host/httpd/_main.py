@@ -8,10 +8,10 @@ from pathlib import Path
 
 import uvicorn
 
+from dive_mcp_host.env import RESOURCE_DIR
 from dive_mcp_host.httpd.app import create_app
 from dive_mcp_host.httpd.conf.arguments import Arguments
 from dive_mcp_host.httpd.conf.httpd_service import ConfigLocation, ServiceManager
-from dive_mcp_host.httpd.conf.misc import RESOURCE_DIR
 
 
 def main() -> None:

@@ -3,7 +3,8 @@ import os
 from enum import StrEnum
 from pathlib import Path
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
+from dive_mcp_host.env import DIVE_CONFIG_DIR
+from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.httpd.conf.system_prompt import system_prompt
 
 # Logger setup
