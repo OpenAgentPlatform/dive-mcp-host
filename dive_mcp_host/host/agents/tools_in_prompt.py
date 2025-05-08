@@ -57,8 +57,8 @@ def extract_tool_calls(response: AIMessage) -> AIMessage:
                     tool_call = json.loads(json_match.group().strip())
                     tool_call_id = str(uuid.uuid4())
                     tool_call = ToolCall(
-                        name=tool_call["name"],
-                        args=tool_call["arguments"],
+                        name=tool_call.get("name", ""),
+                        args=tool_call.get("arguments", ""),
                         id=tool_call_id,
                     )
                     logger.debug("found tool call: %s", tool_call)
