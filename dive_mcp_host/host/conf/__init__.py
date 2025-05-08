@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AnyUrl, BaseModel, Field, UrlConstraints
+from pydantic import AnyUrl, BaseModel, Field, SecretStr, UrlConstraints
 
 from dive_mcp_host.host.conf.llm import LLMConfigTypes
 from dive_mcp_host.httpd.routers.models import EmbedConfig
@@ -29,6 +29,7 @@ class ServerConfig(BaseModel):
     url: str | None = None
     keep_alive: float | None = None
     transport: Literal["stdio", "sse", "websocket"]
+    headers: dict[str, SecretStr] = Field(default_factory=dict)
 
 
 class LogConfig(BaseModel):

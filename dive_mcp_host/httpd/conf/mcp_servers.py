@@ -6,7 +6,7 @@ from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field
+from pydantic import BaseModel, BeforeValidator, Field, SecretStr
 
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
 from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
@@ -28,6 +28,7 @@ class MCPServerConfig(BaseModel):
     args: list[str] | None = None
     env: dict[str, str] | None = None
     url: str | None = None
+    headers: dict[str, SecretStr] | None = None
 
 
 class Config(BaseModel):

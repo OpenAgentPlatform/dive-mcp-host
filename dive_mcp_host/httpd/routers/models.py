@@ -43,6 +43,7 @@ class McpServerConfig(BaseModel):
     args: list[str] | None = Field(default_factory=list)
     env: dict[str, str] | None = Field(default_factory=dict)
     url: str | None = None
+    headers: dict[str, SecretStr] | None = Field(default_factory=dict)
 
     def model_post_init(self, _: Any) -> None:
         """Post-initialization hook."""
