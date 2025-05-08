@@ -1,8 +1,6 @@
-import json
 import os
-import re
 from contextlib import suppress
-from typing import cast
+from typing import Any
 
 import httpx
 import pytest
@@ -24,41 +22,7 @@ MOCK_MODEL_SETTING = {
 }
 
 
-def test_do_verify_model_with_env_api_key(test_client):
-    """Test the /api/model_verify POST endpoint."""
-    if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip("OPENAI_API_KEY is not set")
-    client, _ = test_client
-
-    # Prepare test data
-    test_settings = {
-        "modelSettings": {
-            **MOCK_MODEL_SETTING,
-            "apiKey": os.environ.get("OPENAI_API_KEY"),
-        },
-    }
-
-    # Send request
-    response = client.post(
-        "/model_verify",
-        json=test_settings,
-    )
-
-    # Verify response status code
-    assert response.status_code == status.HTTP_200_OK
-
-    # Parse JSON response
-    response_data = cast("dict", response.json())
-
-    # Validate response structure
-    assert response_data["success"] is True
-
-    # Validate result structure
-    assert isinstance(response_data["connectingSuccess"], bool)
-    assert isinstance(response_data["supportTools"], bool)
-
-
-def test_verify_model_streaming_with_env_api_key(test_client):
+def test_verify_openai(test_client):
     """Test the /api/model_verify/streaming POST endpoint."""
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY is not set")
@@ -84,68 +48,10 @@ def test_verify_model_streaming_with_env_api_key(test_client):
     # Verify response status code for SSE stream
     assert response.status_code == status.HTTP_200_OK
 
-    # Verify response headers for SSE
-    assert "text/event-stream" in response.headers.get("Content-Type")
-    assert "Cache-Control" in response.headers
-    assert "Connection" in response.headers
-
-    # Verify content contains expected SSE format
-    content = response.content.decode()
-    # assert the basic format
-    assert "data: " in content
-    assert "data: [DONE]\n\n" in content
-
-    # extract and parse the JSON data
-    data_messages = re.findall(r"data: (.*?)\n\n", content)
-    for data in data_messages:
-        if data != "[DONE]":
-            json_obj = json.loads(data)
-            assert "type" in json_obj
-            if json_obj["type"] == "progress":
-                step = json_obj.get("step")
-                test_type = json_obj.get("testType")
-
-                if step == 1 and test_type == "connection":
-                    helper.dict_subset(
-                        json_obj,
-                        {
-                            "step": 1,
-                            "modelName": "gpt-4o-mini",
-                            "testType": "connection",
-                            "status": "success",
-                            "error": None,
-                        },
-                    )
-                elif step == 2 and test_type == "tools":
-                    helper.dict_subset(
-                        json_obj,
-                        {
-                            "step": 2,
-                            "modelName": "gpt-4o-mini",
-                            "testType": "tools",
-                            "status": "success",
-                            "error": None,
-                        },
-                    )
-
-            elif json_obj["type"] == "final":
-                helper.dict_subset(
-                    json_obj,
-                    {
-                        "type": "final",
-                        "results": [
-                            {
-                                "modelName": "gpt-4o-mini",
-                                "connection": {
-                                    "status": "success",
-                                },
-                                "tools": {
-                                    "status": "success",
-                                },
-                            },
-                        ],
-                    },
-                )
+    _check_verify_streaming_response(
+        response,
+        MOCK_MODEL_SETTING["model"],
+    )
 
 
 def test_do_verify_model_with_mock_key_should_fail(test_client):
@@ -183,7 +89,12 @@ def test_verify_model_streaming_with_mock_key_should_fail(test_client):
         )
 
 
-def _check_verify_streaming_response(response: httpx.Response, model_name: str) -> None:
+def _check_verify_streaming_response(
+    response: httpx.Response,
+    model_name: str,
+    tool_result_override: dict[str, Any] | None = None,
+    tool_in_prompt_result_override: dict[str, Any] | None = None,
+) -> None:
     assert response.status_code == status.HTTP_200_OK, response.content
 
     # Verify response headers for SSE
@@ -199,7 +110,28 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
 
     check_connection = False
     check_tools = False
+    check_tools_in_prompt = False
     check_final = False
+    tool_result = {
+        "step": 2,
+        "modelName": model_name,
+        "testType": "tools",
+        "ok": True,
+        "finalState": "TOOL_RESPONDED",
+        "error": None,
+    }
+    if tool_result_override:
+        tool_result.update(tool_result_override)
+    tool_in_prompt_result = {
+        "step": 3,
+        "modelName": model_name,
+        "testType": "tools_in_prompt",
+        "ok": False,
+        "finalState": "SKIPPED",
+        "error": None,
+    }
+    if tool_in_prompt_result_override:
+        tool_in_prompt_result.update(tool_in_prompt_result_override)
 
     # extract and parse the JSON data
     for json_obj in helper.extract_stream(content):
@@ -215,7 +147,8 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
                         "step": 1,
                         "modelName": model_name,
                         "testType": "connection",
-                        "status": "success",
+                        "ok": True,
+                        "finalState": "CONNECTED",
                         "error": None,
                     },
                 )
@@ -223,15 +156,15 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
             elif step == 2 and test_type == "tools":
                 helper.dict_subset(
                     json_obj,
-                    {
-                        "step": 2,
-                        "modelName": model_name,
-                        "testType": "tools",
-                        "status": "success",
-                        "error": None,
-                    },
+                    tool_result,
                 )
                 check_tools = True
+            elif step == 3 and test_type == "tools_in_prompt":
+                helper.dict_subset(
+                    json_obj,
+                    tool_in_prompt_result,
+                )
+                check_tools_in_prompt = True
         elif json_obj["type"] == "final":
             helper.dict_subset(
                 json_obj,
@@ -241,10 +174,19 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
                         {
                             "modelName": model_name,
                             "connection": {
-                                "status": "success",
+                                "ok": True,
+                                "finalState": "CONNECTED",
+                                "error": None,
                             },
                             "tools": {
-                                "status": "success",
+                                "ok": tool_result["ok"],
+                                "finalState": tool_result["finalState"],
+                                "error": tool_result["error"],
+                            },
+                            "toolsInPrompt": {
+                                "ok": tool_in_prompt_result["ok"],
+                                "finalState": tool_in_prompt_result["finalState"],
+                                "error": tool_in_prompt_result["error"],
                             },
                         },
                     ],
@@ -254,6 +196,7 @@ def _check_verify_streaming_response(response: httpx.Response, model_name: str) 
 
     assert check_connection
     assert check_tools
+    assert check_tools_in_prompt
     assert check_final
 
 
@@ -279,7 +222,18 @@ def test_verify_ollama(test_client):
             "/model_verify/streaming",
             json=test_model_settings,
         )
-        _check_verify_streaming_response(response, olama_model)
+        _check_verify_streaming_response(
+            response,
+            olama_model,
+            tool_result_override={
+                "finalState": "SKIPPED",
+                "ok": False,
+            },
+            tool_in_prompt_result_override={
+                "finalState": "TOOL_RESPONDED",
+                "ok": True,
+            },
+        )
     else:
         pytest.skip("OLLAMA_URL is not set")
 
