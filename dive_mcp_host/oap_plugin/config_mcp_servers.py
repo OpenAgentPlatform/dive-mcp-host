@@ -1,6 +1,5 @@
 """MCP Server configuration management in OAP Plugin."""
 
-from contextlib import suppress
 import logging
 import time
 from pathlib import Path
