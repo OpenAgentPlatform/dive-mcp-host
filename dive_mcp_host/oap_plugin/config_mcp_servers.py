@@ -29,7 +29,7 @@ class MCPServerManagerPlugin:
     def __init__(self, device_token: str = "") -> None:
         """Initialize the MCPServerConfigs from OAP."""
         self.device_token: str = device_token
-        self._user_mcp_configs: list[UserMcpConfig] = []
+        self._user_mcp_configs: list[UserMcpConfig] | None = []
         self._refresh_ts: float = 0
         self._http_client = httpx.Client(
             base_url=OAP_ROOT_URL,
@@ -62,6 +62,14 @@ class MCPServerManagerPlugin:
     def current_config_callback(self, config: Config) -> Config:
         """Callback function for getting current config."""
         mcp_servers = self._get_user_mcp_configs()
+        # remove oap mcp servers
+        if mcp_servers is None:
+            for key in config.mcp_servers.copy():
+                value = config.mcp_servers[key]
+                if value.extra_data and value.extra_data.get("oap"):
+                    config.mcp_servers.pop(key)
+            return config
+
         for server in mcp_servers:
             old_server = config.mcp_servers.get(server.name)
             config.mcp_servers[server.name] = MCPServerConfig(
@@ -83,16 +91,21 @@ class MCPServerManagerPlugin:
         url: str,
         method: Literal["get", "post", "put", "delete"] = "get",
         model: type[T] | Any = Any,
-    ) -> T | None:
+    ) -> tuple[T | None, int]:
         """Send a request to the API and return the response."""
         response = self._http_client.request(method, url)
         try:
-            return BaseResponse[model].model_validate_json(response.text).data
+            return (
+                BaseResponse[model].model_validate_json(response.text).data,
+                response.status_code,
+            )
         except ValidationError:
             logger.error("Failed to validate response: %s", response.text)
-            return None
+            return None, response.status_code
 
-    def _get_user_mcp_configs(self, refresh: bool = False) -> list[UserMcpConfig]:
+    def _get_user_mcp_configs(
+        self, refresh: bool = False
+    ) -> list[UserMcpConfig] | None:
         """Get the user MCP configs."""
         url = "/api/v1/user/mcp/configs"
         if (
@@ -100,7 +113,14 @@ class MCPServerManagerPlugin:
             or not self._user_mcp_configs
             or time.time() - self._refresh_ts > MIN_REFRESH_INTERVAL
         ):
-            r = self._send_api_request(url, "get", list[UserMcpConfig]) or []
+            r, code = self._send_api_request(url, "get", list[UserMcpConfig])
+            # nothing to update
+            if code != httpx.codes.OK and code not in [
+                httpx.codes.UNAUTHORIZED,
+                httpx.codes.FORBIDDEN,
+                httpx.codes.TEMPORARY_REDIRECT,
+            ]:
+                r = []
             self._refresh_ts = time.time()
             self._user_mcp_configs = r
         return self._user_mcp_configs

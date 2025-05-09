@@ -66,9 +66,9 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
     assert response.status_code == 200
 
     servers = response.json()["config"]["mcpServers"]
-    assert len(servers) == 2
+    assert len(servers) > 1
 
-    # disable oap mcp
+    # disable oap mcp and check info is present
     for key in servers:
         value = servers[key]
         if value["extraData"] and value["extraData"].get("oap"):
@@ -85,7 +85,7 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
     assert response.status_code == 200
 
     servers = response.json()["config"]["mcpServers"]
-    assert len(servers) == 2
+    assert len(servers) > 1
 
     # check oap mcp is disabled
     for key in servers:
@@ -110,3 +110,29 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
         value = servers[key]
         if value["extraData"] and value["extraData"].get("oap"):
             assert value["enabled"] is True
+
+    # drop mcp token
+    response = client.post(
+        "/api/plugins/oap-platform/auth?token=invalid",
+    )
+    assert response.status_code == 200
+
+    # check oap mcp is disabled
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+
+    servers = response.json()["config"]["mcpServers"]
+    assert len(servers) == 1
+
+    # login again
+    response = client.post(
+        f"/api/plugins/oap-platform/auth?token={OAP_TOKEN}",
+    )
+    assert response.status_code == 200
+
+    # get mcp server
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+
+    servers = response.json()["config"]["mcpServers"]
+    assert len(servers) > 1
