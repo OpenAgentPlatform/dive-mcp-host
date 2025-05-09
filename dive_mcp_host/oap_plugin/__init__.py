@@ -1,24 +1,24 @@
-import json
 from collections.abc import Callable
-from pathlib import Path
-from typing import Any
+from types import TracebackType
+from typing import Any, Self
 
-from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.httpd.conf.mcp_servers import (
     CurrentConfigHookName,
     UpdateAllConfigsHookName,
 )
-from dive_mcp_host.oap_plugin.config_mcp_servers import MCPServerManagerPlugin
+from dive_mcp_host.oap_plugin.config_mcp_servers import (
+    MCPServerManagerPlugin,
+    read_oap_config,
+)
 from dive_mcp_host.oap_plugin.http_handlers import OAPHttpHandlers
 from dive_mcp_host.plugins.registry import PluginCallbackDef
 
 
 def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
     """Get the static callbacks."""
-    with Path(DIVE_CONFIG_DIR, "oap_config.json").open("r") as f:
-        oap_config = json.load(f)
+    oap_config = read_oap_config()
 
-    mcp_plugin = MCPServerManagerPlugin(oap_config["auth_key"])
+    mcp_plugin = MCPServerManagerPlugin(oap_config.auth_key)
     handlers = OAPHttpHandlers(mcp_plugin)
 
     return {
@@ -39,3 +39,27 @@ def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallback
             PluginCallbackDef(hook_point="httpd.routers", callback="http_routes"),
         ),
     }
+
+
+class OAPPlugin:
+    """OAP Plugin."""
+
+    def __init__(self, _: dict[str, Any]) -> None:
+        """Initialize the OAP Plugin."""
+
+    async def __aenter__(self) -> Self:
+        """Enter the OAP Plugin."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_traceback: TracebackType | None,
+    ) -> bool:
+        """Exit the OAP Plugin."""
+        return True
+
+    def callbacks(self) -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
+        """Get the callbacks."""
+        return {}

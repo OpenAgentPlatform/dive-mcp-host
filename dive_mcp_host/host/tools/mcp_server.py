@@ -237,6 +237,7 @@ class McpServer(ContextProtocol):
                 httpx.ConnectError,
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
+                httpx.ConnectTimeout,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"

@@ -3,6 +3,12 @@ from typing import Literal
 from pydantic import BaseModel
 
 
+class OAPConfig(BaseModel):
+    """OAP Config."""
+
+    auth_key: str
+
+
 # /api/v1/user/mcp/configs
 class UserMcpConfig(BaseModel):
     """User MCP Config."""

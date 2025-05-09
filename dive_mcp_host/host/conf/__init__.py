@@ -1,7 +1,14 @@
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import AnyUrl, BaseModel, Field, SecretStr, UrlConstraints
+from pydantic import (
+    AnyUrl,
+    BaseModel,
+    Field,
+    SecretStr,
+    UrlConstraints,
+    field_serializer,
+)
 
 from dive_mcp_host.host.conf.llm import LLMConfigTypes
 from dive_mcp_host.httpd.routers.models import EmbedConfig
@@ -30,6 +37,11 @@ class ServerConfig(BaseModel):
     keep_alive: float | None = None
     transport: Literal["stdio", "sse", "websocket"]
     headers: dict[str, SecretStr] = Field(default_factory=dict)
+
+    @field_serializer("headers", when_used="json")
+    def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
+        """Serialize the headers field to plain text."""
+        return {k: v.get_secret_value() for k, v in v.items()} if v else None
 
 
 class LogConfig(BaseModel):
