@@ -20,7 +20,7 @@ from langchain_core.tools import BaseTool, ToolException
 from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
 from mcp.client.websocket import websocket_client
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, SecretStr
 from pydantic_core import to_json
 
 from dive_mcp_host.host.errors import (
@@ -237,6 +237,7 @@ class McpServer(ContextProtocol):
                 httpx.ConnectError,
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
+                httpx.ConnectTimeout,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"
@@ -359,6 +360,7 @@ class McpServer(ContextProtocol):
                 return local_mcp_net_server_client(
                     config=self.config,
                     command=self.config.command,
+                    headers=self.config.headers,
                     args=self.config.args,
                     env=env,
                     stderrlog=self._stderr_log_proxy,
@@ -371,6 +373,10 @@ class McpServer(ContextProtocol):
             if self.config.transport in ("sse", None):
                 return sse_client(
                     url=self.config.url,
+                    headers={
+                        key: value.get_secret_value()
+                        for key, value in self.config.headers.items()
+                    },
                 )
             if self.config.transport == "websocket":
                 return websocket_client(
@@ -625,7 +631,7 @@ class McpTool(BaseTool):
 
 
 @asynccontextmanager
-async def local_mcp_net_server_client(  # noqa: PLR0913, PLR0915
+async def local_mcp_net_server_client(  # noqa: C901, PLR0913, PLR0915
     config: ServerConfig,
     stderrlog: LogProxy,
     stdoutlog: LogProxy,
@@ -633,6 +639,7 @@ async def local_mcp_net_server_client(  # noqa: PLR0913, PLR0915
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
     max_connection_retries: int = 10,
+    headers: dict[str, Any] | None = None,
 ) -> AsyncGenerator[tuple[ReadStreamType, WriteStreamType], None]:
     """Create a local MCP server client.
 
@@ -642,14 +649,26 @@ async def local_mcp_net_server_client(  # noqa: PLR0913, PLR0915
         args: The arguments to start the MCP server. if None, use config.args.
         env: The environment variables to start the MCP server. if None, use config.env.
         max_connection_retries: The maximum number of connection creaation.
+        headers: The headers to send to the MCP server. if None, use config.headers.
         stderrlog: The log proxy to write the stderr of the subprocess.
         stdoutlog: The log proxy to write the stdout of the subprocess.
     """
     command = command or config.command
     args = args or config.args
     env = env or config.env
+    headers = (headers or config.headers).copy()
     assert config.url is not None, "url is required"
-    get_client = sse_client if config.transport == "sse" else websocket_client
+
+    def _sse_client(
+        url: str,
+    ) -> AbstractAsyncContextManager[tuple[ReadStreamType, WriteStreamType]]:
+        for key in headers:
+            value = headers[key]
+            if isinstance(value, SecretStr):
+                headers[key] = value.get_secret_value()
+        return sse_client(url=url, headers=headers)
+
+    get_client = _sse_client if config.transport == "sse" else websocket_client
     logger.debug("Starting local MCP server %s with command: %s", config.name, command)
     if not (
         subprocess := await asyncio.create_subprocess_exec(

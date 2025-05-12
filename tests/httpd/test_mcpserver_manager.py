@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 import pytest
 import pytest_asyncio
+from pydantic import SecretStr
 
 from dive_mcp_host.httpd.conf.mcp_servers import (
     Config,
@@ -41,6 +42,7 @@ class TestMCPServerManager:
                             "transport": "sse",
                             "enabled": False,
                             "url": "http://test.url",
+                            "headers": {"Authorization": "bearer token"},
                         },
                     },
                 },
@@ -146,6 +148,7 @@ class TestMCPServerManager:
                     transport="websocket",
                     enabled=True,
                     url="ws://new.url",
+                    headers={"Authorization": SecretStr("bearer token2")},
                 ),
             },
         )
@@ -160,6 +163,10 @@ class TestMCPServerManager:
         assert "new_server" in manager.current_config.mcp_servers
         assert manager.current_config.mcp_servers["new_server"].transport == "websocket"
         assert manager.current_config.mcp_servers["new_server"].url == "ws://new.url"
+        assert manager.current_config.mcp_servers["new_server"].headers
+        assert manager.current_config.mcp_servers["new_server"].headers.get(
+            "Authorization"
+        ) == SecretStr("bearer token2")
 
 
 # Integration tests
@@ -213,6 +220,7 @@ class TestMCPServerManagerIntegration:
             transport="sse",
             enabled=True,
             url="http://new.server",
+            headers={"Authorization": SecretStr("bearer token2")},
         )
 
         # Update config with new server
@@ -227,6 +235,10 @@ class TestMCPServerManagerIntegration:
         assert (
             manager.current_config.mcp_servers["new_server"].url == "http://new.server"
         )
+        assert manager.current_config.mcp_servers["new_server"].headers
+        assert manager.current_config.mcp_servers["new_server"].headers.get(
+            "Authorization"
+        ) == SecretStr("bearer token2")
 
         # Test environment variable config
         # Setting in environment variable has higher priority than file config
@@ -255,6 +267,9 @@ def test_mcp_server_config_validation():
         "yt-dlp": {
             "command": "np",
             "transport": "sse",
+            "headers": {
+                "Authorization": "bearer token"
+            },
             "args": [
                 "-y",
                 "@someone/some-package"
@@ -279,6 +294,9 @@ def test_mcp_server_config_validation():
     ]
     assert config.mcp_servers["filesystem"].env is None
     assert config.mcp_servers["yt-dlp"].transport == "sse"
+    assert config.mcp_servers["yt-dlp"].headers == {
+        "Authorization": SecretStr("bearer token")
+    }
     assert config.mcp_servers["yt-dlp"].enabled is False
     assert config.mcp_servers["yt-dlp"].command == "np"
     assert config.mcp_servers["yt-dlp"].args == [

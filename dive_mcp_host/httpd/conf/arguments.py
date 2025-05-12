@@ -119,6 +119,8 @@ class Arguments(BaseModel):
             self.mcp_config = cwd.joinpath("mcp_config.json")
         if not self.command_alias_config:
             self.command_alias_config = cwd.joinpath("command_alias.json")
+        if not self.plugin_config:
+            self.plugin_config = cwd.joinpath("plugin_config.json")
         return self
 
     @classmethod

@@ -89,6 +89,8 @@ class DiveHostAPI(FastAPI):
 
         self._engine: AsyncEngine | None = None
 
+        self._abort_controller = AbortController()
+
         if self._service_config_manager.current_setting is None:
             raise ValueError("Service manager is not initialized")
 
@@ -124,7 +126,7 @@ class DiveHostAPI(FastAPI):
         for plugin_config in plugins_config:
             self._plugin_manager.register_plugin(plugin_config)
 
-        self._abort_controller = AbortController()
+        self.include_router(self._plugin_router, prefix="/api/plugins")
 
     def _load_configs(self) -> None:
         """Load all configs."""
@@ -181,7 +183,6 @@ class DiveHostAPI(FastAPI):
         config = self.load_host_config()
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._plugin_manager)
-            self.include_router(self._plugin_router, prefix="/api/plugins")
             default_host = DiveMcpHost(config)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}

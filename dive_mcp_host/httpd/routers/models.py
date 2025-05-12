@@ -43,6 +43,8 @@ class McpServerConfig(BaseModel):
     args: list[str] | None = Field(default_factory=list)
     env: dict[str, str] | None = Field(default_factory=dict)
     url: str | None = None
+    headers: dict[str, SecretStr] | None = Field(default_factory=dict)
+    extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
 
     def model_post_init(self, _: Any) -> None:
         """Post-initialization hook."""
@@ -51,6 +53,11 @@ class McpServerConfig(BaseModel):
                 raise ValueError("url is required for sse and websocket transport")
         elif self.transport == "stdio" and self.command is None:
             raise ValueError("command is required for stdio transport")
+
+    @field_serializer("headers", when_used="json")
+    def dump_api_key(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
+        """Serialize the api_key field to plain text."""
+        return {k: v.get_secret_value() for k, v in v.items()} if v else None
 
 
 class McpServers(BaseModel):
