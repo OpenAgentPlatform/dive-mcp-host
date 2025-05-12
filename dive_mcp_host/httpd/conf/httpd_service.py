@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import make_url
 
 from dive_mcp_host.host.conf import CheckpointerConfig, LogConfig
+from dive_mcp_host.httpd.conf.arguments import StrPath
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, RESOURCE_DIR
 
 logger = logging.getLogger(__name__)
@@ -100,13 +101,18 @@ class ServiceManager:
         return True
 
     def overwrite_paths(
-        self, config_location: ConfigLocation, resource_dir: Path = RESOURCE_DIR
+        self,
+        config_location: ConfigLocation,
+        resource_dir: Path = RESOURCE_DIR,
+        log_dir: StrPath | None = None,
     ) -> None:
         """Overwrite the paths."""
         if self._current_setting is None:
             raise ValueError("Service configuration not found")
         self._current_setting.config_location = config_location
         self._current_setting.resource_dir = resource_dir
+        if log_dir:
+            self._current_setting.mcp_server_log.log_dir = Path(log_dir)
 
     @property
     def current_setting(self) -> ServiceConfig | None:

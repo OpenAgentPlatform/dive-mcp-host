@@ -33,6 +33,7 @@ def main() -> None:
             command_alias_config_path=str(args.command_alias_config),
         ),
         resource_dir=resource_dir,
+        log_dir=args.log_dir,
     )
 
     if args.cors_origin:
