@@ -211,6 +211,8 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
 
     async def dump_values(self) -> dict[str, Any] | None:
         """Dump the values of the state of the chat."""
+        if self._checkpointer is None:
+            return None
         try:
             if state := await self.active_agent.aget_state(
                 RunnableConfig(

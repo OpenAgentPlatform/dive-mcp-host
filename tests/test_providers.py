@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.conf.llm import (
     Credentials,
+    LLMAnthropicConfig,
     LLMAzureConfig,
     LLMBedrockConfig,
     LLMConfig,
@@ -113,18 +114,24 @@ async def test_ollama(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
 async def test_anthropic(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
     if api_key := environ.get("ANTHROPIC_API_KEY"):
+        pass
+    else:
+        pytest.skip("need environment variable ANTHROPIC_API_KEY to run this test")
+
+    async def _one_model(model: str):
         config = HostConfig(
-            llm=LLMConfig(
-                model="claude-3-7-sonnet-20250219",
+            llm=LLMAnthropicConfig(
+                model=model,
                 model_provider="anthropic",
                 api_key=SecretStr(api_key),
             ),
             mcp_servers=echo_tool_stdio_config,
         )
-    else:
-        pytest.skip("need environment variable ANTHROPIC_API_KEY to run this test")
 
-    await _run_the_test(config)
+        await _run_the_test(config)
+
+    for m in ["claude-3-7-sonnet-20250219", "claude-3-5-sonnet-20241022"]:
+        await _one_model(m)
 
 
 @pytest.mark.asyncio
