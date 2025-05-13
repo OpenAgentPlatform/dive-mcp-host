@@ -31,8 +31,9 @@ from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.msg_store.sqlite import SQLiteMessageStore
 from dive_mcp_host.httpd.middlewares.plugins import PluginMiddlewaresManager
 from dive_mcp_host.httpd.routers.plugins import RouterPlugin
+from dive_mcp_host.httpd.store.base import StoreManagerProtocol
 from dive_mcp_host.httpd.store.cache import LocalFileCache
-from dive_mcp_host.httpd.store.local import LocalStore
+from dive_mcp_host.httpd.store.manager import StoreManager
 from dive_mcp_host.plugins.registry import PluginManager, load_plugins_config
 
 logger = getLogger(__name__)
@@ -170,9 +171,10 @@ class DiveHostAPI(FastAPI):
         # ================================================
         # Store
         # ================================================
-        self._store = LocalStore(
+        self._store = StoreManager(
             root_dir=self._service_config_manager.current_setting.resource_dir
         )
+        self._store.register_hook(self._plugin_manager)
         self._local_file_cache = LocalFileCache(
             root_dir=self._service_config_manager.current_setting.resource_dir
         )
@@ -183,6 +185,7 @@ class DiveHostAPI(FastAPI):
         config = self.load_host_config()
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._plugin_manager)
+            await stack.enter_async_context(self._store)
             default_host = DiveMcpHost(config)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
@@ -320,7 +323,7 @@ class DiveHostAPI(FastAPI):
         return self._msg_store
 
     @property
-    def store(self) -> LocalStore:
+    def store(self) -> StoreManagerProtocol:
         """Get the store."""
         return self._store
 

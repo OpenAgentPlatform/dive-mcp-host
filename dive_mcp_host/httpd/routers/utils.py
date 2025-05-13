@@ -35,7 +35,10 @@ from dive_mcp_host.httpd.routers.models import (
     ToolResultContent,
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.httpd.store.store import SUPPORTED_IMAGE_EXTENSIONS, Store
+from dive_mcp_host.httpd.store.base import (
+    SUPPORTED_IMAGE_EXTENSIONS,
+    StoreManagerProtocol,
+)
 from dive_mcp_host.log import TRACE
 
 if TYPE_CHECKING:
@@ -149,7 +152,7 @@ class ChatProcessor:
         self.app = app
         self.request_state = request_state
         self.stream = stream
-        self.store: Store = app.store
+        self.store: StoreManagerProtocol = app.store
         self.dive_host: DiveMcpHost = app.dive_host["default"]
         self._str_output_parser = StrOutputParser()
         self.disable_dive_system_prompt = (
