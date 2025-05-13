@@ -53,6 +53,15 @@ class McpServerConfig(BaseModel):
         elif self.transport == "stdio" and self.command is None:
             raise ValueError("command is required for stdio transport")
 
+    @field_serializer("headers", when_used="json")
+    def dump_headers(
+        self, headers: dict[str, SecretStr] | None
+    ) -> dict[str, str] | None:
+        """Serialize the headers field to plain text."""
+        if not headers:
+            return None
+        return {k: v.get_secret_value() for k, v in headers.items()}
+
 
 class McpServers(BaseModel):
     """Collection of MCP server configurations."""
