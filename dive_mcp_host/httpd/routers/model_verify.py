@@ -4,6 +4,7 @@ from collections.abc import Callable, Generator
 from contextlib import AsyncExitStack, contextmanager
 from enum import StrEnum
 from logging import getLogger
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
@@ -13,7 +14,7 @@ from langgraph.pregel.io import AddableUpdatesDict
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-from dive_mcp_host.host.conf import HostConfig
+from dive_mcp_host.host.conf import HostConfig, LogConfig
 from dive_mcp_host.host.conf.llm import LLMConfig, LLMConfigTypes
 from dive_mcp_host.host.errors import ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
@@ -112,14 +113,20 @@ class ModelVerifyService:
     _abort_signal: asyncio.Event = asyncio.Event()
     _stream_progress: Callable | None = None
 
-    def __init__(self, stream_progress: Callable | None = None) -> None:
+    def __init__(
+        self,
+        stream_progress: Callable | None = None,
+        original_host_config: HostConfig | None = None,
+    ) -> None:
         """Initialize the model verify service.
 
         Args:
             stream_progress (Callable): The stream progress callback.
+            original_host_config (HostConfig): The original host config.
         """
         self._abort_signal = asyncio.Event()
         self._stream_progress = stream_progress
+        self._original_host_config = original_host_config
 
     async def test_models(
         self,
@@ -199,7 +206,18 @@ class ModelVerifyService:
         Returns:
             ModelVerifyResult
         """
-        host = DiveMcpHost(HostConfig(llm=llm_config, mcp_servers={}))
+        if self._original_host_config:
+            log_config = self._original_host_config.log_config
+        else:
+            log_config = LogConfig(log_dir=Path.cwd() / "logs")
+
+        host = DiveMcpHost(
+            HostConfig(
+                llm=llm_config,
+                mcp_servers={},
+                log_config=log_config,
+            )
+        )
         async with host:
             con_ok = False
             con_state = ConnectionVerifyState.SKIPPED
@@ -411,7 +429,9 @@ async def do_verify_model(
     if not llm_config:
         llm_config = dive_host._config.llm  # noqa: SLF001
 
-    test_service = ModelVerifyService()
+    test_service = ModelVerifyService(
+        original_host_config=dive_host.config,
+    )
     verify_subjects = get_verify_subjects(llm_config)
     return await test_service.test_model(llm_config, verify_subjects, 0)
 
@@ -433,7 +453,10 @@ async def verify_model(
     if not llm_configs:
         llm_configs = [dive_host.config.llm]
     stream = EventStreamContextManager()
-    test_service = ModelVerifyService(lambda x: stream.write(json.dumps(x)))
+    test_service = ModelVerifyService(
+        stream_progress=lambda x: stream.write(json.dumps(x)),
+        original_host_config=dive_host.config,
+    )
     response = stream.get_response()
 
     @contextmanager
