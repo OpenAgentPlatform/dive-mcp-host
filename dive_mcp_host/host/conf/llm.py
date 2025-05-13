@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_serializer,
+    model_validator,
+)
 from pydantic.alias_generators import to_camel, to_snake
 
 SpecialProvider = Literal["dive", "__load__"]
@@ -169,14 +176,39 @@ class LLMAzureConfig(LLMConfig):
         return kwargs
 
 
+class LLMAnthropicConfig(LLMConfig):
+    """Configuration for Anthropic models."""
+
+    model_provider: Literal["anthropic"] = "anthropic"
+    max_tokens: int | None = None
+    """The content window of Anthropic Claude 3.x."""
+    default_headers: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def update_max_tokens(self) -> Self:
+        """Update default headers for large tokens."""
+        if self.max_tokens is None:
+            if self.model.startswith("claude-3-7"):
+                self.max_tokens = 128000
+            elif self.model.startswith("claude-3-5"):
+                self.max_tokens = 8129
+            else:
+                self.max_tokens = 4096
+        if self.max_tokens > 64000 and "anthropic-beta" not in self.default_headers:  # noqa: PLR2004
+            self.default_headers["anthropic-beta"] = "output-128k-2025-02-19"
+        return self
+
+
 type LLMConfigTypes = Annotated[
-    LLMBedrockConfig | LLMAzureConfig | LLMConfig, Field(union_mode="left_to_right")
+    LLMAnthropicConfig | LLMAzureConfig | LLMBedrockConfig | LLMConfig,
+    Field(union_mode="left_to_right"),
 ]
 
 
 model_provider_map: dict[str, type[LLMConfigTypes]] = {
-    "bedrock": LLMBedrockConfig,
+    "anthropic": LLMAnthropicConfig,
     "azure_openai": LLMAzureConfig,
+    "bedrock": LLMBedrockConfig,
 }
 
 

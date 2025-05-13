@@ -1,5 +1,6 @@
 import json
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ import pytest
 import pytest_asyncio
 from pydantic import SecretStr
 
+from dive_mcp_host.host.conf.llm import LLMAnthropicConfig
 from dive_mcp_host.httpd.conf.models import ModelManager
 
 # Register custom mark
@@ -162,3 +164,56 @@ class TestModelManagerIntegration:
         assert manager.current_setting is not None
         assert manager.current_setting.model == "fake-model"
         assert manager.current_setting.model_provider == "fake"
+
+
+def test_anthropic_model():
+    """Test max tokens setting for Anthropic Model."""
+
+    @contextmanager
+    def tmp_config(model_name):
+        """Create a mock configuration file."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump(
+                {
+                    "activeProvider": "anthropic",
+                    "enableTools": True,
+                    "configs": {
+                        "anthropic": {
+                            "modelProvider": "anthropic",
+                            "model": model_name,
+                            "apiKey": "test_key",
+                        },
+                    },
+                },
+                f,
+            )
+            config_path = f.name
+        try:
+            yield config_path
+        finally:
+            # Clean up after test
+            Path(config_path).unlink()
+
+    with tmp_config("claude-3-7-sonnet-20250219") as anthropic_config:
+        manager = ModelManager(anthropic_config)
+
+        # Initialize the manager
+        result = manager.initialize()
+        assert result is True
+        assert manager.current_setting
+        assert isinstance(manager.current_setting, LLMAnthropicConfig)
+        assert manager.current_setting.max_tokens == 128000  # type: ignore
+        assert (
+            manager.current_setting.default_headers.get("anthropic-beta")
+            == "output-128k-2025-02-19"
+        )
+    with tmp_config("claude-3-5-sonnet-20241022") as anthropic_config:
+        manager = ModelManager(anthropic_config)
+
+        # Initialize the manager
+        result = manager.initialize()
+        assert result is True
+        assert manager.current_setting
+        assert isinstance(manager.current_setting, LLMAnthropicConfig)
+        assert manager.current_setting.max_tokens == 8129  # type: ignore
+        assert manager.current_setting.default_headers.get("anthropic-beta") is None
