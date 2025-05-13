@@ -12,6 +12,7 @@ from openai import AuthenticationError
 from dive_mcp_host.httpd.routers.model_verify import ToolVerifyState
 from tests import helper
 
+ERROR_NOT_NULL = "ERROR_NOT_NULL"
 MOCK_MODEL_SETTING = {
     "model": "gpt-4o-mini",
     "modelProvider": "openai",
@@ -268,17 +269,21 @@ def _check_verify_streaming_response(
                 )
                 check_connection = True
             elif step == 2 and test_type == "tools":
-                helper.dict_subset(
-                    json_obj,
-                    {
-                        "step": 2,
-                        "modelName": model_name,
-                        "testType": "tools",
-                        "ok": not need_tools_in_prompt,
-                        "finalState": bind_tool_finial_result,
-                        "error": bind_tool_error,
-                    },
-                )
+                answer = {
+                    "step": 2,
+                    "modelName": model_name,
+                    "testType": "tools",
+                    "ok": not need_tools_in_prompt,
+                    "finalState": bind_tool_finial_result,
+                    "error": bind_tool_error,
+                }
+
+                if bind_tool_error == ERROR_NOT_NULL:
+                    assert json_obj["error"] is not None
+                    json_obj.pop("error")
+                    answer.pop("error")
+
+                helper.dict_subset(json_obj, answer)
                 check_tools = True
             elif step == 3 and test_type == "tools_in_prompt":
                 helper.dict_subset(
@@ -296,36 +301,40 @@ def _check_verify_streaming_response(
                 )
                 check_tools_in_prompt = True
         elif json_obj["type"] == "final":
-            helper.dict_subset(
-                json_obj,
-                {
-                    "type": "final",
-                    "results": [
-                        {
-                            "modelName": model_name,
-                            "connection": {
-                                "ok": True,
-                                "finalState": "CONNECTED",
-                                "error": None,
-                            },
-                            "tools": {
-                                "ok": not need_tools_in_prompt,
-                                "finalState": bind_tool_finial_result,
-                                "error": bind_tool_error,
-                            },
-                            "toolsInPrompt": {
-                                "ok": need_tools_in_prompt,
-                                "finalState": (
-                                    "SKIPPED"
-                                    if not need_tools_in_prompt
-                                    else "TOOL_RESPONDED"
-                                ),
-                                "error": None,
-                            },
+            answer = {
+                "type": "final",
+                "results": [
+                    {
+                        "modelName": model_name,
+                        "connection": {
+                            "ok": True,
+                            "finalState": "CONNECTED",
+                            "error": None,
                         },
-                    ],
-                },
-            )
+                        "tools": {
+                            "ok": not need_tools_in_prompt,
+                            "finalState": bind_tool_finial_result,
+                            "error": bind_tool_error,
+                        },
+                        "toolsInPrompt": {
+                            "ok": need_tools_in_prompt,
+                            "finalState": (
+                                "SKIPPED"
+                                if not need_tools_in_prompt
+                                else "TOOL_RESPONDED"
+                            ),
+                            "error": None,
+                        },
+                    },
+                ],
+            }
+
+            if bind_tool_error == ERROR_NOT_NULL:
+                assert json_obj["results"][0]["tools"]["error"] is not None
+                json_obj["results"][0]["tools"].pop("error")
+                answer["results"][0]["tools"].pop("error")
+
+            helper.dict_subset(json_obj, answer)
             check_final = True
 
     assert check_connection
@@ -570,7 +579,7 @@ def test_verify_openrouter_tool_in_prompt(test_client):
             model_name,
             need_tools_in_prompt=True,
             bind_tool_finial_result=ToolVerifyState.ERROR,
-            bind_tool_error="{'message': 'Provider returned error', 'code': 502, 'metadata': {'raw': '{\"error\":{\"message\":\"inference exception\"}}', 'provider_name': 'DeepInfra'}}",  # noqa: E501
+            bind_tool_error=ERROR_NOT_NULL,
         )
     else:
         pytest.skip("OPENROUTER_API_KEY is not set")

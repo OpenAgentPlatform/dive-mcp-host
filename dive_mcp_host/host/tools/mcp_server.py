@@ -747,7 +747,8 @@ async def local_mcp_net_server_client(  # noqa: C901, PLR0913, PLR0915
             read_stderr_task.cancel()
             read_stdout_task.cancel()
             subprocess.terminate()
-            subprocess.send_signal(signal.SIGINT)
+            if sys.platform != "win32":
+                subprocess.send_signal(signal.SIGINT)
             await asyncio.wait_for(subprocess.wait(), timeout=10)
             await read_stderr_task
             await read_stdout_task

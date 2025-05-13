@@ -34,6 +34,7 @@ def main() -> None:
             plugin_config_path=str(args.plugin_config),
         ),
         resource_dir=resource_dir,
+        log_dir=args.log_dir,
     )
 
     if args.cors_origin:

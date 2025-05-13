@@ -1,6 +1,7 @@
 """Copy of mcp.client.stdio.stdio_client."""
 
 import logging
+import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -14,7 +15,6 @@ from anyio.streams.text import TextReceiveStream
 from mcp import types
 from mcp.client.stdio import StdioServerParameters, get_default_environment
 from mcp.client.stdio.win32 import (
-    create_windows_process,
     get_windows_executable_command,
     terminate_windows_process,
 )
@@ -79,8 +79,8 @@ async def stdio_client(  # noqa: C901, PLR0915
     )
 
     async def stderr_reader() -> None:
-        assert process.stderr, "Opened process is missing stderr"
         try:
+            assert process.stderr, "Opened process is missing stderr"
             async for line in TextReceiveStream(
                 process.stderr,
                 encoding=server.encoding,
@@ -173,10 +173,13 @@ async def _create_platform_compatible_process(
     cwd: Path | str | None = None,
 ) -> anyio.abc.Process:
     """Copy from mcp.client.stdio._create_platform_compatible_process."""
-    if sys.platform == "win32":
-        process = await create_windows_process(command, args, env, cwd)
+    if sys.platform == "win32" and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        creationflags = subprocess.CREATE_NO_WINDOW
     else:
-        process = await anyio.open_process([command, *args], env=env, cwd=cwd)
+        creationflags = 0
+    process = await anyio.open_process(
+        [command, *args], creationflags=creationflags, env=env, cwd=cwd
+    )
     logger.info("launched process: %s, pid: %s", command, process.pid)
 
     return process

@@ -339,7 +339,7 @@ class LogManager:
             log_dir: The directory to store the logs.
             rotation_files: The number of rotation files per mcp server.
         """
-        self._log_dir = log_dir
+        self._log_dir = log_dir / "mcp_logs"
         self._log_dir.mkdir(parents=True, exist_ok=True)
         self._buffers: dict[str, LogBuffer] = {}
         self._rotation_files = rotation_files

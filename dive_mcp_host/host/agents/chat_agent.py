@@ -203,7 +203,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         max_input_tokens: int | None = configurable.get("max_input_tokens")
         oversize_policy: Literal["window"] | None = configurable.get("oversize_policy")
         if max_input_tokens is None or oversize_policy is None:
-            return state
+            return cast(AgentState, {"messages": []})
         if oversize_policy == "window":
             messages: list[BaseMessage] = trim_messages(
                 state["messages"],
@@ -217,7 +217,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
             ]
             return cast(AgentState, {"messages": remove_messages})
 
-        return state
+        return cast(AgentState, {"messages": []})
 
     def _after_agent(self, state: AgentState) -> str:
         last_message = state["messages"][-1]
