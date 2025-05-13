@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, SecretStr
+from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_serializer
 
 from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
 
@@ -26,6 +26,15 @@ class MCPServerConfig(BaseModel):
     env: dict[str, str] | None = None
     url: str | None = None
     headers: dict[str, SecretStr] | None = None
+
+    @field_serializer("headers", when_used="json")
+    def dump_headers(
+        self, headers: dict[str, SecretStr] | None
+    ) -> dict[str, str] | None:
+        """Serialize the headers field to plain text."""
+        if not headers:
+            return None
+        return {k: v.get_secret_value() for k, v in headers.items()}
 
 
 class Config(BaseModel):
