@@ -1,14 +1,17 @@
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
+from langchain_core.messages import AIMessage, HumanMessage
 
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
+from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.conf.prompt import PromptKey
-from dive_mcp_host.httpd.routers.utils import ChatProcessor, HumanMessage
+from dive_mcp_host.httpd.routers.utils import ChatProcessor
 from dive_mcp_host.httpd.server import DiveHostAPI
+from dive_mcp_host.models.fake import FakeMessageToolModel  # noqa: TC001
 from tests.httpd.routers.conftest import config_files  # noqa: F401
 
 
@@ -18,6 +21,7 @@ async def server(config_files) -> AsyncGenerator[DiveHostAPI, None]:  # noqa: F8
     service_config_manager = ServiceManager(config_files.service_config_file)
     service_config_manager.initialize()
     server = DiveHostAPI(service_config_manager)
+    server.mcp_server_config_manager.update_all_configs(Config(mcpServers={}))
     async with server.prepare():
         yield server
 
@@ -42,7 +46,7 @@ class EmptyStream:
 
 
 @pytest.mark.asyncio
-async def test_prompt(processor: ChatProcessor, monkeypatch):
+async def test_prompt(processor: ChatProcessor, monkeypatch: pytest.MonkeyPatch):
     """Test the chat processor."""
     server = processor.app
 
@@ -90,3 +94,19 @@ def test_strip_title():
     # Test empty or whitespace-only input
     assert strip_title("hello world") == "hello world"
     assert strip_title("  hello world  ") == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_generate_title(processor: ChatProcessor):
+    """Test the title function."""
+    model = cast("FakeMessageToolModel", processor.dive_host.model)
+    model.responses = [
+        AIMessage(
+            content="Simple Greeting",
+        ),
+        AIMessage(content=[{"type": "text", "text": "Simple Greeting 2", "index": 0}]),
+    ]
+    r = await processor._generate_title("Hello, how are you?")
+    assert r == "Simple Greeting"
+    r = await processor._generate_title("Hello, how are you?")
+    assert r == "Simple Greeting 2"

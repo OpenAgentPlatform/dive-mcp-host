@@ -69,7 +69,7 @@ def extract_tool_calls(response: AIMessage) -> AIMessage:
                     pass
 
     else:
-        logger.warning(
+        logger.debug(
             "Response content is not a string, cannot extract tool calls: %s",
             response.content,
         )
