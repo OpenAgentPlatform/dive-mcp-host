@@ -10,11 +10,10 @@ from fastapi import UploadFile
 from PIL import Image
 
 from dive_mcp_host.env import RESOURCE_DIR
+from dive_mcp_host.httpd.store.base import StoreProtocol
 
-from .store import SUPPORTED_IMAGE_EXTENSIONS, Store
 
-
-class LocalStore(Store):
+class LocalStore(StoreProtocol):
     """Local store implementation."""
 
     def __init__(self, root_dir: Path = RESOURCE_DIR) -> None:
@@ -23,50 +22,41 @@ class LocalStore(Store):
         upload_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir = upload_dir
 
-    async def upload_files(
+    async def save_file(
         self,
-        files: list[UploadFile],
-        file_paths: list[str],  # noqa: ARG002
-    ) -> tuple[list[str], list[str]]:
-        """Upload files to the local store."""
-        images = []
-        documents = []
+        file: UploadFile | str,
+    ) -> str | None:
+        """Save a file to the local store."""
+        if isinstance(file, str):
+            return file
 
-        for file in files:
-            if file.filename is None:
-                continue
+        if file.filename is None:
+            return None
 
-            ext = Path(file.filename).suffix
-            tmp_name = (
-                str(int(time.time() * 1000)) + "-" + str(randint(0, int(1e9))) + ext  # noqa: S311
-            )
-            upload_path = self.upload_dir.joinpath(tmp_name)
-            hash_md5 = md5()  # noqa: S324
-            with upload_path.open("wb") as f:
-                while buf := await file.read():
-                    hash_md5.update(buf)
-                    f.write(buf)
+        ext = Path(file.filename).suffix
 
-            hash_str = hash_md5.hexdigest()[:12]
-            dst_filename = self.upload_dir.joinpath(hash_str + "-" + file.filename)
+        tmp_name = f"{int(time.time() * 1000)}-{randint(0, int(1e9))}{ext}"  # noqa: S311
+        tmp_file = self.upload_dir.joinpath(tmp_name)
 
-            current_paths: list[str] = []
-            existing_files = list(self.upload_dir.glob(hash_str + "*"))
-            if existing_files:
-                current_paths.extend([str(f) for f in existing_files])
-                upload_path.unlink()
-            else:
-                current_paths.append(str(dst_filename))
-                upload_path.rename(dst_filename)
+        hash_md5 = md5(usedforsecurity=False)
 
-            ext = ext.lower()
+        with tmp_file.open("wb") as f:
+            while buf := await file.read():
+                hash_md5.update(buf)
+                f.write(buf)
+        hash_str = hash_md5.hexdigest()[:12]
+        dst_filename = self.upload_dir.joinpath(hash_str + "-" + file.filename)
 
-            if ext in SUPPORTED_IMAGE_EXTENSIONS:
-                images.extend(current_paths)
-            else:
-                documents.extend(current_paths)
+        if existing_files := list(self.upload_dir.glob(hash_str + "*")):
+            tmp_file.unlink()
+            return str(existing_files[0])
+        tmp_file.rename(dst_filename)
+        return str(dst_filename)
 
-        return images, documents
+    async def get_file(self, file_path: str | Path) -> bytes:
+        """Get the file from the local store."""
+        path = Path(file_path)
+        return path.read_bytes()
 
     async def get_image(self, file_path: str) -> str:
         """Get the base64 encoded image from the local store."""

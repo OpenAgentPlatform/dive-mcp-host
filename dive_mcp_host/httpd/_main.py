@@ -4,6 +4,7 @@ Support Restful API and websocket.
 """
 
 import socket
+from logging.config import dictConfig
 from pathlib import Path
 
 import uvicorn
@@ -22,6 +23,8 @@ def main() -> None:
     service_config_manager.initialize()
     if service_config_manager.current_setting is None:
         raise ValueError("Service config manager is not initialized")
+
+    dictConfig(service_config_manager.current_setting.logging_config)
 
     # Overwrite defaults from command line arguments
     resource_dir = Path(args.working_dir) if args.working_dir else RESOURCE_DIR
