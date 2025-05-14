@@ -76,6 +76,14 @@ class StoreManagerProtocol(ContextProtocol, Protocol):
         """
         ...
 
+    async def is_local_file(self, file_path: str) -> bool:
+        """Check if the file is a local file."""
+        ...
+
+    async def is_url(self, file_path: str) -> bool:
+        """Check if the file is a URL."""
+        ...
+
     async def get_image(self, file_path: str) -> str:
         """Get the base64 encoded image from the store."""
         ...

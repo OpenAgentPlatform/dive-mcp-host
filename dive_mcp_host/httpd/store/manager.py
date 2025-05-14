@@ -6,6 +6,7 @@ from io import BytesIO
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, Self
+from urllib.parse import urlparse
 
 from fastapi import UploadFile
 from PIL import Image
@@ -43,7 +44,12 @@ class StoreManager(StoreManagerProtocol):
         """Upload files to the store.
 
         Returns:
-            tuple[FileType, list[str]]: The file type and the paths of the saved files.
+            image and document storage locations.
+            ex:
+            (
+                ["image_local_file_path", "image_remote_url" ...],
+                ["document_local_file_path", "document_remote_url" ...],
+            )
         """
         save_result = await self.save_files(files)
         images = [
@@ -74,7 +80,12 @@ class StoreManager(StoreManagerProtocol):
     ) -> list[tuple[FileType, list[str]]]:
         """Save files to the stores.
 
-        return path of images and documents.
+        Returns each file's file type and their list of storage locations.
+
+        A file can be saved to multiple locations if plugins are registered.
+        Locations might be local file paths, remote URLs, etc.
+
+        The first location should be the local file path.
         """
         all_paths: list[tuple[FileType, list[str]]] = []
         for file in files:
@@ -83,7 +94,7 @@ class StoreManager(StoreManagerProtocol):
                 continue
             paths = [path]
             if self._storage_callbacks:
-                tasks = []
+                tasks: list[asyncio.Task] = []
                 async with asyncio.TaskGroup() as tg:
                     for store in self._storages:
                         tasks.append(tg.create_task(store.save_file(file)))
@@ -95,6 +106,17 @@ class StoreManager(StoreManagerProtocol):
     async def get_file(self, file_path: str | Path) -> bytes:
         """Get the file from the store."""
         return await self._local_store.get_file(file_path)
+
+    def is_url(self, file_path: str) -> bool:
+        """Check if the file is a URL."""
+        result = urlparse(file_path)
+        return bool(result.scheme and result.netloc)
+
+    def is_local_file(self, file_path: str | Path) -> bool:
+        """Check if the file is a local file."""
+        if isinstance(file_path, str):
+            file_path = Path(file_path)
+        return file_path.exists()
 
     async def get_image(self, file_path: str | Path) -> str:
         """Get the base64 encoded image from the store."""

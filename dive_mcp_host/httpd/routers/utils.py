@@ -36,7 +36,7 @@ from dive_mcp_host.httpd.routers.models import (
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
 from dive_mcp_host.httpd.store.base import (
-    SUPPORTED_IMAGE_EXTENSIONS,
+    FileType,
     StoreManagerProtocol,
 )
 from dive_mcp_host.log import TRACE
@@ -573,20 +573,22 @@ class ChatProcessor:
                         }
                     )
 
-                for file_path in files:
-                    local_path = file_path
-                    if any(
-                        local_path.endswith(suffix)
-                        for suffix in SUPPORTED_IMAGE_EXTENSIONS
-                    ):
-                        base64_image = await self.store.get_image(local_path)
+                # NOTE: File locations are stored as list of strings,
+                # the relations between the file path and urls are is lost...
+                # Need a better DB schema
 
-                        content.append(
-                            {
-                                "type": "text",
-                                "text": f"![Image]({base64_image})",
-                            }
-                        )
+                for file_location in files:
+                    if (
+                        self.store.is_local_file(file_location)
+                        and FileType.from_file_path(file_location) == FileType.IMAGE
+                    ):
+                        base64_image = await self.store.get_image(file_location)
+                        # content.append(
+                        #     {
+                        #         "type": "text",
+                        #         "text": f"![Image]({base64_image})",
+                        #     }
+                        # )
                         content.append(
                             {
                                 "type": "image_url",
@@ -595,13 +597,25 @@ class ChatProcessor:
                                 },
                             }
                         )
-                    else:
-                        base64_document, _ = await self.store.get_document(local_path)
+                    elif (
+                        self.store.is_local_file(file_location)
+                        and FileType.from_file_path(file_location) == FileType.DOCUMENT
+                    ):
+                        base64_document, _ = await self.store.get_document(
+                            file_location
+                        )
                         content.append(
                             {
                                 "type": "text",
-                                "text": f"source: {local_path}, content: {base64_document}",  # noqa: E501
+                                "text": f"source: {file_location}, content: {base64_document}",  # noqa: E501
                             },
+                        )
+                    elif self.store.is_url(file_location):
+                        content.append(
+                            {
+                                "type": "text",
+                                "text": f"file url: {file_location}",
+                            }
                         )
 
                 if message.role == Role.ASSISTANT:
@@ -625,33 +639,53 @@ class ChatProcessor:
                 }
             )
 
-        for image in query_input.images or []:
-            local_path = image
-            base64_image = await self.store.get_image(local_path)
-            content.append(
-                {
-                    "type": "text",
-                    "text": f"![Image]({base64_image})",
-                }
-            )
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": base64_image,
-                    },
-                }
-            )
+        # NOTE: Need a better way of representing the relations between
+        # file path, content and urls.
 
-        for document in query_input.documents or []:
-            local_path = document
-            base64_document, _ = await self.store.get_document(local_path)
-            content.append(
-                {
-                    "type": "text",
-                    "text": f"source: {local_path}, content: {base64_document}",
-                },
-            )
+        # NOTE: Current implementation only supports loading content from local
+        # file system, url is used as context for mcp tool calls.
+        for location in query_input.images or []:
+            if self.store.is_url(location):
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"image url: {location}",
+                    }
+                )
+            if self.store.is_local_file(location):
+                base64_image = await self.store.get_image(location)
+                # NOTE: This might not be needed, comment it out for now.
+                # content.append(
+                #     {
+                #         "type": "text",
+                #         "text": f"![Image]({base64_image})",
+                #     }
+                # )
+                content.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": base64_image,
+                        },
+                    }
+                )
+
+        for location in query_input.documents or []:
+            if self.store.is_url(location):
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"document url: {location}",
+                    }
+                )
+            if self.store.is_local_file(location):
+                base64_document, _ = await self.store.get_document(location)
+                content.append(
+                    {
+                        "type": "text",
+                        "text": f"source: {location}, content: {base64_document}",
+                    },
+                )
 
         return HumanMessage(content=content, id=message_id)
 
