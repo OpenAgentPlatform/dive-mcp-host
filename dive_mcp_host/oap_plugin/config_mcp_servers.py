@@ -118,7 +118,6 @@ class MCPServerManagerPlugin:
             if code != httpx.codes.OK and code not in [
                 httpx.codes.UNAUTHORIZED,
                 httpx.codes.FORBIDDEN,
-                httpx.codes.TEMPORARY_REDIRECT,
             ]:
                 r = []
             self._refresh_ts = time.time()
