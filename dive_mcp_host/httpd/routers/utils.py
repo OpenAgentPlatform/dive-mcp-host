@@ -540,7 +540,9 @@ class ChatProcessor:
                     {"messages": [HumanMessage(content=query)]}
                 )
                 if isinstance(response["messages"][-1], AIMessage):
-                    return strip_title(response["messages"][-1].content)
+                    return strip_title(
+                        self._str_output_parser.invoke(response["messages"][-1])
+                    )
         except Exception as e:
             logger.exception("Error generating title: %s", e)
         return "New Chat"
