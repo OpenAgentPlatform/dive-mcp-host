@@ -21,6 +21,8 @@ def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallback
     """Get the static callbacks."""
     oap_config = read_oap_config()
 
+    oap_store.update_store_url(oap_config.store_url, oap_config.verify_ssl)
+    oap_store.update_token(oap_config.auth_key)
     mcp_plugin = MCPServerManagerPlugin(oap_config.auth_key)
     handlers = OAPHttpHandlers(mcp_plugin, oap_store)
 

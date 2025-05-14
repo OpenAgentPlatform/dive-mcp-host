@@ -100,7 +100,7 @@ class MCPServerManagerPlugin:
                 response.status_code,
             )
         except ValidationError:
-            logger.error("Failed to validate response: %s", response.text)
+            logger.exception("Failed to validate response: %s", response.text)
             return None, response.status_code
 
     def _get_user_mcp_configs(
@@ -129,7 +129,7 @@ class MCPServerManagerPlugin:
 def read_oap_config() -> OAPConfig:
     """Read the OAP config."""
     if not CONFIG_FILE.exists():
-        return OAPConfig(auth_key="")
+        return OAPConfig(auth_key="", store_url="")
 
     with CONFIG_FILE.open("r") as f:
         return OAPConfig.model_validate_json(f.read())
