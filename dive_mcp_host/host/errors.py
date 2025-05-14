@@ -39,7 +39,7 @@ class ThreadQueryError(MCPHostError):
         self.query = query
         self.state_values = state_values
         self.error = error
-        super().__init__(f"Error in query {query}")
+        super().__init__(f"Error in query, {error}")
 
 
 class GraphNotCompiledError(MCPHostError):

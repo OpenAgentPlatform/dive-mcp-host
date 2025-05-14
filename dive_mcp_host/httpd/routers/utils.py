@@ -87,7 +87,8 @@ class EventStreamContextManager:
 
             logger.error(traceback.format_exception(exc_type, exc_val, exc_tb))
             self._exit_message = StreamMessage(
-                type="error", content=str(exc_val)
+                type="error",
+                content=f"<ThreadQueryError> {exc_val} </ThreadQueryError>",
             ).model_dump_json(by_alias=True)
 
         self.done = True
