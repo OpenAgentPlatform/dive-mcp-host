@@ -28,4 +28,4 @@ class BaseResponse[T](BaseModel):
 
     status: Literal["success", "error"]
     error: str | None = None
-    data: T
+    data: T | None = None
