@@ -170,6 +170,7 @@ class ChatProcessor:
         dive_user: DiveUser = self.request_state.dive_user
         title = "New Chat"
         title_await = None
+        result = ""
 
         if isinstance(query_input, QueryInput) and query_input.text:
             async with self.app.db_sessionmaker() as session:
