@@ -29,7 +29,7 @@ class OAPHttpHandlers:
         self._mcp_server_manager.update_device_token(
             token, app.mcp_server_config_manager
         )
-        await self._oap_store.update_token(token)
+        self._oap_store.update_token(token)
 
     async def refresh_config_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:
         """Refresh the config."""

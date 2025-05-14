@@ -7,6 +7,8 @@ class OAPConfig(BaseModel):
     """OAP Config."""
 
     auth_key: str
+    store_url: str
+    verify_ssl: bool = True
 
 
 # /api/v1/user/mcp/configs
