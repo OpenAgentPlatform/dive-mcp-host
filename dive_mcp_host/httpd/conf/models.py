@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from dive_mcp_host.env import DIVE_CONFIG_DIR
-from dive_mcp_host.host.conf.llm import LLMConfigTypes, get_llm_config_type
+from dive_mcp_host.host.conf.llm import LLMConfigTypes
 from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.httpd.routers.models import (
     EmbedConfig,
@@ -56,9 +56,7 @@ class ModelManager:
             if model_config := (
                 self._full_config.configs.get(self._full_config.active_provider)
             ):
-                self._current_setting = get_llm_config_type(
-                    model_config.model_provider
-                ).model_validate(model_config.model_dump())
+                self._current_setting = model_config.to_host_llm_config()
             else:
                 self._current_setting = None
         except ValidationError as e:

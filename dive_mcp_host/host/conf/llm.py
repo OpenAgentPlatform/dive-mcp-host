@@ -4,6 +4,7 @@ from typing import Annotated, Literal, Self
 
 from pydantic import (
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     SecretStr,
@@ -101,6 +102,8 @@ class LLMConfig(BaseLLMConfig):
 
     api_key: SecretStr | None = Field(default=None)
     configuration: LLMConfiguration | None = Field(default=None)
+    default_headers: dict[str, str] | None = None
+    max_tokens: int | None = Field(default=None)
 
     model_config = pydantic_model_config
 
@@ -189,9 +192,6 @@ class LLMAnthropicConfig(LLMConfig):
     """Configuration for Anthropic models."""
 
     model_provider: Literal["anthropic"] = "anthropic"
-    max_tokens: int | None = None
-    """The content window of Anthropic Claude 3.x."""
-    default_headers: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def update_max_tokens(self) -> Self:
@@ -203,13 +203,48 @@ class LLMAnthropicConfig(LLMConfig):
                 self.max_tokens = 8129
             else:
                 self.max_tokens = 4096
-        if self.max_tokens > 64000 and "anthropic-beta" not in self.default_headers:  # noqa: PLR2004
-            self.default_headers["anthropic-beta"] = "output-128k-2025-02-19"
+        if self.max_tokens > 64000:  # noqa: PLR2004
+            if self.default_headers is None:
+                self.default_headers = {}
+            if "anthropic-beta" not in self.default_headers:
+                self.default_headers["anthropic-beta"] = "output-128k-2025-02-19"
+        return self
+
+
+class LLMOapConfiguration(LLMConfiguration):
+    """Configuration for the LLM model."""
+
+    base_url: Annotated[
+        str, BeforeValidator(lambda v: v or "https://api.oaphub.ai/v1")
+    ] = Field(
+        default="https://api.oaphub.ai/v1",
+        alias="baseURL",
+    )
+
+
+class LLMOapConfig(LLMConfig):
+    """Configuration for OAP models."""
+
+    model_provider: Literal["oap"] = "oap"
+    configuration: Annotated[
+        LLMOapConfiguration, BeforeValidator(lambda v: v or LLMOapConfiguration())
+    ] = Field(default_factory=LLMOapConfiguration)
+
+    @model_validator(mode="after")
+    def update_max_tokens(self) -> Self:
+        """Update default headers for large tokens."""
+        if self.model == "claude-3-7-sonnet-20250219":
+            if self.max_tokens is None:
+                self.max_tokens = 128000
+            if self.default_headers is None:
+                self.default_headers = {}
+            if "anthropic-beta" not in self.default_headers:
+                self.default_headers["anthropic-beta"] = "output-128k-2025-02-19"
         return self
 
 
 type LLMConfigTypes = Annotated[
-    LLMAnthropicConfig | LLMAzureConfig | LLMBedrockConfig | LLMConfig,
+    LLMAnthropicConfig | LLMAzureConfig | LLMBedrockConfig | LLMOapConfig | LLMConfig,
     Field(union_mode="left_to_right"),
 ]
 
@@ -218,6 +253,7 @@ model_provider_map: dict[str, type[LLMConfigTypes]] = {
     "anthropic": LLMAnthropicConfig,
     "azure_openai": LLMAzureConfig,
     "bedrock": LLMBedrockConfig,
+    "oap": LLMOapConfig,
 }
 
 

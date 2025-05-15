@@ -17,6 +17,8 @@ from dive_mcp_host.host.conf.llm import (
     LLMBedrockConfig,
     LLMConfig,
     LLMConfiguration,
+    LLMOapConfig,
+    LLMOapConfiguration,
 )
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
@@ -310,4 +312,32 @@ async def test_azure(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
             " AZURE_DEPLOYMENT_NAME, AZURE_API_VERSION to run this test"
         )
 
+    await _run_the_test(config)
+
+
+@pytest.mark.asyncio
+async def test_oap(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+    """Test oap model.
+
+    It support large content window of anthropic claude 3.x.
+    """
+    configuration = LLMOapConfiguration()
+    if base_url := environ.get("OAP_BASE_URL"):
+        configuration.base_url = base_url
+    if api_key := environ.get("OAP_API_KEY"):
+        config = HostConfig(
+            llm=LLMOapConfig(
+                model="claude-3-7-sonnet-20250219",
+                model_provider="oap",
+                api_key=SecretStr(api_key),
+                max_tokens=128000,
+                configuration=configuration,
+                default_headers={
+                    "anthropic-beta": "output-128k-2025-02-19",
+                },
+            ),
+            mcp_servers=echo_tool_stdio_config,
+        )
+    else:
+        pytest.skip("need environment variable OAP_API_KEY to run this test")
     await _run_the_test(config)
