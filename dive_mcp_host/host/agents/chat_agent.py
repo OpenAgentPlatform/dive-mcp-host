@@ -162,7 +162,9 @@ class ChatAgentFactory(AgentFactory[AgentState]):
     def _call_model(self, state: AgentState, config: RunnableConfig) -> AgentState:
         # TODO: _validate_chat_history
         if not self._tools_in_prompt:
-            model = self._model.bind_tools(self._tool_classes)
+            model = self._model
+            if self._tool_classes:
+                model = self._model.bind_tools(self._tool_classes)
             model_runnable = self._prompt | drop_empty_messages | model
         else:
             model_runnable = (
