@@ -66,7 +66,7 @@ class StoreManager(StoreManagerProtocol):
         ]
         return images, documents
 
-    async def _in_context(self) -> AsyncGenerator[Self, None]:
+    async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._local_store)
             for callback, _, _ in self._storage_callbacks:
