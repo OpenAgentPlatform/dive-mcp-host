@@ -8,7 +8,6 @@ from pydantic import (
     Field,
     RootModel,
     SecretStr,
-    ValidationError,
     field_serializer,
     model_validator,
 )
