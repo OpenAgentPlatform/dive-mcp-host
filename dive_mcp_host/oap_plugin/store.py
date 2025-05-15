@@ -98,7 +98,7 @@ class OAPStore(StoreProtocol):
             response = await client.get(location)
             return response.content
 
-    def update_token(self, token: str) -> None:
+    def update_token(self, token: str | None) -> None:
         """Update the token."""
         self._token = token
 

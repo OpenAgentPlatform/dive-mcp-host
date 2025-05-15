@@ -14,7 +14,7 @@ from dive_mcp_host.oap_plugin.config_mcp_servers import (
 from dive_mcp_host.oap_plugin.http_handlers import OAPHttpHandlers
 from dive_mcp_host.plugins.registry import PluginCallbackDef
 
-from .store import oap_store
+from .store import OAPStore, oap_store
 
 
 def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
@@ -67,9 +67,13 @@ class OAPPlugin:
 
     def callbacks(self) -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
         """Get the callbacks."""
+
+        async def _get_oap_store() -> OAPStore:
+            return oap_store
+
         return {
             "oap_store": (
-                lambda: oap_store,
+                _get_oap_store,
                 PluginCallbackDef(hook_point=StoreHookName, callback="oap_store"),
             ),
         }
