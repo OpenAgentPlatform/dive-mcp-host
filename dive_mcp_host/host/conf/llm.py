@@ -64,11 +64,13 @@ class BaseLLMConfig(BaseModel):
 
     model: str = "gpt-4o"
     model_provider: str | SpecialProvider = Field(default="openai")
-    streaming: bool | None = True
-    max_tokens: int | None = Field(default=None)
     tools_in_prompt: bool = Field(default=False)
     """Teach the model to use tools in the prompt."""
 
+    disable_streaming: bool | Literal["tool_calling"] = False
+    """Disable streaming entirely or only when tool calling."""
+
+    max_tokens: int | None = Field(default=None)
     model_config = pydantic_model_config
 
 
@@ -107,7 +109,6 @@ class LLMConfig(BaseLLMConfig):
             "configuration",
             "model_provider",
             "model",
-            "streaming",
             "tools_in_prompt",
         }
         if self.model_provider == "anthropic" and self.max_tokens is None:
@@ -150,7 +151,13 @@ class LLMBedrockConfig(BaseLLMConfig):
         )
         model_kwargs["aws_session_token"] = self.credentials.session_token
         model_kwargs["region_name"] = self.region
-        model_kwargs["streaming"] = True if self.streaming is None else self.streaming
+        model_kwargs["disable_streaming"] = (
+            False if self.disable_streaming is None else self.disable_streaming
+        )
+        model_kwargs["streaming"] = (
+            True if self.disable_streaming is None else not self.disable_streaming
+        )
+
         return model_kwargs
 
 
