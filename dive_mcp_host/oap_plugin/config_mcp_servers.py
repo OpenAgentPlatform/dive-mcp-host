@@ -26,9 +26,9 @@ MIN_REFRESH_INTERVAL = 60
 class MCPServerManagerPlugin:
     """Manage MCP Server configurations in OAP Plugin."""
 
-    def __init__(self, device_token: str = "") -> None:
+    def __init__(self, device_token: str | None) -> None:
         """Initialize the MCPServerConfigs from OAP."""
-        self.device_token: str = device_token
+        self.device_token: str | None = device_token
         self._user_mcp_configs: list[UserMcpConfig] | None = []
         self._refresh_ts: float = 0
         self._http_client = httpx.Client(
@@ -39,7 +39,7 @@ class MCPServerManagerPlugin:
         )
 
     def update_device_token(
-        self, device_token: str, mcp_server_manager: MCPServerManager
+        self, device_token: str | None, mcp_server_manager: MCPServerManager
     ) -> None:
         """Update the device token and refresh the configs."""
         self.device_token = device_token
@@ -134,7 +134,7 @@ def read_oap_config() -> OAPConfig:
         return OAPConfig.model_validate_json(f.read())
 
 
-def update_oap_token(token: str) -> None:
+def update_oap_token(token: str | None) -> None:
     """Update the OAP token."""
     config = read_oap_config()
     config.auth_key = token

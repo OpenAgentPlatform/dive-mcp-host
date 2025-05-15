@@ -6,7 +6,7 @@ from pydantic import BaseModel
 class OAPConfig(BaseModel):
     """OAP Config."""
 
-    auth_key: str
+    auth_key: str | None = None
     store_url: str
     verify_ssl: bool = True
 
