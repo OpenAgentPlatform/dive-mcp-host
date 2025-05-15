@@ -52,6 +52,8 @@ def load_model(
             f"dive_mcp_host.models.{model_name_lower}",
         )
         model = model_module.load_model(*args, **kwargs)
+    elif provider == "oap":
+        model = init_chat_model(model=model_name, model_provider="openai", **kwargs)
     elif provider == "__load__":
         module_path, class_name = model_name.rsplit(":", 1)
         model_module = import_module(module_path)

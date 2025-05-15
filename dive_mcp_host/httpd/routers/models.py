@@ -8,6 +8,7 @@ from pydantic import (
     Field,
     RootModel,
     SecretStr,
+    ValidationError,
     field_serializer,
     model_validator,
 )
@@ -223,13 +224,19 @@ class ModelSingleConfig(BaseModel):
     @model_validator(mode="after")
     def post_validate(self) -> Self:
         """Validate the model config by converting to LLMConfigTypes."""
-        get_llm_config_type(self.model_provider).model_validate(self.model_dump())
-
         # ollama doesn't work well with normal bind tools
         if self.model_provider == "ollama":
             self.tools_in_prompt = True
 
+        self.to_host_llm_config()
+
         return self
+
+    def to_host_llm_config(self) -> LLMConfigTypes:
+        """Convert to LLMConfigTypes."""
+        return get_llm_config_type(self.model_provider).model_validate(
+            self.model_dump()
+        )
 
     @field_serializer("api_key", when_used="json")
     def dump_api_key(self, v: SecretStr | None) -> str | None:
