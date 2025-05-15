@@ -14,6 +14,7 @@ class OAPHttpHandlers:
         self._mcp_server_manager = mcp_server_manager
         self._router = APIRouter(tags=["oap_plugin"])
         self._router.post("/auth")(self.auth_handler)
+        self._router.delete("/auth")(self.logout_handler)
         self._router.post("/config/refresh")(self.refresh_config_handler)
 
     async def auth_handler(
@@ -22,6 +23,12 @@ class OAPHttpHandlers:
         """Update the device token."""
         self._mcp_server_manager.update_device_token(
             token, app.mcp_server_config_manager
+        )
+
+    async def logout_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:
+        """Logout the device."""
+        self._mcp_server_manager.update_device_token(
+            None, app.mcp_server_config_manager
         )
 
     async def refresh_config_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:

@@ -111,9 +111,9 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
         if value["extraData"] and value["extraData"].get("oap"):
             assert value["enabled"] is True
 
-    # drop mcp token
-    response = client.post(
-        "/api/plugins/oap-platform/auth?token=invalid",
+    # drop mcp token (logout)
+    response = client.delete(
+        "/api/plugins/oap-platform/auth",
     )
     assert response.status_code == 200
 
