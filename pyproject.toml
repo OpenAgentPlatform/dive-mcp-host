@@ -30,7 +30,7 @@ dependencies = [
     "langgraph-prebuilt>=0.1.8",
     "langgraph>=0.4.3",
     "fastapi>=0.115.12",
-    "mcp>=1.7.1",
+    "mcp>=1.9",
     "anyio>=4.9.0",
     "pydantic>=2.11.4",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",

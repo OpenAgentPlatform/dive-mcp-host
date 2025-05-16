@@ -18,6 +18,7 @@ from mcp.client.stdio.win32 import (
     get_windows_executable_command,
     terminate_windows_process,
 )
+from mcp.shared.message import SessionMessage
 
 from dive_mcp_host.host.tools.log import LogProxy
 
@@ -49,17 +50,17 @@ async def stdio_client(  # noqa: C901, PLR0915
     errlog: LogProxy,
 ) -> AsyncGenerator[
     tuple[
-        MemoryObjectReceiveStream[types.JSONRPCMessage | Exception],
-        MemoryObjectSendStream[types.JSONRPCMessage],
+        MemoryObjectReceiveStream[SessionMessage | Exception],
+        MemoryObjectSendStream[SessionMessage],
     ],
     None,
 ]:
     """Copy of mcp.client.stdio.stdio_client."""
-    read_stream: MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-    read_stream_writer: MemoryObjectSendStream[types.JSONRPCMessage | Exception]
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
+    read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
-    write_stream: MemoryObjectSendStream[types.JSONRPCMessage]
-    write_stream_reader: MemoryObjectReceiveStream[types.JSONRPCMessage]
+    write_stream: MemoryObjectSendStream[SessionMessage]
+    write_stream_reader: MemoryObjectReceiveStream[SessionMessage]
 
     read_stream_writer, read_stream = anyio.create_memory_object_stream(0)
     write_stream, write_stream_reader = anyio.create_memory_object_stream(0)
@@ -114,7 +115,8 @@ async def stdio_client(  # noqa: C901, PLR0915
                             await read_stream_writer.send(exc)
                             continue
 
-                        await read_stream_writer.send(message)
+                        session_message = SessionMessage(message)
+                        await read_stream_writer.send(session_message)
         except anyio.ClosedResourceError:
             await anyio.lowlevel.checkpoint()
         finally:
@@ -125,8 +127,10 @@ async def stdio_client(  # noqa: C901, PLR0915
 
         try:
             async with write_stream_reader:
-                async for message in write_stream_reader:
-                    json = message.model_dump_json(by_alias=True, exclude_none=True)
+                async for session_message in write_stream_reader:
+                    json = session_message.message.model_dump_json(
+                        by_alias=True, exclude_none=True
+                    )
                     await process.stdin.send(
                         (json + "\n").encode(
                             encoding=server.encoding,
