@@ -65,14 +65,13 @@ class BaseLLMConfig(BaseModel):
 
     model: str = "gpt-4o"
     model_provider: str | SpecialProvider = Field(default="openai")
-    streaming: bool | None = True
-    max_tokens: int | None = Field(default=None)
     tools_in_prompt: bool = Field(default=False)
     """Teach the model to use tools in the prompt."""
 
     disable_streaming: bool | Literal["tool_calling"] = False
     """Disable streaming entirely or only when tool calling."""
 
+    max_tokens: int | None = Field(default=None)
     model_config = pydantic_model_config
 
 
@@ -103,7 +102,6 @@ class LLMConfig(BaseLLMConfig):
     api_key: SecretStr | None = Field(default=None)
     configuration: LLMConfiguration | None = Field(default=None)
     default_headers: dict[str, str] | None = None
-    max_tokens: int | None = Field(default=None)
 
     model_config = pydantic_model_config
 
@@ -113,7 +111,6 @@ class LLMConfig(BaseLLMConfig):
             "configuration",
             "model_provider",
             "model",
-            "streaming",
             "tools_in_prompt",
         }
         if self.model_provider == "anthropic" and self.max_tokens is None:

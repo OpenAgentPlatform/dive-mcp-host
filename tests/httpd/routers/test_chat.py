@@ -982,7 +982,10 @@ def test_chat_error(test_client, monkeypatch):
                 has_chat_info = True
             if inner_json["type"] == "error":
                 has_error = True
-                assert inner_json["content"] == "an test error"
+                assert (
+                    inner_json["content"]
+                    == "<thread-query-error>an test error</thread-query-error>"
+                )
 
     assert has_chat_info
     assert has_error

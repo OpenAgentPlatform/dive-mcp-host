@@ -90,7 +90,8 @@ class EventStreamContextManager:
 
             logger.error(traceback.format_exception(exc_type, exc_val, exc_tb))
             self._exit_message = StreamMessage(
-                type="error", content=str(exc_val)
+                type="error",
+                content=f"<thread-query-error>{exc_val}</thread-query-error>",
             ).model_dump_json(by_alias=True)
 
         self.done = True
@@ -172,6 +173,7 @@ class ChatProcessor:
         dive_user: DiveUser = self.request_state.dive_user
         title = "New Chat"
         title_await = None
+        result = ""
 
         if isinstance(query_input, QueryInput) and query_input.text:
             async with self.app.db_sessionmaker() as session:
@@ -542,7 +544,9 @@ class ChatProcessor:
                     {"messages": [HumanMessage(content=query)]}
                 )
                 if isinstance(response["messages"][-1], AIMessage):
-                    return strip_title(response["messages"][-1].content)
+                    return strip_title(
+                        self._str_output_parser.invoke(response["messages"][-1])
+                    )
         except Exception as e:
             logger.exception("Error generating title: %s", e)
         return "New Chat"

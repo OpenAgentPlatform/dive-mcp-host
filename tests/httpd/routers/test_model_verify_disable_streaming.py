@@ -1,6 +1,6 @@
 import os
 from contextlib import suppress
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -22,7 +22,41 @@ MOCK_MODEL_SETTING = {
 }
 
 
-def test_verify_openai(test_client):
+def test_do_verify_model_with_env_api_key(test_client):
+    """Test the /api/model_verify POST endpoint."""
+    if not os.environ.get("OPENAI_API_KEY"):
+        pytest.skip("OPENAI_API_KEY is not set")
+    client, _ = test_client
+
+    # Prepare test data
+    test_settings = {
+        "modelSettings": {
+            **MOCK_MODEL_SETTING,
+            "apiKey": os.environ.get("OPENAI_API_KEY"),
+        },
+    }
+
+    # Send request
+    response = client.post(
+        "/model_verify",
+        json=test_settings,
+    )
+
+    # Verify response status code
+    assert response.status_code == status.HTTP_200_OK
+
+    # Parse JSON response
+    response_data = cast("dict", response.json())
+
+    # Validate response structure
+    assert response_data["success"] is True
+
+    # Validate result structure
+    assert response_data.get("connecting", {}).get("success") is True
+    assert response_data.get("supportTools", {}).get("success") is True
+
+
+def test_verify_model_streaming_with_env_api_key(test_client):
     """Test the /api/model_verify/streaming POST endpoint."""
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY is not set")
