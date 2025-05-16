@@ -648,12 +648,24 @@ class ChatProcessor:
 
         # NOTE: Current implementation only supports loading content from local
         # file system, url is used as context for mcp tool calls.
+
+        # NOTE: str order will be [local, url, local, url... etc]
+        image_count = 0
         for location in query_input.images or []:
+            file_name = f"image_{image_count}.jpg"
             if self.store.is_url(location):
                 content.append(
                     {
                         "type": "text",
-                        "text": f"image url: {location}",
+                        "text": f"The url of {file_name} is {location}",
+                    }
+                )
+                content.append(
+                    {
+                        "type": "image",
+                        "source_type": "url",
+                        "url": location,
+                        "file_name": file_name,
                     }
                 )
             if self.store.is_local_file(location):
@@ -665,21 +677,24 @@ class ChatProcessor:
                 #         "text": f"![Image]({base64_image})",
                 #     }
                 # )
-                content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": base64_image,
-                        },
-                    }
-                )
+                # content.append(
+                #     {
+                #         "type": "image_url",
+                #         "image_url": {
+                #             "url": base64_image,
+                #         },
+                #     }
+                # )
+            image_count += 1
 
+        doc_count = 0
         for location in query_input.documents or []:
+            file_name = f"document_{image_count}"
             if self.store.is_url(location):
                 content.append(
                     {
                         "type": "text",
-                        "text": f"document url: {location}",
+                        "text": f"{file_name} url: {location}",
                     }
                 )
             if self.store.is_local_file(location):
@@ -687,9 +702,10 @@ class ChatProcessor:
                 content.append(
                     {
                         "type": "text",
-                        "text": f"source: {location}, content: {base64_document}",
+                        "text": f"{file_name} source: {location}, content: {base64_document}",
                     },
                 )
+            doc_count += 1
 
         return HumanMessage(content=content, id=message_id)
 

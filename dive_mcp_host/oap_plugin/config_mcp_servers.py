@@ -16,7 +16,6 @@ from dive_mcp_host.httpd.conf.mcp_servers import (
 )
 from dive_mcp_host.oap_plugin.models import BaseResponse, OAPConfig, UserMcpConfig
 
-OAP_ROOT_URL = "https://oap-hub.biggo.dev"
 CONFIG_FILE = Path(DIVE_CONFIG_DIR, "oap_config.json")
 logger = logging.getLogger("OAP_PLUGIN")
 
@@ -26,13 +25,13 @@ MIN_REFRESH_INTERVAL = 60
 class MCPServerManagerPlugin:
     """Manage MCP Server configurations in OAP Plugin."""
 
-    def __init__(self, device_token: str | None) -> None:
+    def __init__(self, device_token: str | None, oap_root_url: str) -> None:
         """Initialize the MCPServerConfigs from OAP."""
         self.device_token: str | None = device_token
         self._user_mcp_configs: list[UserMcpConfig] | None = []
         self._refresh_ts: float = 0
         self._http_client = httpx.Client(
-            base_url=OAP_ROOT_URL,
+            base_url=oap_root_url,
             headers={"Authorization": f"bearer {self.device_token}"}
             if self.device_token
             else None,
@@ -141,10 +140,11 @@ class MCPServerManagerPlugin:
 def read_oap_config() -> OAPConfig:
     """Read the OAP config."""
     if not CONFIG_FILE.exists():
-        return OAPConfig(auth_key="", store_url="")
+        return OAPConfig()
 
     with CONFIG_FILE.open("r") as f:
-        return OAPConfig.model_validate_json(f.read())
+        _tmp = OAPConfig.model_validate_json(f.read())
+        return OAPConfig(auth_key=_tmp.auth_key)
 
 
 def update_oap_token(token: str | None) -> None:
