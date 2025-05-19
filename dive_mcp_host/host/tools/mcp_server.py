@@ -40,14 +40,21 @@ from dive_mcp_host.host.tools.stdio_server import stdio_client
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable
 
+    from anyio.streams.memory import (
+        MemoryObjectReceiveStream,
+        MemoryObjectSendStream,
+    )
+    from mcp.shared.message import SessionMessage
+
     from dive_mcp_host.host.conf import (
         ServerConfig,
     )
-    from dive_mcp_host.host.tools import (
-        ReadStreamType,
-        StreamContextType,
-        WriteStreamType,
-    )
+
+    type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
+    type WriteStreamType = MemoryObjectSendStream[SessionMessage]
+    type StreamContextType = AbstractAsyncContextManager[
+        tuple[ReadStreamType, WriteStreamType]
+    ]
 
 logger = getLogger(__name__)
 

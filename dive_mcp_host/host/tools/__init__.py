@@ -5,33 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
-from contextlib import AbstractAsyncContextManager
 from itertools import chain
 from typing import TYPE_CHECKING, Self
 
-from mcp import types
-
-from dive_mcp_host.host.conf import (
-    LogConfig,
-    ServerConfig,
-)
+from dive_mcp_host.host.conf import LogConfig, ServerConfig
 from dive_mcp_host.host.helpers.context import ContextProtocol
-from dive_mcp_host.host.tools.log import (
-    LogManager,
-)
+from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
-
-    from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-
-
-type ReadStreamType = MemoryObjectReceiveStream[types.JSONRPCMessage | Exception]
-type WriteStreamType = MemoryObjectSendStream[types.JSONRPCMessage]
-type StreamContextType = AbstractAsyncContextManager[
-    tuple[ReadStreamType, WriteStreamType]
-]
 
 
 logger = logging.getLogger(__name__)
