@@ -62,23 +62,32 @@ class MCPServerManagerPlugin:
     def current_config_callback(self, config: Config) -> Config:
         """Callback function for getting current config."""
         mcp_servers = self._get_user_mcp_configs()
+
+        # oap id and enabled
+        mcp_enabled = {}
+        for server in config.mcp_servers.values():
+            if oap := (server.extra_data or {}).get("oap"):
+                mcp_enabled[oap["id"]] = server.enabled
+
         # remove oap mcp servers
-        if mcp_servers is None:
+        if mcp_servers is None or len(mcp_servers) > 0:
             for key in config.mcp_servers.copy():
                 value = config.mcp_servers[key]
                 if value.extra_data and value.extra_data.get("oap"):
                     config.mcp_servers.pop(key)
+
+        if mcp_servers is None:
             return config
 
         for server in mcp_servers:
-            old_server = config.mcp_servers.get(server.name)
             config.mcp_servers[server.name] = MCPServerConfig(
-                enabled=old_server.enabled if old_server else True,
+                enabled=mcp_enabled.get(server.id, True),
                 url=server.url,
                 transport=server.transport,
                 headers=server.headers,  # type: ignore
                 extraData={
                     "oap": {
+                        "id": server.id,
                         "planTag": server.plan.lower(),
                         "description": server.description,
                     }
