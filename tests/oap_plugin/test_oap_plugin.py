@@ -43,7 +43,7 @@ async def test_client(
         yield client, app
 
 
-def test_oap_plugin(
+def test_oap_plugin(  # noqa: C901, PLR0915
     test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
 ):
     """Test the OAP plugin."""
