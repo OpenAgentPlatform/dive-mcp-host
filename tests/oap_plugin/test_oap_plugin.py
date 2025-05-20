@@ -1,6 +1,6 @@
-import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import pytest_asyncio
@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from dive_mcp_host.httpd.app import create_app
 from dive_mcp_host.httpd.conf.httpd_service import ConfigLocation, ServiceManager
 from dive_mcp_host.httpd.server import DiveHostAPI
+from dive_mcp_host.oap_plugin.config_mcp_servers import MCPServerManagerPlugin
+from dive_mcp_host.oap_plugin.models import UserMcpConfig
 from tests.httpd.routers.conftest import ConfigFileNames, config_files  # noqa: F401
-
-OAP_TOKEN = os.environ.get("OAP_TOKEN")
 
 
 @pytest_asyncio.fixture
@@ -43,10 +43,35 @@ async def test_client(
         yield client, app
 
 
-def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
+def test_oap_plugin(
+    test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
+):
     """Test the OAP plugin."""
-    if not OAP_TOKEN:
-        pytest.skip("OAP_TOKEN is not set")
+    oap_token = "fake-token"  # noqa: S105
+
+    config = UserMcpConfig(
+        id="19181672830075666433",
+        name="Fake Mcp Server",
+        description="a fake mcp server, for testing",
+        transport="sse",
+        url="http://127.0.0.1:3260",
+        headers={"Authorization": f"Bearer {oap_token}"},
+        plan="free",
+    )
+
+    def mock_get_user_mcp(
+        self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
+    ) -> list[UserMcpConfig] | None:
+        """Mock the get_user_mcp method."""
+        if not self.device_token:
+            return None
+
+        return [config]
+
+    monkeypatch.setattr(
+        "dive_mcp_host.oap_plugin.config_mcp_servers.MCPServerManagerPlugin._get_user_mcp_configs",
+        mock_get_user_mcp,
+    )
 
     client, _ = test_client
     response = client.get("/api/config/mcpserver")
@@ -57,7 +82,7 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
 
     # load mcp token
     response = client.post(
-        f"/api/plugins/oap-platform/auth?token={OAP_TOKEN}",
+        f"/api/plugins/oap-platform/auth?token={oap_token}",
     )
     assert response.status_code == 200
 
@@ -126,7 +151,7 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
 
     # login again
     response = client.post(
-        f"/api/plugins/oap-platform/auth?token={OAP_TOKEN}",
+        f"/api/plugins/oap-platform/auth?token={oap_token}",
     )
     assert response.status_code == 200
 
@@ -136,3 +161,22 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
 
     servers = response.json()["config"]["mcpServers"]
     assert len(servers) > 1
+
+    config.name = "Fake Mcp Server (updated)"
+    # refresh mcp server
+    response = client.post(
+        "/api/plugins/oap-platform/config/refresh",
+    )
+    assert response.status_code == 200
+
+    # get mcp server
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+
+    servers = response.json()["config"]["mcpServers"]
+    assert len(servers) > 1
+
+    for key in servers:
+        value = servers[key]
+        if value["extraData"] and value["extraData"].get("oap"):
+            assert key == config.name
