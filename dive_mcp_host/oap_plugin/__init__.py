@@ -12,12 +12,11 @@ from dive_mcp_host.oap_plugin.config_mcp_servers import (
     read_oap_config,
 )
 from dive_mcp_host.oap_plugin.http_handlers import OAPHttpHandlers
-from dive_mcp_host.plugins.registry import PluginCallbackDef
 
 from .store import OAPStore, oap_store
 
 
-def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
+def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], str]]:
     """Get the static callbacks."""
     oap_config = read_oap_config()
 
@@ -27,21 +26,14 @@ def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], PluginCallback
     handlers = OAPHttpHandlers(mcp_plugin, oap_store)
 
     return {
-        "get_mcp_configs": (
-            mcp_plugin.current_config_callback,
-            PluginCallbackDef(
-                hook_point=CurrentConfigHookName, callback="get_mcp_configs"
-            ),
-        ),
+        "get_mcp_configs": (mcp_plugin.current_config_callback, CurrentConfigHookName),
         "update_all_configs": (
             mcp_plugin.update_all_config_callback,
-            PluginCallbackDef(
-                hook_point=UpdateAllConfigsHookName, callback="update_all_configs"
-            ),
+            UpdateAllConfigsHookName,
         ),
         "http_routes": (
             handlers.get_router,
-            PluginCallbackDef(hook_point="httpd.routers", callback="http_routes"),
+            "httpd.routers",
         ),
     }
 
@@ -65,7 +57,7 @@ class OAPPlugin:
         """Exit the OAP Plugin."""
         return True
 
-    def callbacks(self) -> dict[str, tuple[Callable[..., Any], PluginCallbackDef]]:
+    def callbacks(self) -> dict[str, tuple[Callable[..., Any], str]]:
         """Get the callbacks."""
 
         async def _get_oap_store() -> OAPStore:
@@ -74,6 +66,6 @@ class OAPPlugin:
         return {
             "oap_store": (
                 _get_oap_store,
-                PluginCallbackDef(hook_point=StoreHookName, callback="oap_store"),
+                StoreHookName,
             ),
         }

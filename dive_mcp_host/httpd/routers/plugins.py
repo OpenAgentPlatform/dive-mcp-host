@@ -3,7 +3,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
+from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
 
 class RouterPlugin:
@@ -19,7 +19,7 @@ class RouterPlugin:
     async def register_plugin(
         self,
         _callback: Callable[..., Coroutine[Any, Any, Any]],
-        _callback_def: PluginCallbackDef,
+        _hook_name: str,
         _plugin_name: str,
     ) -> bool:
         """Callback used to register plugin."""
@@ -28,7 +28,7 @@ class RouterPlugin:
     def static_register_plugin(
         self,
         callback: Callable[..., Any],
-        _callback_def: PluginCallbackDef,
+        _hook_name: str,
         plugin_name: str,
     ) -> bool:
         """Callback used to register plugin."""

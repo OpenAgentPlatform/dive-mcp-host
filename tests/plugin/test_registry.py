@@ -7,7 +7,6 @@ from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.plugins.registry import (
     Callbacks,
     HookInfo,
-    PluginCallbackDef,
     PluginDef,
     PluginError,
     PluginHookNameAlreadyRegisteredError,
@@ -38,11 +37,11 @@ class PluginA(ContextProtocol):
         return {
             "hook1": (
                 callback_func1,
-                PluginCallbackDef(hook_point="hook1", callback="callback_func1"),
+                "hook1",
             ),
             "hook2": (
                 callback_func2,
-                PluginCallbackDef(hook_point="hook2", callback="callback_func2"),
+                "hook2",
             ),
         }
 
@@ -55,7 +54,7 @@ class PluginB(PluginA):
         return {
             "hookx": (
                 callback_func2,
-                PluginCallbackDef(hook_point="hookx", callback="callback_func2"),
+                "hookx",
             ),
         }
 
@@ -67,10 +66,8 @@ async def test_plugin_manager():
     callback_registry = {}
     hooks = []
 
-    async def register_hook(
-        callback_func, callback_info: PluginCallbackDef, plugin_name
-    ):
-        callback_registry[f"{plugin_name}.{callback_info.hook_point}"] = callback_func
+    async def register_hook(callback_func, hook_name: str, plugin_name: str):
+        callback_registry[f"{plugin_name}.{hook_name}"] = callback_func
         return True
 
     # Test hook registration
