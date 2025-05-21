@@ -8,7 +8,7 @@ from pathlib import Path
 from types import ModuleType, TracebackType
 from typing import Any, Protocol, Self
 
-from pydantic import BaseModel, ConfigDict, RootModel
+from pydantic import BaseModel, RootModel
 
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.plugins.error import (
@@ -24,20 +24,6 @@ logger = logging.getLogger(__name__)
 type PlugInName = str
 type HookPoint = str
 type CallbackName = str
-
-
-class PluginCallbackDef(BaseModel):
-    """Plugin callback definition.
-
-    Attributes:
-        callback: The name of the callback function to be hooked
-        hook_point: The hook point where this callback should be registered
-    """
-
-    hook_point: HookPoint
-    callback: CallbackName
-
-    model_config = ConfigDict(extra="allow")
 
 
 class PluginDef(BaseModel):
@@ -78,7 +64,7 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
         Callable[
             [
                 Callable[HOOK_PARAMS, Coroutine[Any, Any, HOOK_RET]],
-                PluginCallbackDef,
+                HookPoint,
                 PlugInName,
             ],
             Coroutine[Any, Any, bool],
@@ -89,7 +75,7 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
         Callable[
             [
                 Callable[HOOK_PARAMS, HOOK_RET],
-                PluginCallbackDef,
+                HookPoint,
                 PlugInName,
             ],
             bool,
@@ -104,7 +90,7 @@ class HookInfo[**HOOK_PARAMS, HOOK_RET]:
 
 type Callbacks = dict[
     HookPoint,
-    tuple[Callable[..., Coroutine[Any, Any, Any]], PluginCallbackDef],
+    tuple[Callable[..., Coroutine[Any, Any, Any]], HookPoint],
 ]
 
 
@@ -137,7 +123,7 @@ class LoadedPlugin:
     config: dict[str, Any]
     info: PluginDef
     ctx_manager: Callable[[dict[str, Any]], CtxManager] | None
-    static_callbacks: dict[str, tuple[Callable[..., Any], PluginCallbackDef]] = field(
+    static_callbacks: dict[str, tuple[Callable[..., Any], HookPoint]] = field(
         default_factory=dict
     )
 
@@ -203,9 +189,8 @@ class PluginManager:
             callbacks = ctx_manager.callbacks()
             for _, (
                 callback_func,
-                hook_info,
+                hook_point,
             ) in callbacks.items():
-                hook_point = hook_info.hook_point
                 try:
                     registered_hook = self._hooks[hook_point]
                 except KeyError:
@@ -227,7 +212,7 @@ class PluginManager:
                 if (
                     registered_hook.hook_info.register
                     and await registered_hook.hook_info.register(
-                        callback_func, hook_info, plugin_name
+                        callback_func, hook_point, plugin_name
                     )
                 ):
                     self._plugin_used[hook_point].append(plugin_name)
@@ -272,12 +257,12 @@ class PluginManager:
 
         for _, (
             callback_func,
-            hook_info,
+            hook_point,
         ) in loaded_plugin.static_callbacks.items():
-            registered_hook = self._hooks.get(hook_info.hook_point)
+            registered_hook = self._hooks.get(hook_point)
             if registered_hook and registered_hook.hook_info.static_register:
                 registered_hook.hook_info.static_register(
-                    callback_func, hook_info, plugin_name
+                    callback_func, hook_point, plugin_name
                 )
 
 

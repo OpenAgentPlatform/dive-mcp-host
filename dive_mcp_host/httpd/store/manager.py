@@ -14,7 +14,7 @@ from PIL import Image
 from dive_mcp_host.env import RESOURCE_DIR
 from dive_mcp_host.httpd.store.base import FileType, StoreManagerProtocol, StoreProtocol
 from dive_mcp_host.httpd.store.local import LocalStore
-from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
+from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
 type GetStoreCallback = Callable[[], Coroutine[Any, Any, StoreProtocol]]
 
@@ -33,9 +33,7 @@ class StoreManager(StoreManagerProtocol):
         """
         super().__init__()
         self._local_store = LocalStore(root_dir)
-        self._storage_callbacks: list[
-            tuple[GetStoreCallback, PluginCallbackDef, str]
-        ] = []
+        self._storage_callbacks: list[tuple[GetStoreCallback, str]] = []
         self._storages: list[StoreProtocol] = []
 
     async def upload_files(
@@ -69,7 +67,7 @@ class StoreManager(StoreManagerProtocol):
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._local_store)
-            for callback, _, _ in self._storage_callbacks:
+            for callback, _ in self._storage_callbacks:
                 store = await callback()
                 await stack.enter_async_context(store)
                 self._storages.append(store)
@@ -152,11 +150,11 @@ class StoreManager(StoreManagerProtocol):
     async def register_plugin(
         self,
         callback: GetStoreCallback,
-        callback_def: PluginCallbackDef,
+        _hook_name: str,
         plugin_name: str,
     ) -> bool:
         """Register the static plugin."""
-        self._storage_callbacks.append((callback, callback_def, plugin_name))
+        self._storage_callbacks.append((callback, plugin_name))
         return True
 
     def register_hook(self, manager: PluginManager) -> None:

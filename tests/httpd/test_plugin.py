@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.httpd.conf.httpd_service import ConfigLocation, ServiceManager
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.plugins.registry import Callbacks, PluginCallbackDef
+from dive_mcp_host.plugins.registry import Callbacks
 from tests.httpd.routers.conftest import ConfigFileNames, config_files  # noqa: F401
 
 
@@ -58,15 +58,11 @@ class HttpdPlugin(ContextProtocol):
         return {
             "hook1": (
                 self._extra_input_plugin,
-                PluginCallbackDef(
-                    hook_point="httpd.middlewares", callback="extra_input_plugin"
-                ),
+                "httpd.middlewares",
             ),
             "hook2": (
                 self._extra_output_plugin,
-                PluginCallbackDef(
-                    hook_point="httpd.middlewares", callback="extra_output_plugin"
-                ),
+                "httpd.middlewares",
             ),
         }
 
@@ -96,7 +92,7 @@ def static_callbacks():
     return {
         "routers": (
             lambda: plugin_router,
-            PluginCallbackDef(hook_point="httpd.routers", callback="plugin_router"),
+            "httpd.routers",
         )
     }
 

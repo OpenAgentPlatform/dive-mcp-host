@@ -2,7 +2,6 @@ import json
 import logging
 import os
 from collections.abc import Callable
-from functools import partial
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -10,7 +9,7 @@ from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_seriali
 
 from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.httpd.conf.misc import write_then_replace
-from dive_mcp_host.plugins.registry import HookInfo, PluginCallbackDef, PluginManager
+from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
 
 # Define necessary types for configuration
@@ -66,12 +65,8 @@ class MCPServerManager:
         self._config_path: str = config_path or str(DIVE_CONFIG_DIR / "mcp_config.json")
         self._current_config: Config | None = None
 
-        self._update_config_callbacks: list[
-            tuple[McpServerConfigCallback, PluginCallbackDef, str]
-        ] = []
-        self._current_config_callbacks: list[
-            tuple[McpServerConfigCallback, PluginCallbackDef, str]
-        ] = []
+        self._update_config_callbacks: list[tuple[McpServerConfigCallback, str]] = []
+        self._current_config_callbacks: list[tuple[McpServerConfigCallback, str]] = []
 
     @property
     def config_path(self) -> str:
@@ -150,15 +145,14 @@ class MCPServerManager:
     def register_plugin(
         self,
         callback: McpServerConfigCallback,
-        callback_def: PluginCallbackDef,
-        plugin_name: str,
         hook_name: str,
+        plugin_name: str,
     ) -> bool:
         """Register the static plugin."""
         if hook_name == CurrentConfigHookName:
-            self._current_config_callbacks.append((callback, callback_def, plugin_name))
+            self._current_config_callbacks.append((callback, plugin_name))
         elif hook_name == UpdateAllConfigsHookName:
-            self._update_config_callbacks.append((callback, callback_def, plugin_name))
+            self._update_config_callbacks.append((callback, plugin_name))
         else:
             return False
         return True
@@ -168,19 +162,13 @@ class MCPServerManager:
         manager.register_hookable(
             HookInfo(
                 hook_name=CurrentConfigHookName,
-                static_register=partial(
-                    self.register_plugin,
-                    hook_name=CurrentConfigHookName,
-                ),
+                static_register=self.register_plugin,
             )
         )
 
         manager.register_hookable(
             HookInfo(
                 hook_name=UpdateAllConfigsHookName,
-                static_register=partial(
-                    self.register_plugin,
-                    hook_name=UpdateAllConfigsHookName,
-                ),
+                static_register=self.register_plugin,
             )
         )
