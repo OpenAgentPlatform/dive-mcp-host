@@ -1,7 +1,6 @@
 import json
 import tempfile
 from collections.abc import Generator
-from unittest.mock import Mock
 
 import pytest
 
@@ -60,7 +59,7 @@ def test_current_config_hook(
 
     assert (
         manager.register_plugin(
-            modify_current_config, Mock(), "test_plugin", CurrentConfigHookName
+            modify_current_config, CurrentConfigHookName, "test_plugin"
         )
         is True
     )
@@ -83,9 +82,7 @@ def test_current_config_hook(
         return config
 
     assert (
-        manager.register_plugin(
-            add_new_server, Mock(), "test_plugin", CurrentConfigHookName
-        )
+        manager.register_plugin(add_new_server, CurrentConfigHookName, "test_plugin")
         is True
     )
 
@@ -105,9 +102,7 @@ def test_current_config_hook(
         return config
 
     assert (
-        manager.register_plugin(
-            remove_server, Mock(), "test_plugin", CurrentConfigHookName
-        )
+        manager.register_plugin(remove_server, CurrentConfigHookName, "test_plugin")
         is True
     )
 
@@ -139,7 +134,7 @@ def test_update_all_configs_hook(
 
     assert (
         manager.register_plugin(
-            modify_update_config, Mock(), "test_plugin", UpdateAllConfigsHookName
+            modify_update_config, UpdateAllConfigsHookName, "test_plugin"
         )
         is True
     )
@@ -175,9 +170,7 @@ def test_update_all_configs_hook(
         return config
 
     assert (
-        manager.register_plugin(
-            modify_servers, Mock(), "test_plugin", UpdateAllConfigsHookName
-        )
+        manager.register_plugin(modify_servers, UpdateAllConfigsHookName, "test_plugin")
         is True
     )
 
@@ -199,8 +192,6 @@ def test_update_all_configs_hook(
 
     # Test invalid hook name
     assert (
-        manager.register_plugin(
-            modify_update_config, Mock(), "test_plugin", "invalid_hook"
-        )
+        manager.register_plugin(modify_update_config, "invalid_hook", "test_plugin")
         is False
     )
