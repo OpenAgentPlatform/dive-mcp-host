@@ -52,6 +52,7 @@ async def stdio_client(  # noqa: C901, PLR0915
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
         MemoryObjectSendStream[SessionMessage],
+        int,
     ],
     None,
 ]:
@@ -150,7 +151,7 @@ async def stdio_client(  # noqa: C901, PLR0915
         tg.start_soon(stdin_writer)
         tg.start_soon(stderr_reader)
         try:
-            yield read_stream, write_stream
+            yield read_stream, write_stream, process.pid
         except Exception as exc:  # noqa: BLE001
             logger.error("Error closing process %s: %s", process.pid, exc)
         finally:
