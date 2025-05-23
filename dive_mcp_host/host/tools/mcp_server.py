@@ -800,11 +800,14 @@ class McpTool(BaseTool):
     @classmethod
     def from_tool(cls, tool: types.Tool, mcp_server: McpServer) -> Self:
         """Create a McpTool from a langchain tool."""
+        input_schema = tool.inputSchema.copy()
+        if "properties" not in input_schema:
+            input_schema["properties"] = {}
         return cls(
             toolkit_name=mcp_server.name,
             name=tool.name,
             description=tool.description or "",
             mcp_server=mcp_server,
             kwargs_arg="kwargs" in tool.inputSchema,
-            args_schema=tool.inputSchema,
+            args_schema=input_schema,
         )
