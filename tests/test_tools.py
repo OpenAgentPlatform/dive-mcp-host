@@ -15,6 +15,7 @@ from langchain_core.messages import (
     ToolCall,
     ToolMessage,
 )
+from mcp.types import Tool
 
 from dive_mcp_host.host.conf import HostConfig, LogConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
@@ -25,6 +26,7 @@ from dive_mcp_host.host.tools import (
     ServerConfig,
     ToolManager,
 )
+from dive_mcp_host.host.tools.mcp_server import McpTool
 from dive_mcp_host.host.tools.model_types import ClientState
 
 if TYPE_CHECKING:
@@ -516,3 +518,31 @@ async def test_tool_manager_uvx_failed(log_config: LogConfig) -> None:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 0
+
+
+def test_tool_missing_properties(log_config: LogConfig) -> None:
+    """Test handling of MCP server tool schemas that lack properties.
+
+    Some MCP servers may return tool schemas without a properties field, but certain
+    model providers require properties to be present in the tool call schema.
+    """
+    tool = Tool(
+        name="dummy",
+        description="A dummy tool that returns a fixed string.",
+        inputSchema={"type": "Object"},
+    )
+    mcp_server = McpServer(
+        name="dummy",
+        config=ServerConfig(
+            name="dummy",
+            command="dummy",
+            transport="stdio",
+        ),
+    )
+    mcp_tool = McpTool.from_tool(tool, mcp_server)
+
+    assert mcp_tool.args_schema is not None
+    if isinstance(mcp_tool.args_schema, dict):
+        assert "properties" in mcp_tool.args_schema
+    else:
+        assert "properties" in mcp_tool.args_schema.model_json_schema()
