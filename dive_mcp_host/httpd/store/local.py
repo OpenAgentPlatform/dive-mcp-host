@@ -10,7 +10,7 @@ from fastapi import UploadFile
 from PIL import Image
 
 from dive_mcp_host.env import RESOURCE_DIR
-from dive_mcp_host.httpd.store.base import StoreProtocol
+from dive_mcp_host.host.store.base import StoreProtocol
 
 
 class LocalStore(StoreProtocol):
@@ -57,6 +57,11 @@ class LocalStore(StoreProtocol):
         """Get the file from the local store."""
         path = Path(file_path)
         return path.read_bytes()
+
+    async def get_text_file(self, file_path: str | Path) -> str:
+        """Read text content from file."""
+        path = Path(file_path)
+        return path.read_text("utf-8")
 
     async def get_image(self, file_path: str) -> str:
         """Get the base64 encoded image from the local store."""

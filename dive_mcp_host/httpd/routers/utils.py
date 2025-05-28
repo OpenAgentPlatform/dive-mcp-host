@@ -5,7 +5,9 @@ import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AsyncExitStack, suppress
-from typing import TYPE_CHECKING, Any, Self
+from dataclasses import asdict, dataclass, field
+from itertools import batched
+from typing import TYPE_CHECKING, Any, Literal, Self
 from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
@@ -15,7 +17,13 @@ from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel
 from starlette.datastructures import State
 
+from dive_mcp_host.host.agents.file_in_additional_kwargs import (
+    DOCUMENTS_KEY,
+    IMAGES_KEY,
+    OAP_MIN_COUNT,
+)
 from dive_mcp_host.host.errors import LogBufferNotFoundError
+from dive_mcp_host.host.store.base import FileType
 from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.prompt import PromptKey
@@ -35,14 +43,11 @@ from dive_mcp_host.httpd.routers.models import (
     ToolResultContent,
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.httpd.store.base import (
-    FileType,
-    StoreManagerProtocol,
-)
 from dive_mcp_host.log import TRACE
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
+    from dive_mcp_host.host.store.base import StoreManagerProtocol
     from dive_mcp_host.httpd.middlewares.general import DiveUser
 
 title_prompt = """You are a title generator from the user input.
@@ -138,6 +143,27 @@ class ChatError(Exception):
     def __init__(self, message: str) -> None:
         """Initialize chat error."""
         self.message = message
+
+
+@dataclass(slots=True)
+class TextContent:
+    """Structure for text content."""
+
+    text: str
+    type: Literal["text"] = "text"
+
+    @classmethod
+    def create(cls, text: str) -> dict[str, str]:
+        """Create text content dict."""
+        return asdict(cls(text=text))
+
+
+@dataclass(slots=True)
+class ImageAndDocuments:
+    """Structure that contains image and documents."""
+
+    images: list[str] = field(default_factory=list)
+    documents: list[str] = field(default_factory=list)
 
 
 class ChatProcessor:
@@ -551,163 +577,86 @@ class ChatProcessor:
             logger.exception("Error generating title: %s", e)
         return "New Chat"
 
-    async def _process_history_messages(
-        self, history_messages: list[Message], history: list[BaseMessage]
-    ) -> list[BaseMessage]:
-        """Process history messages."""
-        for message in history_messages:
-            files: list[str] = message.files
-            if not files:
-                message_content = message.content.strip()
-                if message.role == Role.USER:
-                    history.append(
-                        HumanMessage(content=message_content, id=message.message_id)
-                    )
-                else:
-                    history.append(
-                        AIMessage(content=message_content, id=message.message_id)
-                    )
-            else:
-                content = []
-                if message.content:
-                    content.append(
-                        {
-                            "type": "text",
-                            "text": message.content,
-                        }
-                    )
+    def _is_using_oap(self, files: list[str]) -> bool:
+        return (
+            len(files) >= OAP_MIN_COUNT
+            and len(files) % OAP_MIN_COUNT == 0
+            and self.store.is_local_file(files[0])
+            and self.store.is_url(files[1])
+        )
 
-                # NOTE: File locations are stored as list of strings,
-                # the relations between the file path and urls are is lost...
-                # Need a better DB schema
+    def _seperate_img_and_doc_oap(self, files: list[str]) -> ImageAndDocuments:
+        """OAP file order, [local_path, url, ... etc]."""
+        result = ImageAndDocuments()
+        for local_path, url in batched(files, 2):
+            if FileType.from_file_path(local_path) == FileType.IMAGE:
+                result.images.extend([local_path, url])
+                continue
+            result.documents.extend([local_path, url])
+        return result
 
-                for file_location in files:
-                    if (
-                        self.store.is_local_file(file_location)
-                        and FileType.from_file_path(file_location) == FileType.IMAGE
-                    ):
-                        base64_image = await self.store.get_image(file_location)
-                        # content.append(
-                        #     {
-                        #         "type": "text",
-                        #         "text": f"![Image]({base64_image})",
-                        #     }
-                        # )
-                        content.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": base64_image,
-                                },
-                            }
-                        )
-                    elif (
-                        self.store.is_local_file(file_location)
-                        and FileType.from_file_path(file_location) == FileType.DOCUMENT
-                    ):
-                        base64_document, _ = await self.store.get_document(
-                            file_location
-                        )
-                        content.append(
-                            {
-                                "type": "text",
-                                "text": f"source: {file_location}, content: {base64_document}",  # noqa: E501
-                            },
-                        )
-                    elif self.store.is_url(file_location):
-                        content.append(
-                            {
-                                "type": "text",
-                                "text": f"file url: {file_location}",
-                            }
-                        )
+    def _seperate_img_and_doc(self, files: list[str]) -> ImageAndDocuments:
+        """File order, [local_path, local_path, ... etc]."""
+        result = ImageAndDocuments()
+        for local_path in files:
+            if FileType.from_file_path(local_path) == FileType.IMAGE:
+                result.images.append(local_path)
+                continue
+            result.documents.append(local_path)
+        return result
 
-                if message.role == Role.ASSISTANT:
-                    history.append(AIMessage(content=content, id=message.message_id))
-                else:
-                    history.append(HumanMessage(content=content, id=message.message_id))
+    def _extract_image_and_documents(self, files: list[str]) -> ImageAndDocuments:
+        if self._is_using_oap(files):
+            return self._seperate_img_and_doc_oap(files)
+        return self._seperate_img_and_doc(files)
 
-        return history
+    async def _process_history_message(self, message: Message) -> HumanMessage:
+        """Process history message."""
+        assert message.role == Role.USER, "Must be user message"
+        content = []
+        if message_content := message.content.strip():
+            content.append(TextContent.create(message_content))
+
+        if not message.files:
+            logger.debug("message has no files attatched")
+            return HumanMessage(content=message_content, id=message.message_id)
+
+        additional_kwargs: dict = {}
+        files = self._extract_image_and_documents(message.files)
+        if files.images:
+            logger.debug("found images: %s", len(files.images))
+            additional_kwargs[IMAGES_KEY] = files.images
+        if files.documents:
+            logger.debug("found documents: %s", len(files.documents))
+            additional_kwargs[DOCUMENTS_KEY] = files.documents
+
+        return HumanMessage(
+            content=content,
+            id=message.message_id,
+            additional_kwargs=additional_kwargs,
+        )
 
     async def _query_input_to_message(
         self, query_input: QueryInput, message_id: str | None = None
     ) -> HumanMessage:
         """Convert query input to message."""
         content = []
-
         if query_input.text:
-            content.append(
-                {
-                    "type": "text",
-                    "text": query_input.text,
-                }
-            )
+            content.append(TextContent.create(query_input.text))
 
-        # NOTE: Need a better way of representing the relations between
-        # file path, content and urls.
+        # We will convert image and documents into their respective msg format
+        # inside the graph.
+        additional_kwargs: dict = {}
+        if query_input.images:
+            additional_kwargs[IMAGES_KEY] = query_input.images
+        if query_input.documents:
+            additional_kwargs[DOCUMENTS_KEY] = query_input.documents
 
-        # NOTE: Current implementation only supports loading content from local
-        # file system, url is used as context for mcp tool calls.
-
-        # NOTE: str order will be [local, url, local, url... etc]
-        image_count = 0
-        for location in query_input.images or []:
-            file_name = f"image_{image_count}.jpg"
-            if self.store.is_url(location):
-                content.append(
-                    {
-                        "type": "text",
-                        "text": f"The url of {file_name} is {location}",
-                    }
-                )
-                content.append(
-                    {
-                        "type": "image",
-                        "source_type": "url",
-                        "url": location,
-                        "file_name": file_name,
-                    }
-                )
-            if self.store.is_local_file(location):
-                base64_image = await self.store.get_image(location)
-                # NOTE: This might not be needed, comment it out for now.
-                # content.append(
-                #     {
-                #         "type": "text",
-                #         "text": f"![Image]({base64_image})",
-                #     }
-                # )
-                # content.append(
-                #     {
-                #         "type": "image_url",
-                #         "image_url": {
-                #             "url": base64_image,
-                #         },
-                #     }
-                # )
-            image_count += 1
-
-        doc_count = 0
-        for location in query_input.documents or []:
-            file_name = f"document_{image_count}"
-            if self.store.is_url(location):
-                content.append(
-                    {
-                        "type": "text",
-                        "text": f"{file_name} url: {location}",
-                    }
-                )
-            if self.store.is_local_file(location):
-                base64_document, _ = await self.store.get_document(location)
-                content.append(
-                    {
-                        "type": "text",
-                        "text": f"{file_name} source: {location}, content: {base64_document}",
-                    },
-                )
-            doc_count += 1
-
-        return HumanMessage(content=content, id=message_id)
+        return HumanMessage(
+            content=content,
+            id=message_id,
+            additional_kwargs=additional_kwargs,
+        )
 
     async def _get_history_user_input(
         self, chat_id: str, message_id: str
@@ -730,12 +679,7 @@ class ChatProcessor:
             if message is None:
                 raise ChatError("message not found")
 
-            return (
-                await self._process_history_messages(
-                    [message],
-                    [],
-                )
-            )[0]
+            return await self._process_history_message(message)
 
 
 class LogStreamHandler:
