@@ -13,6 +13,7 @@ from langchain_core.messages import (
     HumanMessage,
     RemoveMessage,
     SystemMessage,
+    ToolCall,
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
@@ -89,6 +90,41 @@ def get_prompt_runnable(prompt: PromptType | ChatPromptTemplate | None) -> Runna
         raise ValueError(f"Got unexpected type for `prompt`: {type(prompt)}")
 
     return prompt_runnable
+
+
+class HackedToolNode(ToolNode):
+    """hacked tool node to inject tool_call_id into the config.
+
+    This is a hack. If langgraph support tool_call_id, we will remove this class.
+    """
+
+    async def _arun_one(
+        self,
+        call: ToolCall,
+        input_type: Literal["list", "dict", "tool_calls"],
+        config: RunnableConfig,
+    ) -> ToolMessage:
+        if "metadata" in config:
+            config["metadata"]["tool_call_id"] = call["id"]
+        else:
+            config["metadata"] = {
+                "tool_call_id": call["id"],
+            }
+        return await super()._arun_one(call, input_type, config)
+
+    def _run_one(
+        self,
+        call: ToolCall,
+        input_type: Literal["list", "dict", "tool_calls"],
+        config: RunnableConfig,
+    ) -> ToolMessage:
+        if "metadata" in config:
+            config["metadata"]["tool_call_id"] = call["id"]
+        else:
+            config["metadata"] = {
+                "tool_call_id": call["id"],
+            }
+        return super()._run_one(call, input_type, config)
 
 
 class ChatAgentFactory(AgentFactory[AgentState]):
@@ -248,7 +284,9 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         graph.add_edge("before_agent", "agent")
 
         tool_node = (
-            self._tools if isinstance(self._tools, ToolNode) else ToolNode(self._tools)
+            self._tools
+            if isinstance(self._tools, ToolNode)
+            else HackedToolNode(self._tools)
         )
         self._tool_classes = list(tool_node.tools_by_name.values())
         graph.add_node("tools", tool_node)

@@ -97,6 +97,45 @@ async def echo_tool_sse_server(
         await proc.wait()
 
 
+@pytest_asyncio.fixture
+@asynccontextmanager
+async def echo_tool_streamable_server(
+    unused_tcp_port_factory: Callable[[], int],
+) -> AsyncGenerator[tuple[int, dict[str, ServerConfig]], None]:
+    """Start the echo tool SSE server."""
+    port = unused_tcp_port_factory()
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        "-m",
+        "dive_mcp_host.host.tools.echo",
+        "--transport=streamable",
+        "--host=localhost",
+        f"--port={port}",
+    )
+    while True:
+        try:
+            _ = await httpx.AsyncClient().get(f"http://localhost:{port}/xxxx")
+            break
+        except httpx.HTTPStatusError:
+            break
+        except:  # noqa: E722
+            await asyncio.sleep(0.1)
+    try:
+        yield (
+            port,
+            {
+                "echo": ServerConfig(
+                    name="echo",
+                    url=f"http://localhost:{port}/mcp",
+                    transport="streamable",
+                )
+            },
+        )
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        await proc.wait()
+
+
 @pytest.fixture
 def log_config() -> LogConfig:
     """Fixture for log Config."""
