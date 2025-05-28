@@ -63,7 +63,7 @@ class MCPServerManagerPlugin:
         """Callback function for getting current config."""
         mcp_servers = self._get_user_mcp_configs()
 
-        # oap id and enabled
+        # oap id and is enable or not
         mcp_enabled = {}
         for server in config.mcp_servers.values():
             if oap := (server.extra_data or {}).get("oap"):
@@ -111,6 +111,10 @@ class MCPServerManagerPlugin:
         except ValidationError:
             logger.exception("Failed to validate response: %s", response.text)
             return None, response.status_code
+
+    def revoke_device_token(self) -> None:
+        """Revoke the device token."""
+        self._send_api_request("/api/v1/user/devices/self", "delete")
 
     def _get_user_mcp_configs(
         self, refresh: bool = False
