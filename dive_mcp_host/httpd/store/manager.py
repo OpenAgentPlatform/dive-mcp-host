@@ -3,6 +3,7 @@ import base64
 from collections.abc import AsyncGenerator, Callable, Coroutine
 from contextlib import AsyncExitStack
 from io import BytesIO
+from logging import getLogger
 from mimetypes import guess_type
 from pathlib import Path
 from typing import Any, Self
@@ -12,7 +13,7 @@ from fastapi import UploadFile
 from PIL import Image
 
 from dive_mcp_host.env import RESOURCE_DIR
-from dive_mcp_host.httpd.store.base import FileType, StoreManagerProtocol, StoreProtocol
+from dive_mcp_host.host.store.base import FileType, StoreManagerProtocol, StoreProtocol
 from dive_mcp_host.httpd.store.local import LocalStore
 from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
@@ -21,6 +22,8 @@ type GetStoreCallback = Callable[[], Coroutine[Any, Any, StoreProtocol]]
 StoreHookName = "dive_mcp_host.httpd.store"
 
 IMAGE_MAX_SIZE = 800
+
+logger = getLogger(__name__)
 
 
 class StoreManager(StoreManagerProtocol):
@@ -116,8 +119,24 @@ class StoreManager(StoreManagerProtocol):
             file_path = Path(file_path)
         return file_path.exists()
 
-    async def get_image(self, file_path: str | Path) -> str:
+    def is_pdf(self, file_path: str | Path) -> bool:
+        """Check if the file is a PDF."""
+        content_type, _ = guess_type(file_path)
+        return content_type == "application/pdf"
+
+    def is_text(self, file_path: str | Path) -> bool:
+        """Check if the file is a text file."""
+        content_type, _ = guess_type(file_path)
+        if content_type:
+            return content_type.startswith("text/")
+        return False
+
+    async def get_image(self, file_path: str | Path) -> str | None:
         """Get the base64 encoded image from the store."""
+        if not Path(file_path).exists():
+            logger.warning("file doesn't exist, %s", file_path)
+            return None
+
         with (
             Image.open(BytesIO(await self.get_file(file_path))) as image,
             BytesIO() as buffer,
@@ -133,7 +152,7 @@ class StoreManager(StoreManagerProtocol):
 
             return f"data:image/jpeg;base64,{base64_image}"
 
-    async def get_document(self, file_path: str) -> tuple[str, str | None]:
+    async def get_document(self, file_path: str) -> tuple[str | None, str | None]:
         """Get the base64 encoded document from the store.
 
         Args:
@@ -142,10 +161,20 @@ class StoreManager(StoreManagerProtocol):
         Returns:
             tuple[str, str | None]: The base64 encoded document and the mime type.
         """
+        if not Path(file_path).exists():
+            logger.warning("file doesn't exist, %s", file_path)
+            return None, None
         mime_type = guess_type(file_path)[0]
         return base64.b64encode(await self.get_file(file_path)).decode(
             "utf-8"
         ), mime_type
+
+    async def get_document_text(self, file_path: str) -> str | None:
+        """Get document text content from the store."""
+        if not Path(file_path).exists():
+            logger.warning("file doesn't exist, %s", file_path)
+            return None
+        return await self._local_store.get_text_file(file_path)
 
     async def register_plugin(
         self,

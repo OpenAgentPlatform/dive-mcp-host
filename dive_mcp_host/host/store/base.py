@@ -76,19 +76,30 @@ class StoreManagerProtocol(ContextProtocol, Protocol):
         """
         ...
 
-    async def is_local_file(self, file_path: str) -> bool:
+    def is_local_file(self, file_path: str) -> bool:
         """Check if the file is a local file."""
         ...
 
-    async def is_url(self, file_path: str) -> bool:
+    def is_url(self, file_path: str) -> bool:
         """Check if the file is a URL."""
         ...
 
-    async def get_image(self, file_path: str) -> str:
-        """Get the base64 encoded image from the store."""
+    def is_pdf(self, file_path: str) -> bool:
+        """Check if the file is a PDF."""
         ...
 
-    async def get_document(self, file_path: str) -> tuple[str, str | None]:
+    def is_text(self, file_path: str) -> bool:
+        """Check if the file is a TEXT file."""
+        ...
+
+    async def get_image(self, file_path: str) -> str | None:
+        """Get the base64 encoded image from the store.
+
+        Returns None if file is not found
+        """
+        ...
+
+    async def get_document(self, file_path: str) -> tuple[str | None, str | None]:
         """Get the base64 encoded document from the store.
 
         Args:
@@ -97,4 +108,8 @@ class StoreManagerProtocol(ContextProtocol, Protocol):
         Returns:
             tuple[str, str | None]: The base64 encoded document and the mime type.
         """
+        ...
+
+    async def get_document_text(self, file_path: str) -> str | None:
+        """Get document text content from the store."""
         ...

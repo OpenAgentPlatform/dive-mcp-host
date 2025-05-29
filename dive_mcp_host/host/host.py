@@ -17,6 +17,7 @@ from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.errors import ThreadNotFoundError
 from dive_mcp_host.host.helpers.checkpointer import get_checkpointer
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.models import load_model
@@ -68,11 +69,13 @@ class DiveMcpHost(ContextProtocol):
     def __init__(
         self,
         config: HostConfig,
+        store_manager: StoreManagerProtocol | None = None,
     ) -> None:
         """Initialize the host.
 
         Args:
             config: The host configuration.
+            store_manager: The store manager.
         """
         self._config = config
         self._model: BaseChatModel | None = None
@@ -81,6 +84,7 @@ class DiveMcpHost(ContextProtocol):
             configs=self._config.mcp_servers,
             log_config=self.config.log_config,
         )
+        self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
@@ -114,7 +118,12 @@ class DiveMcpHost(ContextProtocol):
         user_id: str = "default",
         tools: Sequence[BaseTool] | None = None,
         get_agent_factory_method: Callable[
-            [BaseChatModel, Sequence[BaseTool] | ToolNode, bool],
+            [
+                BaseChatModel,
+                Sequence[BaseTool] | ToolNode,
+                bool,
+                StoreManagerProtocol | None,
+            ],
             AgentFactory[T],
         ] = get_chat_agent_factory,
         system_prompt: str | Callable[[T], list[BaseMessage]] | None = None,
@@ -149,6 +158,7 @@ class DiveMcpHost(ContextProtocol):
             self._model,
             tools,
             tools_in_prompt,
+            self._store,
         )
         return Chat(
             model=self._model,
