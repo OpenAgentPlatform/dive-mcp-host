@@ -7,11 +7,18 @@ from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AsyncExitStack, suppress
 from dataclasses import asdict, dataclass, field
 from itertools import batched
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+)
 from langchain_core.messages.tool import ToolMessage
 from langchain_core.output_parsers import StrOutputParser
 from pydantic import BaseModel
@@ -28,6 +35,7 @@ from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.database.models import (
+    ChatMessage,
     Message,
     NewMessage,
     QueryInput,
@@ -766,3 +774,26 @@ def strip_title(title: str) -> str:
     """Strip the title, remove any tags."""
     title = re.sub(r"\s*<.+>.*?</.+>\s*", "", title, flags=re.DOTALL)
     return " ".join(title.split())
+
+
+def get_original_filename(local_path: str) -> str:
+    """Extract the original name from cache file path."""
+    return Path(local_path).name.split("-", 1)[-1]
+
+
+def is_url(file_path: str) -> bool:
+    """Check if the file is a URL."""
+    result = urlparse(file_path)
+    return bool(result.scheme and result.netloc)
+
+
+def get_filename_remove_url(chat: ChatMessage) -> ChatMessage:
+    """Files sould remain their original name, urls created by OAP souldn't exist."""
+    for msg in chat.messages:
+        files: list[str] = []
+        for file in msg.files:
+            if is_url(file):
+                continue
+            files.append(get_original_filename(file))
+        msg.files = files
+    return chat

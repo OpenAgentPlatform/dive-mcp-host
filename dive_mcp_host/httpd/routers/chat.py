@@ -6,7 +6,11 @@ from fastapi.responses import StreamingResponse
 from dive_mcp_host.httpd.database.models import Chat, ChatMessage, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
 from dive_mcp_host.httpd.routers.models import ResultResponse, SortBy, UserInputError
-from dive_mcp_host.httpd.routers.utils import ChatProcessor, EventStreamContextManager
+from dive_mcp_host.httpd.routers.utils import (
+    ChatProcessor,
+    EventStreamContextManager,
+    get_filename_remove_url,
+)
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
@@ -186,6 +190,8 @@ async def get_chat(
             chat_id=chat_id,
             user_id=dive_user["user_id"],
         )
+        if chat:
+            chat = get_filename_remove_url(chat)
     return DataResult(success=True, message=None, data=chat)
 
 

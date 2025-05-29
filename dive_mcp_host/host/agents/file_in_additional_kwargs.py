@@ -239,7 +239,8 @@ class FileMsgConverter:
         )
 
     def _get_file_name(self, local_path: str) -> str:
-        return Path(local_path).name.split("-")[-1]
+        """Extract the original name from cache file path."""
+        return Path(local_path).name.split("-", 1)[-1]
 
     async def _image_msgs(self, images: list[str]) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
