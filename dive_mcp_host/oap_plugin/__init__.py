@@ -22,7 +22,7 @@ def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], str]]:
 
     oap_store.update_store_url(oap_config.store_url, oap_config.verify_ssl)
     oap_store.update_token(oap_config.auth_key)
-    mcp_plugin = MCPServerManagerPlugin(oap_config.auth_key)
+    mcp_plugin = MCPServerManagerPlugin(oap_config.auth_key, oap_config.oap_root_url)
     handlers = OAPHttpHandlers(mcp_plugin, oap_store)
 
     return {

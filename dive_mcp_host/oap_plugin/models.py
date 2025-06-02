@@ -7,8 +7,9 @@ class OAPConfig(BaseModel):
     """OAP Config."""
 
     auth_key: str | None = None
-    store_url: str
-    verify_ssl: bool = True
+    store_url: str = "https://oap-s3.d.cloud.biggo.com"
+    oap_root_url: str = "https://oap-hub.biggo.dev"
+    verify_ssl: bool = False
 
 
 # /api/v1/user/mcp/configs

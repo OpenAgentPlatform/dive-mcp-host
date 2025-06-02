@@ -20,6 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from dive_mcp_host.host.conf import HostConfig, ServerConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
+from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.httpd.abort_controller import AbortController
 from dive_mcp_host.httpd.conf.command_alias import CommandAliasManager
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
@@ -31,7 +32,6 @@ from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.msg_store.sqlite import SQLiteMessageStore
 from dive_mcp_host.httpd.middlewares.plugins import PluginMiddlewaresManager
 from dive_mcp_host.httpd.routers.plugins import RouterPlugin
-from dive_mcp_host.httpd.store.base import StoreManagerProtocol
 from dive_mcp_host.httpd.store.cache import LocalFileCache
 from dive_mcp_host.httpd.store.manager import StoreManager
 from dive_mcp_host.plugins.registry import PluginManager, load_plugins_config
@@ -186,7 +186,7 @@ class DiveHostAPI(FastAPI):
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._plugin_manager)
             await stack.enter_async_context(self._store)
-            default_host = DiveMcpHost(config)
+            default_host = DiveMcpHost(config, self._store)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
 

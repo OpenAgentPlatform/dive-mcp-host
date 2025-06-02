@@ -32,11 +32,15 @@ class OAPHttpHandlers:
         )
         self._oap_store.update_token(token)
 
-    async def logout_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:
+    async def logout_handler(
+        self, no_revoke: bool = False, app: DiveHostAPI = Depends(get_app)
+    ) -> None:
         """Logout the device."""
         self._mcp_server_manager.update_device_token(
             None, app.mcp_server_config_manager
         )
+        if not no_revoke:
+            self._mcp_server_manager.revoke_device_token()
 
     async def refresh_config_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:
         """Refresh the config."""
