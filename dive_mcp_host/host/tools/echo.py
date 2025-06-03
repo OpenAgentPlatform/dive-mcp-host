@@ -4,7 +4,7 @@ import asyncio
 from argparse import ArgumentParser
 from typing import Annotated
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from pydantic import Field
 
 Instructions = """Echo a message."""
@@ -16,6 +16,8 @@ It returns a characteristic response containing the input message."""  # noqa: E
 
 IGNORE_DESCRIPTION = """Do nothing."""
 
+SLEEP_INTERVAL_MS = 100
+
 
 @mcp.tool(
     name="echo",
@@ -23,6 +25,7 @@ IGNORE_DESCRIPTION = """Do nothing."""
 )
 async def echo(
     message: Annotated[str, Field(description="Message to be echoed back")],
+    ctx: Context,
     delay_ms: Annotated[
         int | None,
         Field(description="Optional delay in milliseconds before responding"),
@@ -30,7 +33,23 @@ async def echo(
 ) -> str:
     """Echo a message.i lalala."""
     if delay_ms and delay_ms > 0:
-        await asyncio.sleep(delay_ms / 1000)
+        left_ms = delay_ms
+        while left_ms > 0:
+            interval_ms = SLEEP_INTERVAL_MS if left_ms > SLEEP_INTERVAL_MS else left_ms
+            await asyncio.sleep(interval_ms / 1000)
+            left_ms -= interval_ms
+            if left_ms > 0:
+                await ctx.report_progress(
+                    progress=delay_ms - left_ms,
+                    total=delay_ms,
+                    message=f"Halfway there: {left_ms}ms left",
+                )
+            else:
+                await ctx.report_progress(
+                    progress=delay_ms,
+                    total=delay_ms,
+                    message="Done",
+                )
     return message
 
 
@@ -55,5 +74,9 @@ if __name__ == "__main__":
         mcp.settings.host = args.host
         mcp.settings.port = args.port
         mcp.run(transport="sse")
+    elif args.transport == "streamable":
+        mcp.settings.host = args.host
+        mcp.settings.port = args.port
+        mcp.run(transport="streamable-http")
     else:
         raise ValueError(f"Invalid transport: {args.transport}")

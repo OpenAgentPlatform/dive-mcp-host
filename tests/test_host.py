@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from unittest import mock
 from unittest.mock import MagicMock
@@ -21,6 +22,7 @@ from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.errors import ThreadNotFoundError, ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
+from dive_mcp_host.host.tools.model_types import ToolCallProgress
 from dive_mcp_host.models.fake import FakeMessageToolModel, default_responses
 
 
@@ -506,3 +508,56 @@ async def test_thread_query_error_with_state(sqlite_uri: str) -> None:
     # Clean up DEBUG environment
     if delete_debug:
         del os.environ["DEBUG"]
+
+
+@pytest.mark.asyncio
+async def test_custom_event(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+) -> None:
+    """Test the custom event."""
+    async with (
+        echo_tool_sse_server as (_, configs),
+        DiveMcpHost(
+            HostConfig(
+                llm=LLMConfig(
+                    model="fake",
+                    model_provider="dive",
+                ),
+                mcp_servers=configs,
+            )
+        ) as mcp_host,
+    ):
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat()
+        model = cast("FakeMessageToolModel", mcp_host.model)
+        model.responses = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 1000},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(
+                content="Bye",
+            ),
+        ]
+        done = False
+        async with chat:
+            async for i in chat.query(
+                HumanMessage(content="Hello, world!"),
+                stream_mode=["custom", "messages"],
+            ):
+                i = cast(tuple[str, Any], i)
+                if i[0] == "custom":
+                    assert isinstance(i[1], tuple)
+                    assert i[1][0] == "tool_call_progress"
+                    assert isinstance(i[1][1], ToolCallProgress)
+                    done = True
+        assert done

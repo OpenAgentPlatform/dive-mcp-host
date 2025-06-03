@@ -35,7 +35,7 @@ class ServerConfig(BaseModel):
     exclude_tools: list[str] = Field(default_factory=list)
     url: str | None = None
     keep_alive: float | None = None
-    transport: Literal["stdio", "sse", "websocket"]
+    transport: Literal["stdio", "sse", "streamable", "websocket"]
     headers: dict[str, SecretStr] = Field(default_factory=dict)
 
     @field_serializer("headers", when_used="json")

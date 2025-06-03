@@ -15,9 +15,14 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 
 import anyio
 import httpx
+from langchain_core.runnables import (
+    RunnableConfig,  # noqa: TC002 Langchain needs this to get type hits in runtime.
+)
 from langchain_core.tools import BaseTool, ToolException
+from langgraph.config import get_stream_writer
 from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
 from pydantic import BaseModel, ConfigDict
 from pydantic_core import to_json
@@ -31,7 +36,7 @@ from dive_mcp_host.host.errors import (
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
-from dive_mcp_host.host.tools.model_types import ClientState
+from dive_mcp_host.host.tools.model_types import ClientState, ToolCallProgress
 from dive_mcp_host.host.tools.stdio_server import stdio_client
 
 if TYPE_CHECKING:
@@ -146,9 +151,19 @@ class McpServer(ContextProtocol):
         async with asyncio.timeout(10):
             # When using stdio, the initialize call may block indefinitely
             self._initialize_result = await session.initialize()
+            logger.debug(
+                "Client %s initializing, result: %s",
+                self.name,
+                self._initialize_result,
+            )
         tool_results = await session.list_tools()
         self._last_active = time.time()
         mcp_tools = [McpTool.from_tool(tool, self) for tool in tool_results.tools]
+        logger.debug(
+            "Client %s initialized successfully with %d tools",
+            self.name,
+            len(mcp_tools),
+        )
         async with self._cond:
             self._tool_results = tool_results
             self._mcp_tools = mcp_tools
@@ -542,7 +557,14 @@ class McpServer(ContextProtocol):
 
     def _http_get_client(
         self,
-    ) -> AbstractAsyncContextManager[tuple[ReadStreamType, WriteStreamType]]:
+    ) -> AbstractAsyncContextManager[
+        tuple[ReadStreamType, WriteStreamType]
+        | tuple[
+            ReadStreamType,
+            WriteStreamType,
+            Callable[[], str | None],
+        ]
+    ]:
         assert self.config.url, "url is required"
         if self.config.transport in ("sse", None):
             return sse_client(
@@ -551,7 +573,14 @@ class McpServer(ContextProtocol):
                     key: value.get_secret_value()
                     for key, value in self.config.headers.items()
                 },
-                sse_read_timeout=0.1,
+            )
+        if self.config.transport in ("streamable"):
+            return streamablehttp_client(
+                url=self.config.url,
+                headers={
+                    key: value.get_secret_value()
+                    for key, value in self.config.headers.items()
+                },
             )
         if self.config.transport == "websocket":
             return websocket_client(
@@ -565,13 +594,12 @@ class McpServer(ContextProtocol):
         """Initialize the HTTP client."""
         async with (
             self._http_get_client() as streams,
-            ClientSession(*streams) as session,
+            ClientSession(*(streams[0], streams[1])) as session,
         ):
             await self._init_tool_info(session)
 
     async def _http_setup(self) -> None:
         """Setup the http client."""
-        logger.error("http setup")
         self._retries = 0
         for _ in range(self.RETRY_LIMIT):
             should_break = False
@@ -583,6 +611,7 @@ class McpServer(ContextProtocol):
             except* (
                 httpx.ConnectError,
                 httpx.TooManyRedirects,
+                httpx.ConnectTimeout,
             ) as eg:
                 logger.error("http setup error %s", eg.exceptions)
                 self._exception = McpSessionGroupError(
@@ -616,11 +645,12 @@ class McpServer(ContextProtocol):
             self._retries += 1
             await asyncio.sleep(self.RESTART_INTERVAL)
         async with self._cond:
+            logger.error("http setup failed %s", self._exception)
             await self.__change_state(ClientState.FAILED, None, self._exception)
 
     async def _http_teardown(self) -> None:
         """Teardown the http client. Do nothing."""
-        logger.error("http teardown")
+        logger.debug("http teardown")
 
     def _http_session(self) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
@@ -640,7 +670,7 @@ class McpServer(ContextProtocol):
             """
             async with (
                 self._http_get_client() as streams,
-                ClientSession(*streams) as session,
+                ClientSession(*(streams[0], streams[1])) as session,
                 self._session_wrapper(),
             ):
                 await session.initialize()
@@ -751,7 +781,7 @@ class McpServer(ContextProtocol):
             """
             async with (
                 self._http_get_client() as streams,
-                ClientSession(*streams) as session,
+                ClientSession(*(streams[0], streams[1])) as session,
                 self._session_wrapper(
                     restart_client=lambda e: isinstance(e, httpx.ConnectError)
                 ),
@@ -770,12 +800,39 @@ class McpTool(BaseTool):
     mcp_server: McpServer
     kwargs_arg: bool = False
 
-    def _run(self, **kwargs: dict[str, Any]) -> str:
+    def _run(
+        self,
+        _config: RunnableConfig,
+        **kwargs: dict[str, Any],
+    ) -> str:
         """Run the tool."""
-        return asyncio.run(self._arun(**kwargs))
+        return asyncio.run(self._arun(_config, **kwargs))
 
-    async def _arun(self, **kwargs: dict[str, Any]) -> str:
+    async def _arun(
+        self,
+        _config: RunnableConfig,
+        **kwargs: dict[str, Any],
+    ) -> str:
         """Run the tool."""
+
+        async def progress_callback(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
+            """Progress callback."""
+            get_stream_writer()(
+                (
+                    "tool_call_progress",
+                    ToolCallProgress(
+                        progress=progress,
+                        total=total,
+                        message=message,
+                        tool_call_id=tool_call_id,
+                    ),
+                )
+            )
+
+        tool_call_id = _config.get("metadata", {}).get("tool_call_id", "")
+
         if not self.kwargs_arg and len(kwargs) == 1 and "kwargs" in kwargs:
             if isinstance(kwargs["kwargs"], str):
                 with suppress(JSONDecodeError):
@@ -786,7 +843,11 @@ class McpTool(BaseTool):
             "Executing tool %s.%s with args: %s", self.toolkit_name, self.name, kwargs
         )
         async with self.mcp_server.session() as session:
-            result = await session.call_tool(self.name, arguments=kwargs)
+            result = await session.call_tool(
+                self.name,
+                arguments=kwargs,
+                progress_callback=progress_callback,
+            )
         content = to_json(result.content).decode()
         if result.isError:
             logger.error(
