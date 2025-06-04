@@ -44,6 +44,7 @@ if TYPE_CHECKING:
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from mcp.shared.message import SessionMessage
+    from mcp.shared.session import RequestResponder
 
     from dive_mcp_host.host.conf import ServerConfig
 
@@ -145,6 +146,28 @@ class McpServer(ContextProtocol):
             self._return_session = self._http_session
         else:
             raise InvalidMcpServerError(self.config.name, "Invalid server config")
+
+    async def _message_handler(
+        self,
+        message: RequestResponder[types.ServerRequest, types.ClientResult]
+        | types.ServerNotification
+        | Exception,
+    ) -> None:
+        """Used for handling mcp special responses.
+
+        Such as:
+        - Exception (Literal python exception)
+        - ProgressResult (ServerNotification) ... etc
+        """
+        logger.info(
+            "handling message for %s, type: %s, content: %s",
+            self.name,
+            type(message).__name__,
+            message,
+        )
+
+        if isinstance(message, Exception):
+            raise message
 
     async def _init_tool_info(self, session: ClientSession) -> None:
         """Initialize the session."""
@@ -346,7 +369,9 @@ class McpServer(ContextProtocol):
                         ),
                         errlog=self._stderr_log_proxy,
                     ) as (stream_read, stream_send, pid),
-                    ClientSession(stream_read, stream_send) as session,
+                    ClientSession(
+                        stream_read, stream_send, message_handler=self._message_handler
+                    ) as session,
                 ):
                     self._session = session
                     self._pid = pid
@@ -594,7 +619,7 @@ class McpServer(ContextProtocol):
         """Initialize the HTTP client."""
         async with (
             self._http_get_client() as streams,
-            ClientSession(*(streams[0], streams[1])) as session,
+            ClientSession(*streams, message_handler=self._message_handler) as session,
         ):
             await self._init_tool_info(session)
 
@@ -670,7 +695,9 @@ class McpServer(ContextProtocol):
             """
             async with (
                 self._http_get_client() as streams,
-                ClientSession(*(streams[0], streams[1])) as session,
+                ClientSession(
+                    *streams, message_handler=self._message_handler
+                ) as session,
                 self._session_wrapper(),
             ):
                 await session.initialize()
@@ -781,7 +808,9 @@ class McpServer(ContextProtocol):
             """
             async with (
                 self._http_get_client() as streams,
-                ClientSession(*(streams[0], streams[1])) as session,
+                ClientSession(
+                    *streams, message_handler=self._message_handler
+                ) as session,
                 self._session_wrapper(
                     restart_client=lambda e: isinstance(e, httpx.ConnectError)
                 ),

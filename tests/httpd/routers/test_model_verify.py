@@ -549,6 +549,7 @@ def test_verify_azure(test_client):
         )
 
 
+@pytest.mark.skip(reason="Skip for now, openrouter's issue changes alot.")
 def test_verify_openrouter_tool_in_prompt(test_client):
     """Test the /api/model_verify POST endpoint with openrouter.
 
