@@ -619,7 +619,9 @@ class McpServer(ContextProtocol):
         """Initialize the HTTP client."""
         async with (
             self._http_get_client() as streams,
-            ClientSession(*streams, message_handler=self._message_handler) as session,
+            ClientSession(
+                *[streams[0], streams[1]], message_handler=self._message_handler
+            ) as session,
         ):
             await self._init_tool_info(session)
 
@@ -696,7 +698,7 @@ class McpServer(ContextProtocol):
             async with (
                 self._http_get_client() as streams,
                 ClientSession(
-                    *streams, message_handler=self._message_handler
+                    *[streams[0], streams[1]], message_handler=self._message_handler
                 ) as session,
                 self._session_wrapper(),
             ):
@@ -809,7 +811,7 @@ class McpServer(ContextProtocol):
             async with (
                 self._http_get_client() as streams,
                 ClientSession(
-                    *streams, message_handler=self._message_handler
+                    *[streams[0], streams[1]], message_handler=self._message_handler
                 ) as session,
                 self._session_wrapper(
                     restart_client=lambda e: isinstance(e, httpx.ConnectError)
