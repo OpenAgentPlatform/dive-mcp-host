@@ -55,7 +55,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
         description="a fake mcp server, for testing",
         transport="sse",
         url="http://127.0.0.1:3260",
-        headers={"Authorization": f"Bearer {oap_token}"},
+        headers={},
         plan="free",
     )
 
@@ -116,6 +116,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
     for key in servers:
         value = servers[key]
         if value["extraData"] and value["extraData"].get("oap"):
+            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
             assert value["enabled"] is False
 
     # enable oap mcp
@@ -134,6 +135,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
     for key in servers:
         value = servers[key]
         if value["extraData"] and value["extraData"].get("oap"):
+            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
             assert value["enabled"] is True
 
     # drop mcp token (logout)
@@ -180,3 +182,4 @@ def test_oap_plugin(  # noqa: C901, PLR0915
         value = servers[key]
         if value["extraData"] and value["extraData"].get("oap"):
             assert key == config.name
+            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
