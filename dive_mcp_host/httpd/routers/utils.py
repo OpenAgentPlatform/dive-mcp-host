@@ -29,6 +29,7 @@ from dive_mcp_host.host.agents.file_in_additional_kwargs import (
     IMAGES_KEY,
     OAP_MIN_COUNT,
 )
+from dive_mcp_host.host.agents.message_order import FAKE_TOOL_RESPONSE
 from dive_mcp_host.host.errors import LogBufferNotFoundError
 from dive_mcp_host.host.store.base import FileType
 from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
@@ -526,6 +527,13 @@ class ChatProcessor:
                         await self._stream_text_msg(message)
                 elif isinstance(message, ToolMessage):
                     logger.log(TRACE, "got tool message: %s", message.model_dump_json())
+                    if message.response_metadata.get(FAKE_TOOL_RESPONSE, False):
+                        logger.log(
+                            TRACE,
+                            "ignore fake tool response: %s",
+                            message.model_dump_json(),
+                        )
+                        continue
                     await self._stream_tool_result_msg(message)
                 else:
                     # idk what is this
