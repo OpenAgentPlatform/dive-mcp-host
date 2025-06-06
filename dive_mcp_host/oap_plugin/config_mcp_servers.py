@@ -86,7 +86,7 @@ class MCPServerManagerPlugin:
                 headers={
                     "Authorization": f"Bearer {self.device_token}",
                     **server.headers,
-                }, # type: ignore
+                },  # type: ignore
                 extraData={
                     "oap": {
                         "id": server.id,
