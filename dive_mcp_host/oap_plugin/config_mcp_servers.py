@@ -83,7 +83,10 @@ class MCPServerManagerPlugin:
                 enabled=mcp_enabled.get(server.id, True),
                 url=server.url,
                 transport=server.transport,
-                headers={"Authorization": f"Bearer {self.device_token}", **server.headers}, # type: ignore
+                headers={
+                    "Authorization": f"Bearer {self.device_token}",
+                    **server.headers,
+                }, # type: ignore
                 extraData={
                     "oap": {
                         "id": server.id,
