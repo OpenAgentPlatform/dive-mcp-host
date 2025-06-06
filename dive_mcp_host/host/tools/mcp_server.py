@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from datetime import timedelta
 from json import JSONDecodeError
 from json import loads as json_loads
 from logging import getLogger
@@ -24,7 +25,7 @@ from mcp import ClientSession, McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
 
 from dive_mcp_host.host.errors import (
@@ -404,6 +405,7 @@ class McpServer(ContextProtocol):
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
                 httpx.ConnectTimeout,
+                ValidationError,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"
@@ -582,6 +584,8 @@ class McpServer(ContextProtocol):
 
     def _http_get_client(
         self,
+        timeout: float = 30,
+        sse_read_timeout: float = 60 * 5,
     ) -> AbstractAsyncContextManager[
         tuple[ReadStreamType, WriteStreamType]
         | tuple[
@@ -598,6 +602,8 @@ class McpServer(ContextProtocol):
                     key: value.get_secret_value()
                     for key, value in self.config.headers.items()
                 },
+                timeout=timeout,
+                sse_read_timeout=sse_read_timeout,
             )
         if self.config.transport in ("streamable"):
             return streamablehttp_client(
@@ -606,6 +612,8 @@ class McpServer(ContextProtocol):
                     key: value.get_secret_value()
                     for key, value in self.config.headers.items()
                 },
+                timeout=timedelta(timeout),
+                sse_read_timeout=timedelta(sse_read_timeout),
             )
         if self.config.transport == "websocket":
             return websocket_client(
@@ -618,7 +626,7 @@ class McpServer(ContextProtocol):
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
         async with (
-            self._http_get_client() as streams,
+            self._http_get_client(sse_read_timeout=30) as streams,
             ClientSession(
                 *[streams[0], streams[1]], message_handler=self._message_handler
             ) as session,
@@ -648,6 +656,8 @@ class McpServer(ContextProtocol):
             except* (
                 McpError,
                 httpx.InvalidURL,
+                Exception,
+                ValidationError,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"
@@ -751,6 +761,8 @@ class McpServer(ContextProtocol):
                 McpError,
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
+                ValidationError,
+                Exception,
             ) as e:
                 logger.exception("Error initializing http server: %s", e)
                 self._exception = McpSessionGroupError(

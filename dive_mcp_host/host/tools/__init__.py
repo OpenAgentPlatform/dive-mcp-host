@@ -69,26 +69,34 @@ class ToolManager(ContextProtocol):
         async def tool_process(
             server: McpServer, exit_signal: asyncio.Event, ready: asyncio.Event
         ) -> None:
+            logger.debug("Enter tool process for %s", name)
             async with self._log_manager.register_buffer(server.log_buffer), server:
                 ready.set()
                 await exit_signal.wait()
             logger.debug("Tool process %s exited", server.name)
 
         async def _launch_task(name: str, server: McpServer) -> None:
+            logger.debug("Enter launch task for %s", name)
             event = asyncio.Event()
             ready = asyncio.Event()
-            task = asyncio.create_task(tool_process(server, event, ready))
+            task = asyncio.create_task(
+                tool_process(server, event, ready), name=f"{name}-tool_process"
+            )
             await ready.wait()
             self._mcp_servers_task[name] = (task, event)
 
+        logger.debug("Wait for lock")
         async with self._lock, asyncio.TaskGroup() as tg:
+            logger.debug("Acquire lock")
             for name, server in servers.items():
-                tg.create_task(_launch_task(name, server))
+                tg.create_task(_launch_task(name, server), name=f"{name}-launch_task")
 
         self._initialized_event.set()
+        logger.debug("ToolManager launch %s tools complete", len(servers.keys()))
 
     async def _shutdown_tools(self, servers: Iterable[str]) -> None:
         async def _shutdown_task(name: str) -> None:
+            logger.debug("Enter shutdown task for %s", name)
             task, event = self._mcp_servers_task.pop(name, (None, None))
             if not (task and event):
                 logger.warning(
@@ -96,14 +104,17 @@ class ToolManager(ContextProtocol):
                 )
                 return
             event.set()
-            logger.debug("ToolManager shutting down %s", name)
+            logger.debug("ToolManager hutting down %s", name)
             await task
             del self._mcp_servers[name]
 
+        logger.debug("Wait for lock")
         async with self._lock, asyncio.TaskGroup() as tg:
+            logger.debug("Acquire lock")
             for name in servers:
-                tg.create_task(_shutdown_task(name))
-        logger.debug("ToolManager shutdown complete")
+                tg.create_task(_shutdown_task(name), name=f"{name}-shutdown_task")
+
+        logger.debug("ToolManager shutdown %s tools complete", len(list(servers)))
 
     async def reload(
         self, new_configs: dict[str, ServerConfig], force: bool = False
@@ -130,6 +141,8 @@ class ToolManager(ContextProtocol):
             to_launch = set(new_configs.keys())
 
         self._configs = new_configs
+
+        logger.debug("To shutdown: %s, To launch: %s", to_shutdown, to_launch)
 
         await self._shutdown_tools(to_shutdown)
 
