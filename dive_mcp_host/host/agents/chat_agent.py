@@ -31,6 +31,7 @@ from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel
 
 from dive_mcp_host.host.agents.agent_factory import AgentFactory, initial_messages
+from dive_mcp_host.host.agents.message_order import tool_call_order
 from dive_mcp_host.host.agents.tools_in_prompt import (
     convert_messages,
     extract_tool_calls,
@@ -160,7 +161,6 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         )
 
     def _call_model(self, state: AgentState, config: RunnableConfig) -> AgentState:
-        # TODO: _validate_chat_history
         if not self._tools_in_prompt:
             model = self._model
             if self._tool_classes:
@@ -204,8 +204,13 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         configurable = config.get("configurable", {})
         max_input_tokens: int | None = configurable.get("max_input_tokens")
         oversize_policy: Literal["window"] | None = configurable.get("oversize_policy")
+
+        new_messages: list[BaseMessage] = []
+        new_messages.extend(tool_call_order(state["messages"]))
+
         if max_input_tokens is None or oversize_policy is None:
-            return cast(AgentState, {"messages": []})
+            return cast(AgentState, {"messages": new_messages})
+
         if oversize_policy == "window":
             messages: list[BaseMessage] = trim_messages(
                 state["messages"],
@@ -217,7 +222,8 @@ class ChatAgentFactory(AgentFactory[AgentState]):
                 for m in state["messages"]
                 if m not in messages
             ]
-            return cast(AgentState, {"messages": remove_messages})
+            new_messages.extend(remove_messages)
+            return cast(AgentState, {"messages": new_messages})
 
         return cast(AgentState, {"messages": []})
 
