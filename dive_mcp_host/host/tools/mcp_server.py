@@ -612,8 +612,8 @@ class McpServer(ContextProtocol):
                     key: value.get_secret_value()
                     for key, value in self.config.headers.items()
                 },
-                timeout=timedelta(timeout),
-                sse_read_timeout=timedelta(sse_read_timeout),
+                timeout=timedelta(seconds=timeout),
+                sse_read_timeout=timedelta(seconds=sse_read_timeout),
             )
         if self.config.transport == "websocket":
             return websocket_client(
