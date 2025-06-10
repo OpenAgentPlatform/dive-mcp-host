@@ -1,3 +1,4 @@
+from enum import StrEnum
 from typing import Literal, Protocol
 
 from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage
@@ -9,6 +10,16 @@ from langgraph.graph.message import MessagesState
 from langgraph.store.base import BaseStore
 
 from dive_mcp_host.host.prompt import PromptType
+
+
+class ConfigurableKey(StrEnum):
+    """Enum for RunnableConfig.configurable keys."""
+
+    # Thread id is also known as chat_id
+    THREAD_ID = "thread_id"
+    USER_ID = "user_id"
+    MAX_INPUT_TOKENS = "max_input_tokens"
+    OVERSIZE_POLICY = "oversize_policy"
 
 
 # XXX is there any better way to do this?
@@ -62,10 +73,10 @@ class AgentFactory[T: MessagesState](Protocol):
         """
         return {
             "configurable": {
-                "thread_id": thread_id,
-                "user_id": user_id,
-                "max_input_tokens": max_input_tokens,
-                "oversize_policy": oversize_policy,
+                ConfigurableKey.THREAD_ID: thread_id,
+                ConfigurableKey.USER_ID: user_id,
+                ConfigurableKey.MAX_INPUT_TOKENS: max_input_tokens,
+                ConfigurableKey.OVERSIZE_POLICY: oversize_policy,
             },
             "recursion_limit": 102,
         }
@@ -74,6 +85,7 @@ class AgentFactory[T: MessagesState](Protocol):
         self,
         *,
         query: str | HumanMessage | list[BaseMessage],
+        chat_id: str,
     ) -> T:
         """Create an initial state for the query."""
         ...
