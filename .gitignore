@@ -44,3 +44,4 @@ db.sqlite-wal
 cache/
 upload/
 cli_config.json
+logs/
