@@ -249,7 +249,9 @@ class McpServer(ContextProtocol):
             return self._mcp_tools
         return []
 
-    def session(self, chat_id: str) -> AbstractAsyncContextManager[ClientSession]:
+    def session(
+        self, chat_id: str = "default"
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.

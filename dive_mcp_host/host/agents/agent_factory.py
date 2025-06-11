@@ -85,7 +85,6 @@ class AgentFactory[T: MessagesState](Protocol):
         self,
         *,
         query: str | HumanMessage | list[BaseMessage],
-        chat_id: str,
     ) -> T:
         """Create an initial state for the query."""
         ...
