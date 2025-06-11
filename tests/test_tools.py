@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 from uuid import UUID
 
-import httpx
 import pytest
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
@@ -260,7 +259,182 @@ async def test_tool_manager_massive_tools(
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_exception_handling(
+async def test_remote_http_mcp_tool_exception_handling(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test the exception handling of the MCP tool.
+
+    This test verifies that:
+    1. When a tool call fails, the exception is properly propagated to the caller
+    2. Subsequent tool calls succeed after the connection is restored
+    """
+    async with (
+        echo_tool_sse_server as (_, configs),
+        McpServer(
+            name="echo",
+            config=configs["echo"],
+            log_buffer_length=log_config.buffer_length,
+        ) as server,
+    ):
+        server.RESTART_INTERVAL = 0.1
+        tools = server.mcp_tools
+        await server.wait([ClientState.RUNNING])
+
+        # First successful tool call creates a session
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        session = server._session_store["default"]
+
+        # session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+        # Error removes the session
+        with patch("mcp.ClientSession.call_tool") as mocked:
+            mocked.side_effect = RuntimeError("test")
+            with pytest.raises(RuntimeError, match="test"):
+                await tools[0].ainvoke(
+                    ToolCall(
+                        name=tools[0].name,
+                        id="123",
+                        args={"xxxx": "Hello, world!"},
+                        type="tool_call",
+                    ),
+                )
+            assert mocked.call_count == 1
+        assert server._client_status in [
+            ClientState.RUNNING,
+            ClientState.RESTARTING,
+        ]
+        assert not server._session_store.get("default")
+
+        # New session is created
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"]
+        session = server._session_store["default"]
+
+        # The session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+
+@pytest.mark.asyncio
+async def test_local_http_mcp_tool_exception_handling(
+    echo_tool_local_sse_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+):
+    """Test the exception handling of the MCP tool.
+
+    This test verifies that:
+    1. When a tool call fails, the exception is properly propagated to the caller
+    2. Subsequent tool calls succeed after the connection is restored
+    """
+    async with McpServer(
+        name="echo",
+        config=echo_tool_local_sse_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+    ) as server:
+        server.RESTART_INTERVAL = 0.1
+        tools = server.mcp_tools
+        await server.wait([ClientState.RUNNING])
+
+        # First successful tool call creates a session
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        session = server._session_store["default"]
+
+        # session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+        # Error removes the session
+        with patch("mcp.ClientSession.call_tool") as mocked:
+            mocked.side_effect = RuntimeError("test")
+            with pytest.raises(RuntimeError, match="test"):
+                await tools[0].ainvoke(
+                    ToolCall(
+                        name=tools[0].name,
+                        id="123",
+                        args={"xxxx": "Hello, world!"},
+                        type="tool_call",
+                    ),
+                )
+            assert mocked.call_count == 1
+        assert server._client_status in [
+            ClientState.RUNNING,
+            ClientState.RESTARTING,
+        ]
+        assert not server._session_store.get("default")
+
+        # New session is created
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"]
+        session = server._session_store["default"]
+
+        # The session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+
+@pytest.mark.asyncio
+async def test_stdio_mcp_tool_exception_handling(
     echo_tool_stdio_config: dict[str, ServerConfig],
     log_config: LogConfig,
 ):
@@ -268,8 +442,7 @@ async def test_mcp_tool_exception_handling(
 
     This test verifies that:
     1. When a tool call fails, the exception is properly propagated to the caller
-    2. The SSE connection is automatically reconnected after failure
-    3. Subsequent tool calls succeed after the connection is restored
+    2. Subsequent tool calls succeed after the connection is restored
     """
     async with McpServer(
         name="echo",
@@ -278,7 +451,7 @@ async def test_mcp_tool_exception_handling(
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
-        session = server._session
+        session = server._stdio_client_session
         with patch("mcp.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
             with pytest.raises(RuntimeError, match="test"):
@@ -296,10 +469,9 @@ async def test_mcp_tool_exception_handling(
             ClientState.RESTARTING,
         ]
         await server.wait([ClientState.RUNNING])
-        # Need to identify which exceptions don't require rebuilding the session
-        # This test verifies that some exceptions allow reusing the existing session
-        # while others (like network errors) require a new session to be created
-        # assert server._session == session
+        # The session should be recreated
+        assert server._stdio_client_session != session
+        session = server._stdio_client_session
         await tools[0].ainvoke(
             ToolCall(
                 name=tools[0].name,
@@ -309,24 +481,9 @@ async def test_mcp_tool_exception_handling(
             ),
         )
 
-        with patch("mcp.ClientSession.call_tool") as mocked:
-            mocked.side_effect = httpx.ReadTimeout("test")
-            with pytest.raises(httpx.ReadTimeout, match="test"):
-                await tools[0].ainvoke(
-                    ToolCall(
-                        name=tools[0].name,
-                        id="123",
-                        args={"xxxx": "Hello, world!"},
-                        type="tool_call",
-                    ),
-                )
-            assert mocked.call_count == 1
-        assert server._client_status in [
-            ClientState.RESTARTING,
-            ClientState.RUNNING,
-        ]
         await server.wait([ClientState.RUNNING])
-        assert server._session != session
+        # The session should be reused
+        assert server._stdio_client_session == session
         await tools[0].ainvoke(
             ToolCall(
                 name=tools[0].name,
