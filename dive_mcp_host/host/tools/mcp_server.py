@@ -139,11 +139,17 @@ class McpServer(ContextProtocol):
         self._retries: int = 0
         self._last_active: float = 0
 
-        self._task: asyncio.Task | None = None
+        # Background task for the server.
+        # Used for stdio, and local http server.
+        self._server_task: asyncio.Task | None = None
 
-        self._session: ClientSession | None = None
+        # stdio can only have one session at a time
+        self._stdio_client_session: ClientSession | None = None
+
+        # Each session is mapped to a chat_id
         self._session_store: dict[ChatID, _SessionStoreItem] = {}
 
+        # The pid of the server process
         self._pid: int | None = None
 
         """Methods for different server types."""
@@ -315,24 +321,28 @@ class McpServer(ContextProtocol):
                     self.name,
                     self.session_count,
                 )
-            self._session_store_teardown()
+            await self._session_store_teardown()
             await self._teardown()
 
-    def _session_store_teardown(self) -> None:
+    async def _session_store_teardown(self) -> None:
         """Cleanup the entire session store."""
         for chat_id, state in self._session_store.items():
             logger.debug(
                 "stopping session for chat_id: %s, name: %s", chat_id, self.name
             )
-            self._session_cleanup(state)
+            await self._session_cleanup(state)
         self._session_store = {}
 
-    def _session_cleanup(self, session_state: _SessionStoreItem) -> None:
+    async def _session_cleanup(self, session_state: _SessionStoreItem) -> None:
         """Stop a single session."""
         session_state.ready_event.set()
         session_state.end_event.set()
+
         if session_state.task:
             session_state.task.cancel()
+            async with asyncio.timeout(30):
+                with suppress(asyncio.CancelledError):
+                    await session_state.task
 
     @asynccontextmanager
     async def _session_ctx(
@@ -341,6 +351,7 @@ class McpServer(ContextProtocol):
         create_func: Callable[[_SessionStoreItem], Coroutine[None, None, None]],
         restart_func: Callable[[Exception], bool] = lambda _: False,
     ) -> AsyncGenerator[ClientSession, None]:
+        """Create a new session or return the existing one."""
         try:
             async with self._session_wrapper(restart_func):
                 # Get existing session
@@ -376,12 +387,12 @@ class McpServer(ContextProtocol):
                 "Session error, chat_id: %s, name: %s, error: %s",
                 chat_id,
                 self.name,
-                str(ex),
+                ex,
             )
 
             # Cleanup errored session
             if prev_session := self._session_store.get(chat_id):
-                self._session_cleanup(prev_session)
+                await self._session_cleanup(prev_session)
                 self._session_store.pop(chat_id)
 
             raise
@@ -461,7 +472,7 @@ class McpServer(ContextProtocol):
                         stream_read, stream_send, message_handler=self._message_handler
                     ) as session,
                 ):
-                    self._session = session
+                    self._stdio_client_session = session
                     self._pid = pid
                     await self._init_tool_info(session)
                     async with self._cond:
@@ -526,7 +537,7 @@ class McpServer(ContextProtocol):
                 await self._log_buffer.push_session_error(self._exception)
 
             self._retries += 1
-            self._session = None
+            self._stdio_client_session = None
             if self._client_status == ClientState.CLOSED:
                 logger.info("Client %s closed, stopping watcher", self.name)
                 return
@@ -551,7 +562,10 @@ class McpServer(ContextProtocol):
 
     async def _stdio_setup(self) -> None:
         """Setup the stdio client."""
-        self._task = asyncio.create_task(self._stdio_client_watcher())
+        self._server_task = asyncio.create_task(
+            self._stdio_client_watcher(),
+            name=f"stdio_client_watcher-{self.name}",
+        )
         async with self._cond:
             await self._cond.wait_for(
                 lambda: self._client_status
@@ -570,12 +584,12 @@ class McpServer(ContextProtocol):
                     "Timeout to wait %d sessions to be closed",
                     self.session_count,
                 )
-        if self._task:
-            logger.debug("in stdio teardown %s", self._task)
-            self._task.cancel()
+        if self._server_task:
+            logger.debug("in stdio teardown %s", self._server_task.get_name())
+            self._server_task.cancel()
             async with asyncio.timeout(30):
                 with suppress(asyncio.CancelledError):
-                    await self._task
+                    await self._server_task
 
     async def _stdio_wait_for_session(self) -> ClientSession:
         """Only called by the session context manager."""
@@ -595,7 +609,7 @@ class McpServer(ContextProtocol):
             now = time.time()
             if (
                 self._client_status == ClientState.RUNNING
-                and self._session
+                and self._stdio_client_session
                 and (now - self._last_active > self.KEEP_ALIVE_INTERVAL)
             ):
                 # check if the session is still active
@@ -606,7 +620,7 @@ class McpServer(ContextProtocol):
                         now - self._last_active,
                     )
                     async with asyncio.timeout(10):
-                        await self._session.send_ping()
+                        await self._stdio_client_session.send_ping()
                         self._last_active = time.time()
                 except Exception as e:  # noqa: BLE001
                     logger.error(
@@ -622,8 +636,11 @@ class McpServer(ContextProtocol):
                         await self.__change_state(
                             ClientState.RESTARTING, [ClientState.RUNNING], e
                         )
-            if self._client_status == ClientState.RUNNING and self._session:
-                return self._session
+            if (
+                self._client_status == ClientState.RUNNING
+                and self._stdio_client_session
+            ):
+                return self._stdio_client_session
             if retried < self.RETRY_LIMIT - 1:
                 logger.warning(
                     "Session not initialized, retrying, %s status: %s (attempt %d/%d)",
@@ -879,7 +896,10 @@ class McpServer(ContextProtocol):
 
     async def _local_http_setup(self) -> None:
         """Setup the local http server."""
-        self._task = asyncio.create_task(self._local_http_process_watcher())
+        self._server_task = asyncio.create_task(
+            self._local_http_process_watcher(),
+            name=f"local_http_process_watcher-{self.name}",
+        )
         async with self._cond:
             await self._cond.wait_for(
                 lambda: self._client_status
@@ -888,11 +908,12 @@ class McpServer(ContextProtocol):
 
     async def _local_http_teardown(self) -> None:
         """Teardown the local http server."""
-        if self._task:
-            self._task.cancel()
+        if self._server_task:
+            logger.debug("in local http teardown %s", self._server_task.get_name())
+            self._server_task.cancel()
             async with asyncio.timeout(30):
                 with suppress(asyncio.CancelledError):
-                    await self._task
+                    await self._server_task
 
     def _local_http_session(
         self, chat_id: str
