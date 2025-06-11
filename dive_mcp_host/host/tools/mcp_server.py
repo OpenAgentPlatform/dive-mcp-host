@@ -92,6 +92,7 @@ class McpServerInfo(BaseModel):
 
 @dataclass(slots=True)
 class _SessionStoreItem:
+    chat_id: str
     session: ClientSession | None = None
     end_event: asyncio.Event = field(default_factory=asyncio.Event)
     ready_event: asyncio.Event = field(default_factory=asyncio.Event)
@@ -148,6 +149,8 @@ class McpServer(ContextProtocol):
 
         # Each session is mapped to a chat_id
         self._session_store: dict[ChatID, _SessionStoreItem] = {}
+        self._session_remove_queue: asyncio.Queue[ChatID] = asyncio.Queue()
+        self._session_remove_task: asyncio.Task | None = None
 
         # The pid of the server process
         self._pid: int | None = None
@@ -168,6 +171,19 @@ class McpServer(ContextProtocol):
             self._return_session = self._http_session
         else:
             raise InvalidMcpServerError(self.config.name, "Invalid server config")
+
+    async def _session_remove_loop(self) -> None:
+        """Remove session from the session store."""
+        logger.debug("session remove loop started")
+        while True:
+            chat_id = await self._session_remove_queue.get()
+            logger.debug("removing session for chat_id: %s", chat_id)
+
+            if chat_id in self._session_store:
+                await self._session_cleanup(self._session_store[chat_id])
+                self._session_store.pop(chat_id)
+
+            self._session_remove_queue.task_done()
 
     @property
     def session_count(self) -> int:
@@ -308,6 +324,10 @@ class McpServer(ContextProtocol):
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         """Get the langchain tools for the MCP servers."""
+        self._session_remove_task = asyncio.create_task(
+            self._session_remove_loop(),
+            name=f"session_remove_loop-{self.name}",
+        )
         await self._setup()
         try:
             yield self
@@ -325,6 +345,11 @@ class McpServer(ContextProtocol):
                 )
             await self._session_store_teardown()
             await self._teardown()
+
+            self._session_remove_task.cancel()
+            async with asyncio.timeout(30):
+                with suppress(asyncio.CancelledError):
+                    await self._session_remove_task
 
     async def _session_store_teardown(self) -> None:
         """Cleanup the entire session store."""
@@ -373,7 +398,7 @@ class McpServer(ContextProtocol):
                 logger.debug(
                     "Create new session for chat_id: %s, name: %s", chat_id, self.name
                 )
-                state = _SessionStoreItem()
+                state = _SessionStoreItem(chat_id=chat_id)
                 task = asyncio.create_task(
                     create_func(state),
                     name=f"session_create_func-{self.name}-{self.session_count}",
@@ -683,9 +708,10 @@ class McpServer(ContextProtocol):
                 state.ready_event.set()
                 await state.end_event.wait()
             except Exception:
-                logger.exception("create stdio session failed")
-            state.end_event.set()
+                logger.exception("stdio session error, chat_id: %s", state.chat_id)
+
             state.ready_event.set()
+            self._session_remove_queue.put_nowait(state.chat_id)
 
         return self._session_ctx("default", _create, lambda _: True)
 
@@ -821,8 +847,10 @@ class McpServer(ContextProtocol):
                     state.ready_event.set()
                     await state.end_event.wait()
             except Exception:
-                logger.exception("create stdio session failed")
+                logger.exception("http session error, chat_id: %s", state.chat_id)
+
             state.ready_event.set()
+            self._session_remove_queue.put_nowait(state.chat_id)
 
         return self._session_ctx(chat_id, _create)
 
@@ -942,8 +970,10 @@ class McpServer(ContextProtocol):
                     state.ready_event.set()
                     await state.end_event.wait()
             except Exception:
-                logger.exception("create stdio session failed")
+                logger.exception("local http session error, chat_id: %s", state.chat_id)
+
             state.ready_event.set()
+            self._session_remove_queue.put_nowait(state.chat_id)
 
         return self._session_ctx(
             chat_id, _create, lambda e: isinstance(e, httpx.ConnectError)
