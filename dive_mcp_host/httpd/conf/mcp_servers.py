@@ -18,7 +18,7 @@ class MCPServerConfig(BaseModel):
 
     transport: (
         Annotated[
-            Literal["stdio", "sse", "websocket"],
+            Literal["stdio", "sse", "websocket", "streamable"],
             BeforeValidator(lambda v: "stdio" if v == "command" else v),
         ]
         | None
