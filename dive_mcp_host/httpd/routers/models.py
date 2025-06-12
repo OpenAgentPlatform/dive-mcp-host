@@ -29,7 +29,7 @@ class ResultResponse(BaseModel):
     message: str | None = None
 
 
-Transport = Literal["stdio", "sse", "websocket"]
+Transport = Literal["stdio", "sse", "websocket", "streamable"]
 
 
 class McpServerConfig(BaseModel):
