@@ -19,10 +19,10 @@ from pydantic import AnyUrl
 
 from dive_mcp_host.host.conf import CheckpointerConfig, HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
+from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import ThreadNotFoundError, ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
-from dive_mcp_host.host.tools.model_types import ToolCallProgress
 from dive_mcp_host.models.fake import FakeMessageToolModel, default_responses
 
 

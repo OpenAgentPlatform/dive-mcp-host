@@ -306,7 +306,7 @@ async def test_remote_http_mcp_tool_exception_handling(
         assert server._session_store["default"] == session
 
         # Error removes the session
-        with patch("mcp.ClientSession.call_tool") as mocked:
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
             with pytest.raises(RuntimeError, match="test"):
                 await tools[0].ainvoke(
@@ -391,7 +391,7 @@ async def test_local_http_mcp_tool_exception_handling(
         assert server._session_store["default"] == session
 
         # Error removes the session
-        with patch("mcp.ClientSession.call_tool") as mocked:
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
             with pytest.raises(RuntimeError, match="test"):
                 await tools[0].ainvoke(
@@ -452,7 +452,7 @@ async def test_stdio_mcp_tool_exception_handling(
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
         session = server._stdio_client_session
-        with patch("mcp.ClientSession.call_tool") as mocked:
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
             with pytest.raises(RuntimeError, match="test"):
                 await tools[0].ainvoke(

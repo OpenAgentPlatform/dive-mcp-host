@@ -22,7 +22,7 @@ from langchain_core.runnables import (
 )
 from langchain_core.tools import BaseTool, ToolException
 from langgraph.config import get_stream_writer
-from mcp import ClientSession, McpError, StdioServerParameters, types
+from mcp import McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
 
 from dive_mcp_host.host.agents.agent_factory import ConfigurableKey
+from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import (
     InvalidMcpServerError,
     McpSessionClosedOrFailedError,
@@ -37,10 +38,10 @@ from dive_mcp_host.host.errors import (
     McpSessionNotInitializedError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.hack import ClientSession, stdio_client
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
-from dive_mcp_host.host.tools.model_types import ClientState, ToolCallProgress
-from dive_mcp_host.host.tools.stdio_server import stdio_client
+from dive_mcp_host.host.tools.model_types import ClientState
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Coroutine
@@ -100,7 +101,7 @@ class _SessionStoreItem:
     task: asyncio.Task | None = None
 
 
-ChatID = str
+type ChatID = str
 
 
 class McpServer(ContextProtocol):
@@ -1009,7 +1010,7 @@ class McpTool(BaseTool):
             """Progress callback."""
             get_stream_writer()(
                 (
-                    "tool_call_progress",
+                    ToolCallProgress.NAME,
                     ToolCallProgress(
                         progress=progress,
                         total=total,
