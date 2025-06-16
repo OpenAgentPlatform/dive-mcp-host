@@ -6,21 +6,20 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
 from dive_mcp_host.httpd.routers.config import SaveModelSettingsRequest
 from dive_mcp_host.httpd.routers.models import (
     EmbedConfig,
-    McpServerConfig,
     ModelFullConfigs,
 )
+from tests import helper
 
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.server import DiveHostAPI
 
-from tests import helper
-
 # Mock data
 MOCK_MCP_CONFIG = {
-    "default": McpServerConfig(
+    "default": MCPServerConfig(
         transport="command",  # type: ignore  # Test backward compatibility
         enabled=True,
         command="node",
@@ -766,7 +765,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
     # Disable tool
     payload = {
         "mcpServers": {
-            "echo": McpServerConfig(
+            "echo": MCPServerConfig(
                 transport="stdio",
                 command="python3",
                 enabled=False,

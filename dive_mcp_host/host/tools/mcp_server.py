@@ -65,12 +65,23 @@ if TYPE_CHECKING:
 logger = getLogger(__name__)
 
 
+class ToolInfo(types.Tool):
+    """Custom tool info with extra info."""
+
+    enable: bool
+
+    @classmethod
+    def from_tool(cls, tool: types.Tool, enable: bool) -> Self:
+        """Create from mcp Tool type."""
+        return cls(**tool.model_dump(), enable=enable)
+
+
 class McpServerInfo(BaseModel):
     """MCP server capability and tool list."""
 
     name: str
     """The name of the MCP server."""
-    tools: list[types.Tool]
+    tools: list[ToolInfo]
     """The tools provided by the MCP server."""
     initialize_result: types.InitializeResult | None
     """The result of the initialize method.
@@ -239,19 +250,35 @@ class McpServer(ContextProtocol):
     @property
     def server_info(self) -> McpServerInfo:
         """Get the server info."""
+        tools: list[ToolInfo] = []
+        if self._tool_results:
+            for tool in self._tool_results.tools:
+                enable: bool = True
+                if tool.name in self.config.exclude_tools:
+                    enable = False
+                tools.append(ToolInfo.from_tool(tool, enable))
+
         return McpServerInfo(
             name=self.name,
             initialize_result=self._initialize_result,
-            tools=self._tool_results.tools if self._tool_results is not None else [],
+            tools=tools,
             client_status=self._client_status,
             error=self._exception,
         )
+
+    def _get_enabled_tools(self) -> list[McpTool]:
+        result: list[McpTool] = []
+        for tool in self._mcp_tools:
+            if tool.name in self.config.exclude_tools:
+                continue
+            result.append(tool)
+        return result
 
     @property
     def mcp_tools(self) -> list[McpTool]:
         """Get the tools."""
         if self._client_status == ClientState.RUNNING:
-            return self._mcp_tools
+            return self._get_enabled_tools()
         return []
 
     def session(

@@ -5,6 +5,8 @@ import random
 import secrets
 from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Any, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, cast
 from unittest.mock import patch
 from uuid import UUID
 
@@ -729,6 +731,7 @@ def test_tool_missing_properties(log_config: LogConfig) -> None:
 
 
 @pytest.mark.asyncio
+<<<<<<< HEAD
 async def test_tool_progress(
     echo_tool_stdio_config: dict[str, ServerConfig],
     log_config: LogConfig,
@@ -825,3 +828,29 @@ async def test_tool_proxy(
                         await tool_manager.initialized_event.wait()
                         tools = tool_manager.langchain_tools()
                         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+=======
+async def test_tool_manager_exclude_tools(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+):
+    """Make sure excluded tools are not passed to the llm."""
+    async with (
+        echo_tool_sse_server as (_, configs),
+        ToolManager(configs) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 2
+        assert tools[0].name == "echo"
+        assert tools[1].name == "ignore"
+
+        # Disable 'igonre' tool
+        new_config = deepcopy(configs)
+        new_config["echo"].exclude_tools = ["ignore"]
+        await tool_manager.reload(new_config)
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "echo"
+>>>>>>> 4528f25 (feat: select tools to disable)

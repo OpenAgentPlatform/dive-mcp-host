@@ -63,7 +63,11 @@ async def list_tools(
         result[server_name] = McpTool(
             name=server_name,
             tools=[
-                SimpleToolInfo(name=tool.name, description=tool.description or "")
+                SimpleToolInfo(
+                    name=tool.name,
+                    description=tool.description or "",
+                    enabled=tool.enable,
+                )
                 for tool in server_info.tools
             ],
             description="",

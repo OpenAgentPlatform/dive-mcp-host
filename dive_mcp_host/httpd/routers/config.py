@@ -3,14 +3,13 @@ from logging import getLogger
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from dive_mcp_host.httpd.conf.mcp_servers import Config
+from dive_mcp_host.httpd.conf.mcp_servers import Config as McpServers
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 from .models import (
     EmbedConfig,
     McpServerError,
-    McpServers,
     ModelFullConfigs,
     ModelInterfaceDefinition,
     ModelSettingsDefinition,
@@ -72,23 +71,25 @@ async def get_mcp_server(
             config=McpServers(),
         )
 
-    config = McpServers.model_validate(config.model_dump(by_alias=True))
     return ConfigResult(
         success=True,
-        config=config,
+        config=app.mcp_server_config_manager.current_config,
     )
 
 
+# Frontend prefers to use this API for all MCP server config interactions.
+# Doesn't matter if they only want to change a small thing in a single MCP server.
+# Just overwrite the entire config every time.
 @config.post("/mcpserver")
 async def post_mcp_server(
-    servers: McpServers,
+    new_config: McpServers,
     app: DiveHostAPI = Depends(get_app),
     force: bool = False,
 ) -> SaveConfigResult:
     """Save MCP server configurations.
 
     Args:
-        servers (McpServers): The server configurations to save.
+        new_config (McpServers): The server configurations to save.
         app (DiveHostAPI): The DiveHostAPI instance.
         force (bool): If True, reload all mcp servers even if they are not changed.
 
@@ -96,8 +97,7 @@ async def post_mcp_server(
         SaveConfigResult: Result of the save operation with any errors.
     """
     # Update conifg
-    new_config = Config.model_validate(servers.model_dump(by_alias=True))
-    if not await app.mcp_server_config_manager.update_all_configs(new_config):
+    if not app.mcp_server_config_manager.update_all_configs(new_config):
         raise ValueError("Failed to update MCP server configurations")
 
     # Reload host
