@@ -43,7 +43,7 @@ async def initialized(
 
 
 @tools.get("/")
-async def list_tools(
+async def list_tools(  # noqa: PLR0912, C901
     app: DiveHostAPI = Depends(get_app),
 ) -> ToolsResult:
     """Lists all available MCP tools.
