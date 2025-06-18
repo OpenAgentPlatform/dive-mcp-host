@@ -97,6 +97,19 @@ class McpSessionClosedOrFailedError(MCPHostError):
         super().__init__(f"MCP session {state} for {mcp_server}")
 
 
+class McpSessionNotRunningError(MCPHostError):
+    """Trying to get a MCP session from session store, but the session was closed.
+
+    This exception is raised when a client tries to get a MCP session from session
+    store, and waiting for the session to be initialized. But the session was closed
+    or failed.
+    """
+
+    def __init__(self, mcp_server: str, chat_id: str) -> None:
+        """Initialize the error."""
+        super().__init__(f"MCP session not running for {mcp_server} chat_id: {chat_id}")
+
+
 class LogBufferNotFoundError(MCPHostError):
     """Exception raised when a log buffer is not found."""
 
