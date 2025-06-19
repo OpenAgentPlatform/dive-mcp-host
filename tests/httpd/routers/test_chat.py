@@ -10,13 +10,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
 
+from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
 
-from dive_mcp_host.httpd.database.models import Chat, Message
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message
 from dive_mcp_host.models.fake import FakeMessageToolModel
 from tests import helper
 
@@ -281,7 +282,7 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
     """
     client, _ = test_client
     test_chat_id = "test_edit_chat"
-    test_msg_id = "none-existing-msg-123123"
+    test_msg_id = ERROR_MSG_ID
     resp = client.post(
         "/api/chat/edit", data={"chatId": test_chat_id, "messageId": test_msg_id}
     )
@@ -307,7 +308,7 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
                         "content": "",
                         "role": "user",
                         "chatId": "test_edit_chat",
-                        "messageId": "none-existing-msg-123123",
+                        # "messageId": "none-existing-msg-123123",
                         "resource_usage": None,
                         "files": [],
                         "toolCalls": [],
@@ -330,6 +331,13 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
             },
         },
     )
+
+    # Make sure the message id doesn't remain as ERROR_MSG_ID
+    # The lenght sould be the same as uuid4
+    parsed_resp_data = DataResult[ChatMessage].model_validate(resp_data)
+    assert parsed_resp_data.data
+    assert parsed_resp_data.data.messages[0]
+    assert len(parsed_resp_data.data.messages[0].message_id) == len(str(uuid.uuid4()))
 
 
 def test_edit_chat(test_client):
