@@ -10,13 +10,14 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk
 
+from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
 
-from dive_mcp_host.httpd.database.models import Chat, Message
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message
 from dive_mcp_host.models.fake import FakeMessageToolModel
 from tests import helper
 
@@ -272,6 +273,71 @@ def test_create_chat(test_client):
 
     assert has_chat_info
     assert has_message_info
+
+
+def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test if editing none existing message is handeled correctly.
+
+    It sould still work, just turns update into insert
+    """
+    client, _ = test_client
+    test_chat_id = "test_edit_chat"
+    test_msg_id = ERROR_MSG_ID
+    resp = client.post(
+        "/api/chat/edit", data={"chatId": test_chat_id, "messageId": test_msg_id}
+    )
+    assert resp.status_code == SUCCESS_CODE
+
+    resp = client.get(f"/api/chat/{test_chat_id}")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = resp.json()
+    helper.dict_subset(
+        resp_data,
+        {
+            "success": True,
+            "message": None,
+            "data": {
+                "chat": {
+                    "id": "test_edit_chat",
+                    "title": "New Chat",
+                    "user_id": None,
+                },
+                "messages": [
+                    {
+                        "id": 3,
+                        "content": "",
+                        "role": "user",
+                        "chatId": "test_edit_chat",
+                        # "messageId": "none-existing-msg-123123",
+                        "resource_usage": None,
+                        "files": [],
+                        "toolCalls": [],
+                    },
+                    {
+                        "id": 4,
+                        "content": "I am a fake model.",
+                        "role": "assistant",
+                        "chatId": "test_edit_chat",
+                        "resource_usage": {
+                            "model": "",
+                            "total_input_tokens": 0,
+                            "total_output_tokens": 0,
+                            "total_run_time": 0.0,
+                        },
+                        "files": [],
+                        "toolCalls": [],
+                    },
+                ],
+            },
+        },
+    )
+
+    # Make sure the message id doesn't remain as ERROR_MSG_ID
+    # The lenght sould be the same as uuid4
+    parsed_resp_data = DataResult[ChatMessage].model_validate(resp_data)
+    assert parsed_resp_data.data
+    assert parsed_resp_data.data.messages[0]
+    assert len(parsed_resp_data.data.messages[0].message_id) == len(str(uuid.uuid4()))
 
 
 def test_edit_chat(test_client):

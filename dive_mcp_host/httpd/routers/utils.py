@@ -204,6 +204,13 @@ class ChatProcessor:
         regenerate_message_id: str | None,
     ) -> tuple[str, TokenUsage]:
         """Handle chat."""
+        logger.debug(
+            "Handle chat, chat_id: %s, query_input: %s, regenerate_message_id: %s",
+            chat_id,
+            query_input,
+            regenerate_message_id,
+        )
+
         chat_id = chat_id if chat_id else str(uuid4())
         dive_user: DiveUser = self.request_state.dive_user
         title = "New Chat"
@@ -264,9 +271,15 @@ class ChatProcessor:
                     chat_id, title, dive_user["user_id"], dive_user["user_type"]
                 )
 
+            original_msg_exist: bool = False
             if regenerate_message_id and query_message:
-                await db.delete_messages_after(chat_id, query_message.id)  # type: ignore
-                if query_input:
+                assert query_message.id, "Message ID doesn't exist"
+                await db.delete_messages_after(chat_id, query_message.id)
+                original_msg_exist = await db.lock_msg(
+                    chat_id=chat_id,
+                    message_id=query_message.id,
+                )
+                if query_input and original_msg_exist:
                     await db.update_message_content(
                         query_message.id,  # type: ignore
                         QueryInput(
@@ -280,7 +293,9 @@ class ChatProcessor:
             for message in current_messages:
                 assert message.id
                 if isinstance(message, HumanMessage):
-                    if not query_input or regenerate_message_id:
+                    if not query_input or (
+                        regenerate_message_id and original_msg_exist
+                    ):
                         continue
                     await db.create_message(
                         NewMessage(

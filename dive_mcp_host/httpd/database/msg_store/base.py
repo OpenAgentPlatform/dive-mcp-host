@@ -308,6 +308,34 @@ class BaseMessageStore(AbstractMessageStore):
         )
         await self._session.execute(query)
 
+    async def lock_msg(
+        self,
+        chat_id: str,
+        message_id: str,
+        user_id: str | None = None,
+    ) -> bool:
+        """Locks the message.
+
+        Args:
+            chat_id: Unique identifier for the chat.
+            message_id: Unique identifier for the message.
+            user_id: User ID or fingerprint, depending on the prefix.
+
+        Returns:
+            If the message exist and is locked, returns True, False otherwise.
+        """
+        query = (
+            select(ORMMessage.message_id)
+            .where(
+                ORMMessage.message_id == message_id,
+                ORMMessage.chat_id == chat_id,
+                ORMChat.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        message = await self._session.scalar(query)
+        return message is not None
+
     async def update_message_content(
         self,
         message_id: str,
@@ -336,7 +364,6 @@ class BaseMessageStore(AbstractMessageStore):
             update(ORMMessage)
             .where(
                 ORMMessage.message_id == message_id,
-                ORMMessage.chat_id == ORMChat.id,
                 ORMChat.user_id == user_id,
             )
             .values(
@@ -349,7 +376,7 @@ class BaseMessageStore(AbstractMessageStore):
         )
         updated_message = await self._session.scalar(query)
         if updated_message is None:
-            raise ValueError(f"Message {message_id} not found or access denied")
+            raise ValueError(f"Message {message_id} not found")
 
         resource_usage = (
             ResourceUsage.model_validate(

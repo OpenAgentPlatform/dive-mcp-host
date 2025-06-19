@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING, Annotated, TypeVar
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -94,6 +95,11 @@ async def create_chat(  # noqa: PLR0913
     return response
 
 
+# Frontend sets the message id to "0" when calling edit API
+# on an errored message.
+ERROR_MSG_ID = "0"
+
+
 @chat.post("/edit")
 async def edit_chat(  # noqa: PLR0913
     request: Request,
@@ -117,6 +123,10 @@ async def edit_chat(  # noqa: PLR0913
     """
     if chat_id is None or message_id is None:
         raise UserInputError("Chat ID and Message ID are required")
+
+    # message id needs to be unique
+    if message_id == ERROR_MSG_ID:
+        message_id = str(uuid4())
 
     if files is None:
         files = []
