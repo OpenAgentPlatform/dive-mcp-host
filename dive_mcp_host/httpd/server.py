@@ -236,6 +236,7 @@ class DiveHostAPI(FastAPI):
                 url=server_config.url or None,
                 transport=server_config.transport or "stdio",
                 headers=server_config.headers or {},
+                proxy=server_config.proxy or None,
             )
 
         logger.debug("got %s mcp servers in config", len(mcp_servers))

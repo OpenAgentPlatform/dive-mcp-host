@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_serializer
 
 from dive_mcp_host.env import DIVE_CONFIG_DIR
+from dive_mcp_host.host.conf import ProxyUrl
 from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
@@ -30,6 +31,7 @@ class MCPServerConfig(BaseModel):
     url: str | None = None
     headers: dict[str, SecretStr] | None = None
     extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
+    proxy: ProxyUrl | None = None
 
     @field_serializer("headers", when_used="json")
     def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
