@@ -133,6 +133,9 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
             )
         ):
             drop_after = False
+            if not state.values:
+                return to_update
+
             for msg in cast(MessagesState, state.values)["messages"]:
                 assert msg.id is not None  # all messages from the agent have an ID
                 if msg.id in resend_map:

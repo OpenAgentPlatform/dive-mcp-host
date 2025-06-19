@@ -274,6 +274,64 @@ def test_create_chat(test_client):
     assert has_message_info
 
 
+def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test if editing none existing message is handeled correctly.
+
+    It sould still work, just turns update into insert
+    """
+    client, _ = test_client
+    test_chat_id = "test_edit_chat"
+    test_msg_id = "none-existing-msg-123123"
+    resp = client.post(
+        "/api/chat/edit", data={"chatId": test_chat_id, "messageId": test_msg_id}
+    )
+    assert resp.status_code == SUCCESS_CODE
+
+    resp = client.get(f"/api/chat/{test_chat_id}")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = resp.json()
+    helper.dict_subset(
+        resp_data,
+        {
+            "success": True,
+            "message": None,
+            "data": {
+                "chat": {
+                    "id": "test_edit_chat",
+                    "title": "New Chat",
+                    "user_id": None,
+                },
+                "messages": [
+                    {
+                        "id": 3,
+                        "content": "",
+                        "role": "user",
+                        "chatId": "test_edit_chat",
+                        "messageId": "none-existing-msg-123123",
+                        "resource_usage": None,
+                        "files": [],
+                        "toolCalls": [],
+                    },
+                    {
+                        "id": 4,
+                        "content": "I am a fake model.",
+                        "role": "assistant",
+                        "chatId": "test_edit_chat",
+                        "resource_usage": {
+                            "model": "",
+                            "total_input_tokens": 0,
+                            "total_output_tokens": 0,
+                            "total_run_time": 0.0,
+                        },
+                        "files": [],
+                        "toolCalls": [],
+                    },
+                ],
+            },
+        },
+    )
+
+
 def test_edit_chat(test_client):
     """Test the /api/chat/edit endpoint."""
     client, app = test_client
