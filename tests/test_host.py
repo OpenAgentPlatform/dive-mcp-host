@@ -15,7 +15,7 @@ from langchain_core.messages import (
     ToolCall,
     ToolMessage,
 )
-from pydantic import AnyUrl
+from pydantic import AnyUrl, SecretStr
 
 from dive_mcp_host.host.conf import CheckpointerConfig, HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
@@ -382,7 +382,7 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         llm=LLMConfig(
             model="gpt-4o",
             model_provider="openai",
-            api_key="fake",
+            api_key=SecretStr("fake"),
         ),
         mcp_servers=echo_tool_stdio_config,
     )

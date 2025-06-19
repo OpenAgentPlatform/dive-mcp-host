@@ -7,7 +7,6 @@ import os
 import sys
 import time
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
-from dataclasses import dataclass, field
 from datetime import timedelta
 from json import JSONDecodeError
 from json import loads as json_loads
@@ -41,10 +40,11 @@ from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools.hack import ClientSession, stdio_client
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
-from dive_mcp_host.host.tools.model_types import ClientState
+from dive_mcp_host.host.tools.model_types import ChatID, ClientState
+from dive_mcp_host.host.tools.server_session_store import ServerSessionStore
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Coroutine
+    from collections.abc import AsyncGenerator, Callable
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from mcp.shared.message import SessionMessage
@@ -89,19 +89,6 @@ class McpServerInfo(BaseModel):
         if self.error is None:
             return None
         return "\n".join(format_exception(self.error))
-
-
-@dataclass(slots=True)
-class _SessionStoreItem:
-    chat_id: str
-    session: ClientSession | None = None
-    end_event: asyncio.Event = field(default_factory=asyncio.Event)
-    ready_event: asyncio.Event = field(default_factory=asyncio.Event)
-    # The task that created this session
-    task: asyncio.Task | None = None
-
-
-type ChatID = str
 
 
 class McpServer(ContextProtocol):
@@ -149,9 +136,7 @@ class McpServer(ContextProtocol):
         self._stdio_client_session: ClientSession | None = None
 
         # Each session is mapped to a chat_id
-        self._session_store: dict[ChatID, _SessionStoreItem] = {}
-        self._session_remove_queue: asyncio.Queue[ChatID] = asyncio.Queue()
-        self._session_remove_task: asyncio.Task | None = None
+        self._session_store: ServerSessionStore = ServerSessionStore(self.name)
 
         # The pid of the server process
         self._pid: int | None = None
@@ -173,23 +158,10 @@ class McpServer(ContextProtocol):
         else:
             raise InvalidMcpServerError(self.config.name, "Invalid server config")
 
-    async def _session_remove_loop(self) -> None:
-        """Remove session from the session store."""
-        logger.debug("session remove loop started")
-        while True:
-            chat_id = await self._session_remove_queue.get()
-            logger.debug("removing session for chat_id: %s", chat_id)
-
-            if chat_id in self._session_store:
-                await self._session_cleanup(self._session_store[chat_id])
-                self._session_store.pop(chat_id)
-
-            self._session_remove_queue.task_done()
-
     @property
     def session_count(self) -> int:
         """Retrive the session count."""
-        return len(self._session_store.keys())
+        return len(self._session_store)
 
     async def _message_handler(
         self,
@@ -325,10 +297,6 @@ class McpServer(ContextProtocol):
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         """Get the langchain tools for the MCP servers."""
-        self._session_remove_task = asyncio.create_task(
-            self._session_remove_loop(),
-            name=f"session_remove_loop-{self.name}",
-        )
         await self._setup()
         try:
             yield self
@@ -344,95 +312,37 @@ class McpServer(ContextProtocol):
                     self.name,
                     self.session_count,
                 )
-            await self._session_store_teardown()
+            await self._session_store.cleanup()
             await self._teardown()
 
-            self._session_remove_task.cancel()
-            async with asyncio.timeout(30):
-                with suppress(asyncio.CancelledError):
-                    await self._session_remove_task
-
-    async def _session_store_teardown(self) -> None:
-        """Cleanup the entire session store."""
-        for chat_id, state in self._session_store.items():
-            logger.debug(
-                "stopping session for chat_id: %s, name: %s", chat_id, self.name
-            )
-            await self._session_cleanup(state)
-        self._session_store = {}
-
-    async def _session_cleanup(self, session_state: _SessionStoreItem) -> None:
-        """Stop a single session."""
-        session_state.ready_event.set()
-        session_state.end_event.set()
-
-        if session_state.task:
-            session_state.task.cancel()
-            async with asyncio.timeout(30):
-                with suppress(asyncio.CancelledError):
-                    await session_state.task
-
     @asynccontextmanager
-    async def _session_ctx(
+    async def _session_ctx_mgr_wrapper(
         self,
         chat_id: str,
-        create_func: Callable[[_SessionStoreItem], Coroutine[None, None, None]],
-        restart_func: Callable[[Exception], bool] = lambda _: False,
-    ) -> AsyncGenerator[ClientSession, None]:
-        """Create a new session or return the existing one."""
-        try:
-            async with self._session_wrapper(restart_func):
-                # Get existing session
-                prev_session = self._session_store.get(chat_id)
-                if prev_session and not prev_session.end_event.is_set():
-                    logger.debug(
-                        "Found prev session for chat_id: %s, name: %s",
-                        chat_id,
-                        self.name,
-                    )
-                    await prev_session.ready_event.wait()
-                    assert prev_session.session, "MCP session doesn't exist"
-                    yield prev_session.session
-                    return
-
-                # Create a new session
-                logger.debug(
-                    "Create new session for chat_id: %s, name: %s", chat_id, self.name
-                )
-                state = _SessionStoreItem(chat_id=chat_id)
-                task = asyncio.create_task(
-                    create_func(state),
-                    name=f"session_create_func-{self.name}-{self.session_count}",
-                )
-                state.task = task
-                self._session_store[chat_id] = state
-                await state.ready_event.wait()
-                assert state.session, "MCP session doesn't exist"
-                yield state.session
-                return
-        except Exception as ex:
-            logger.error(
-                "Session error, chat_id: %s, name: %s, error: %s",
-                chat_id,
-                self.name,
-                ex,
-            )
-
-            # Cleanup errored session
-            if prev_session := self._session_store.get(chat_id):
-                await self._session_cleanup(prev_session)
-                self._session_store.pop(chat_id)
-
-            raise
-
-    @asynccontextmanager
-    async def _session_wrapper(
-        self,
+        session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
         restart_client: Callable[[Exception], bool] = lambda _: False,
-    ) -> AsyncGenerator[None, None]:
-        """Wrap the session to suppress session errors."""
+    ) -> AsyncGenerator[ClientSession, None]:
+        """Get the session ctx mgr from the session store, and handle session errors.
+
+        Args:
+            chat_id: The chat id.
+            session_creator: The session creator.
+            restart_client: The function to determine if the client should be restarted.
+                If the exception is not restartable, return False.
+                If the exception is restartable, return True.
+
+        This wrapper get the session from the session store, and handle the session
+        errors.
+        When error occurs, the exception will pass to restart_client to determine if
+        the client should be restarted. If the client should be restarted, the state
+        will be set to RESTARTING.
+        """
         try:
-            yield
+            async with self._session_store.get_session_ctx_mgr(
+                chat_id,
+                session_creator,
+            ) as session:
+                yield session
         except (ToolException, McpError) as e:
             logger.error("Tool exception for %s: %s", self.name, e)
             raise
@@ -691,7 +601,9 @@ class McpServer(ContextProtocol):
         )
         raise McpSessionNotInitializedError(self.name)
 
-    def _stdio_session(self, _: str) -> AbstractAsyncContextManager[ClientSession]:
+    def _stdio_session(
+        self, chat_id: ChatID
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -700,21 +612,18 @@ class McpServer(ContextProtocol):
             The context manager for the session.
         """
 
-        async def _create(state: _SessionStoreItem) -> None:
+        @asynccontextmanager
+        async def _create() -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 session = await self._stdio_wait_for_session()
                 await session.initialize()
-                state.session = session
-                state.ready_event.set()
-                await state.end_event.wait()
+                yield session
             except Exception:
-                logger.exception("stdio session error, chat_id: %s", state.chat_id)
+                logger.exception("stdio session error, chat_id: %s", chat_id)
+                raise
 
-            state.ready_event.set()
-            self._session_remove_queue.put_nowait(state.chat_id)
-
-        return self._session_ctx("default", _create, lambda _: True)
+        return self._session_ctx_mgr_wrapper("default", _create, lambda _: True)
 
     def _http_get_client(
         self,
@@ -823,7 +732,9 @@ class McpServer(ContextProtocol):
         """Teardown the http client. Do nothing."""
         logger.debug("http teardown")
 
-    def _http_session(self, chat_id: str) -> AbstractAsyncContextManager[ClientSession]:
+    def _http_session(
+        self, chat_id: ChatID
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -832,9 +743,8 @@ class McpServer(ContextProtocol):
             The context manager for the session.
         """
 
-        async def _create(
-            state: _SessionStoreItem,
-        ) -> None:
+        @asynccontextmanager
+        async def _create() -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 async with (
@@ -844,16 +754,12 @@ class McpServer(ContextProtocol):
                     ) as session,
                 ):
                     await session.initialize()
-                    state.session = session
-                    state.ready_event.set()
-                    await state.end_event.wait()
+                    yield session
             except Exception:
-                logger.exception("http session error, chat_id: %s", state.chat_id)
+                logger.exception("http session error, chat_id: %s", chat_id)
+                raise
 
-            state.ready_event.set()
-            self._session_remove_queue.put_nowait(state.chat_id)
-
-        return self._session_ctx(chat_id, _create)
+        return self._session_ctx_mgr_wrapper(chat_id, _create)
 
     async def _local_http_process_watcher(self) -> None:
         """Watcher the local http server process."""
@@ -957,7 +863,8 @@ class McpServer(ContextProtocol):
             The context manager for the session.
         """
 
-        async def _create(state: _SessionStoreItem) -> None:
+        @asynccontextmanager
+        async def _create() -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 async with (
@@ -967,17 +874,15 @@ class McpServer(ContextProtocol):
                     ) as session,
                 ):
                     await session.initialize()
-                    state.session = session
-                    state.ready_event.set()
-                    await state.end_event.wait()
+                    yield session
             except Exception:
-                logger.exception("local http session error, chat_id: %s", state.chat_id)
+                logger.exception("local http session error, chat_id: %s", chat_id)
+                raise
 
-            state.ready_event.set()
-            self._session_remove_queue.put_nowait(state.chat_id)
-
-        return self._session_ctx(
-            chat_id, _create, lambda e: isinstance(e, httpx.ConnectError)
+        return self._session_ctx_mgr_wrapper(
+            chat_id,
+            _create,
+            lambda e: isinstance(e, httpx.ConnectError),
         )
 
 

@@ -292,7 +292,7 @@ async def test_remote_http_mcp_tool_exception_handling(
                 type="tool_call",
             ),
         )
-        session = server._session_store["default"]
+        session = server._session_store._map["default"].session
 
         # session should be reused
         await tools[0].ainvoke(
@@ -303,7 +303,7 @@ async def test_remote_http_mcp_tool_exception_handling(
                 type="tool_call",
             ),
         )
-        assert server._session_store["default"] == session
+        assert server._session_store._map["default"].session == session
 
         # Error removes the session
         with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
@@ -322,7 +322,7 @@ async def test_remote_http_mcp_tool_exception_handling(
             ClientState.RUNNING,
             ClientState.RESTARTING,
         ]
-        assert not server._session_store.get("default")
+        assert not server._session_store._map.get("default")
 
         # New session is created
         await tools[0].ainvoke(
@@ -333,8 +333,8 @@ async def test_remote_http_mcp_tool_exception_handling(
                 type="tool_call",
             ),
         )
-        assert server._session_store["default"]
-        session = server._session_store["default"]
+        assert server._session_store._map["default"].session
+        session = server._session_store._map["default"].session
 
         # The session should be reused
         await tools[0].ainvoke(
@@ -345,7 +345,7 @@ async def test_remote_http_mcp_tool_exception_handling(
                 type="tool_call",
             ),
         )
-        assert server._session_store["default"] == session
+        assert server._session_store._map["default"].session == session
 
 
 @pytest.mark.asyncio
@@ -407,7 +407,7 @@ async def test_local_http_mcp_tool_exception_handling(
             ClientState.RUNNING,
             ClientState.RESTARTING,
         ]
-        assert not server._session_store.get("default")
+        assert not server._session_store._map.get("default")
 
         # New session is created
         await tools[0].ainvoke(
