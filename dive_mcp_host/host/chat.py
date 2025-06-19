@@ -115,13 +115,16 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         finally:
             self._agent = None
 
-    async def _get_updates_for_resend(
+    async def _remove_messages_for_resend(
         self,
         resend: list[BaseMessage],
         update: list[BaseMessage],
-    ) -> list[BaseMessage]:
-        if not self._checkpointer:
-            return update
+    ) -> None:
+        if not self._checkpointer or not (
+            self.active_agent.checkpointer
+            and isinstance(self.active_agent.checkpointer, BaseCheckpointSaver)
+        ):
+            return
         resend_map = {msg.id: msg for msg in resend}
         to_update = [i for i in update if i.id not in resend_map]
         if state := await self.active_agent.aget_state(
@@ -134,7 +137,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         ):
             drop_after = False
             if not state.values:
-                return to_update
+                return
 
             for msg in cast(MessagesState, state.values)["messages"]:
                 assert msg.id is not None  # all messages from the agent have an ID
@@ -142,7 +145,17 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                     drop_after = True
                 elif drop_after:
                     to_update.append(RemoveMessage(msg.id))
-            return to_update
+            if to_update:
+                await self.active_agent.aupdate_state(
+                    RunnableConfig(
+                        configurable={
+                            "thread_id": self._chat_id,
+                            "user_id": self._user_id,
+                        },
+                    ),
+                    {"messages": to_update},
+                )
+            return
         raise ThreadNotFoundError(self._chat_id)
 
     def query(
@@ -180,9 +193,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                     isinstance(msg, BaseMessage) and msg.id for msg in query_msgs
                 ):
                     raise MessageTypeError("Resending messages must has an ID")
-                query_msgs += await self._get_updates_for_resend(
-                    query_msgs, modify or []
-                )
+                await self._remove_messages_for_resend(query_msgs, modify or [])
             elif modify:
                 query_msgs = [*query_msgs, *modify]
             signal = asyncio.Event()
