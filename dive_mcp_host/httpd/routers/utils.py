@@ -817,6 +817,15 @@ def get_filename_remove_url(chat: ChatMessage) -> ChatMessage:
         for file in msg.files:
             if is_url(file):
                 continue
-            files.append(get_original_filename(file))
+
+            file_type = FileType.from_file_path(file)
+
+            if file_type == FileType.IMAGE:
+                # Image files need the complete path to be displayed in the UI
+                files.append(file)
+            else:
+                # Other files should remain their original name
+                files.append(get_original_filename(file))
+
         msg.files = files
     return chat
