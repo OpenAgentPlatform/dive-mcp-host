@@ -1,7 +1,8 @@
 import json
 import logging
 import os
-from collections.abc import Callable
+from asyncio import iscoroutine
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -45,7 +46,7 @@ class Config(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(alias="mcpServers")
 
 
-type McpServerConfigCallback = Callable[[Config], Config]
+type McpServerConfigCallback = Callable[[Config], Config | Coroutine[Any, Any, Config]]
 UpdateAllConfigsHookName = "httpd.config.mcp_servers.update_all_configs"
 CurrentConfigHookName = "httpd.config.mcp_servers.current_config"
 
@@ -75,15 +76,25 @@ class MCPServerManager:
         """Get the configuration path."""
         return self._config_path
 
-    @property
-    def current_config(self) -> Config | None:
+    async def get_current_config(self) -> Config | None:
         """Get the current configuration."""
         if self._current_config is None:
             return None
         if self._current_config_callbacks:
             config = self._current_config.model_copy(deep=True)
-            for i in self._current_config_callbacks:
-                config = i[0](config)
+            for item in self._current_config_callbacks:
+                callback, plugin_name = item
+                try:
+                    _ret = callback(config)
+                    if iscoroutine(_ret):
+                        config = await _ret
+                    else:
+                        assert isinstance(_ret, Config), "Must be Config type"
+                        config = _ret
+                except Exception:
+                    logger.exception(
+                        "current config callback errer, plugin: %s", plugin_name
+                    )
             return config
         return self._current_config
 
@@ -108,22 +119,21 @@ class MCPServerManager:
         config_dict = json.loads(config_content)
         self._current_config = Config(**config_dict)
 
-    def get_enabled_servers(self) -> dict[str, MCPServerConfig]:
+    async def get_enabled_servers(self) -> dict[str, MCPServerConfig]:
         """Get list of enabled server names.
 
         Returns:
             Dictionary of enabled server names and their configurations.
         """
-        if not self.current_config:
-            return {}
+        if config := await self.get_current_config():
+            return {
+                server_name: config
+                for server_name, config in config.mcp_servers.items()
+                if config.enabled
+            }
+        return {}
 
-        return {
-            server_name: config
-            for server_name, config in self.current_config.mcp_servers.items()
-            if config.enabled
-        }
-
-    def update_all_configs(self, new_config: Config) -> bool:
+    async def update_all_configs(self, new_config: Config) -> bool:
         """Replace all configurations.
 
         Args:
@@ -134,8 +144,20 @@ class MCPServerManager:
         """
         if self._update_config_callbacks:
             new_config = new_config.model_copy(deep=True)
-            for i in self._update_config_callbacks:
-                new_config = i[0](new_config)
+            for item in self._update_config_callbacks:
+                callback, plugin_name = item
+                try:
+                    _ret = callback(new_config)
+                    if iscoroutine(_ret):
+                        new_config = await _ret
+                    else:
+                        assert isinstance(_ret, Config), "Must be Config type"
+                        new_config = _ret
+                except Exception:
+                    logger.exception(
+                        "update config callback errer, plugin: %s", plugin_name
+                    )
+
         write_then_replace(
             Path(self._config_path),
             new_config.model_dump_json(by_alias=True),

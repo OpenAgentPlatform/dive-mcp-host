@@ -30,37 +30,37 @@ class MCPServerManagerPlugin:
         self.device_token: str | None = device_token
         self._user_mcp_configs: list[UserMcpConfig] | None = []
         self._refresh_ts: float = 0
-        self._http_client = httpx.Client(
+        self._http_client = httpx.AsyncClient(
             base_url=oap_root_url,
             headers={"Authorization": f"bearer {self.device_token}"}
             if self.device_token
             else None,
         )
 
-    def update_device_token(
+    async def update_device_token(
         self, device_token: str | None, mcp_server_manager: MCPServerManager
     ) -> None:
         """Update the device token and refresh the configs."""
         self.device_token = device_token
         self._http_client.headers = {"Authorization": f"bearer {self.device_token}"}
         update_oap_token(self.device_token)
-        self.refresh(mcp_server_manager)
+        await self.refresh(mcp_server_manager)
 
-    def refresh(self, mcp_server_manager: MCPServerManager) -> None:
+    async def refresh(self, mcp_server_manager: MCPServerManager) -> None:
         """Refresh the MCP server configs."""
-        self._get_user_mcp_configs(refresh=True)
-        cfg = mcp_server_manager.current_config
+        await self._get_user_mcp_configs(refresh=True)
+        cfg = await mcp_server_manager.get_current_config()
         # we already merged the configuration in callback function
         assert cfg is not None
-        mcp_server_manager.update_all_configs(cfg)
+        await mcp_server_manager.update_all_configs(cfg)
 
     def update_all_config_callback(self, new_config: Config) -> Config:
         """Callback function for updating all configs."""
         return new_config
 
-    def current_config_callback(self, config: Config) -> Config:
+    async def current_config_callback(self, config: Config) -> Config:
         """Callback function for getting current config."""
-        mcp_servers = self._get_user_mcp_configs()
+        mcp_servers = await self._get_user_mcp_configs()
 
         # oap id and is enable or not
         mcp_enabled = {}
@@ -97,14 +97,14 @@ class MCPServerManagerPlugin:
             )
         return config
 
-    def _send_api_request[T](
+    async def _send_api_request[T](
         self,
         url: str,
         method: Literal["get", "post", "put", "delete"] = "get",
         model: type[T] | Any = Any,
     ) -> tuple[T | None, int]:
         """Send a request to the API and return the response."""
-        response = self._http_client.request(method, url)
+        response = await self._http_client.request(method, url)
         try:
             return (
                 BaseResponse[model].model_validate_json(response.text).data,
@@ -114,11 +114,11 @@ class MCPServerManagerPlugin:
             logger.exception("Failed to validate response: %s", response.text)
             return None, response.status_code
 
-    def revoke_device_token(self) -> None:
+    async def revoke_device_token(self) -> None:
         """Revoke the device token."""
-        self._send_api_request("/api/v1/user/devices/self", "delete")
+        await self._send_api_request("/api/v1/user/devices/self", "delete")
 
-    def _get_user_mcp_configs(
+    async def _get_user_mcp_configs(
         self, refresh: bool = False
     ) -> list[UserMcpConfig] | None:
         """Get the user MCP configs."""
@@ -128,7 +128,7 @@ class MCPServerManagerPlugin:
             or not self._user_mcp_configs
             or time.time() - self._refresh_ts > MIN_REFRESH_INTERVAL
         ):
-            r, code = self._send_api_request(url, "get", list[UserMcpConfig])
+            r, code = await self._send_api_request(url, "get", list[UserMcpConfig])
             # nothing to update
             if code != httpx.codes.OK and code not in [
                 httpx.codes.UNAUTHORIZED,
@@ -146,8 +146,7 @@ def read_oap_config() -> OAPConfig:
         return OAPConfig()
 
     with CONFIG_FILE.open("r") as f:
-        _tmp = OAPConfig.model_validate_json(f.read())
-        return OAPConfig(auth_key=_tmp.auth_key)
+        return OAPConfig.model_validate_json(f.read())
 
 
 def update_oap_token(token: str | None) -> None:
