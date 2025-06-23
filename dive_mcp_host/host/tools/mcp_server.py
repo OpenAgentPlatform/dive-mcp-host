@@ -37,7 +37,11 @@ from dive_mcp_host.host.errors import (
     McpSessionNotInitializedError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
-from dive_mcp_host.host.tools.hack import ClientSession, stdio_client
+from dive_mcp_host.host.tools.hack import (
+    ClientSession,
+    create_mcp_http_client_factory,
+    stdio_client,
+)
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
 from dive_mcp_host.host.tools.model_types import ChatID, ClientState
@@ -104,7 +108,15 @@ class McpServer(ContextProtocol):
         config: ServerConfig,
         log_buffer_length: int = 1000,
     ) -> None:
-        """Initialize the McpToolKit."""
+        """Initialize the McpToolKit.
+
+        Args:
+            name: The name of the MCP server.
+            config: The configuration of the MCP server.
+            log_buffer_length: The length of the log buffer.
+            proxy: The proxy to use for the MCP server.
+                   This proxy overrides the proxy in the config.
+        """
         self.name = name
         self.config = config
         self._log_buffer = LogBuffer(name=name, size=log_buffer_length)
@@ -157,6 +169,10 @@ class McpServer(ContextProtocol):
             self._return_session = self._http_session
         else:
             raise InvalidMcpServerError(self.config.name, "Invalid server config")
+
+        self._httpx_client_factory = create_mcp_http_client_factory(
+            proxy=str(self.config.proxy) if self.config.proxy else None,
+        )
 
     @property
     def session_count(self) -> int:
@@ -646,6 +662,7 @@ class McpServer(ContextProtocol):
                     for key, value in self.config.headers.items()
                 },
                 timeout=timeout,
+                httpx_client_factory=self._httpx_client_factory,
                 sse_read_timeout=sse_read_timeout,
             )
         if self.config.transport in ("streamable"):
@@ -656,6 +673,7 @@ class McpServer(ContextProtocol):
                     for key, value in self.config.headers.items()
                 },
                 timeout=timedelta(seconds=timeout),
+                httpx_client_factory=self._httpx_client_factory,
                 sse_read_timeout=timedelta(seconds=sse_read_timeout),
             )
         if self.config.transport == "websocket":

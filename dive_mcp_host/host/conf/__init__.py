@@ -1,9 +1,11 @@
+import re
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AnyUrl,
     BaseModel,
+    BeforeValidator,
     Field,
     SecretStr,
     UrlConstraints,
@@ -24,6 +26,21 @@ class CheckpointerConfig(BaseModel):
     ]
 
 
+class ProxyUrl(AnyUrl):
+    """Proxy URL with protocol validation.
+
+    Only support http and socks5.
+    """
+
+    _constraints = UrlConstraints(max_length=1024, allowed_schemes=["http", "socks5"])
+
+
+def _rewrite_socks(v: Any) -> Any:
+    if isinstance(v, str):
+        return re.sub(r"^socks4?://", "socks5://", v)
+    return v
+
+
 class ServerConfig(BaseModel):
     """Configuration for an MCP server."""
 
@@ -37,6 +54,10 @@ class ServerConfig(BaseModel):
     keep_alive: float | None = None
     transport: Literal["stdio", "sse", "streamable", "websocket"]
     headers: dict[str, SecretStr] = Field(default_factory=dict)
+    proxy: Annotated[
+        ProxyUrl | None,
+        BeforeValidator(_rewrite_socks),
+    ] = None
 
     @field_serializer("headers", when_used="json")
     def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
