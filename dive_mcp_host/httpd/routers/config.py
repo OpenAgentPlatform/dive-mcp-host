@@ -64,16 +64,15 @@ async def get_mcp_server(
     Returns:
         ConfigResult[McpServers]: Configuration for MCP servers.
     """
-    if app.mcp_server_config_manager.current_config is None:
+    config = await app.mcp_server_config_manager.get_current_config()
+    if config is None:
         logger.warning("MCP server configuration not found")
         return ConfigResult(
             success=True,
             config=McpServers(),
         )
 
-    config = McpServers.model_validate(
-        app.mcp_server_config_manager.current_config.model_dump(by_alias=True)
-    )
+    config = McpServers.model_validate(config.model_dump(by_alias=True))
     return ConfigResult(
         success=True,
         config=config,
@@ -98,13 +97,12 @@ async def post_mcp_server(
     """
     # Update conifg
     new_config = Config.model_validate(servers.model_dump(by_alias=True))
-    if not app.mcp_server_config_manager.update_all_configs(new_config):
+    if not await app.mcp_server_config_manager.update_all_configs(new_config):
         raise ValueError("Failed to update MCP server configurations")
 
     # Reload host
-    await app.dive_host["default"].reload(
-        new_config=app.load_host_config(), force_mcp=force
-    )
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config, force_mcp=force)
 
     # Get failed MCP servers
     failed_servers: list[McpServerError] = []
@@ -167,7 +165,8 @@ async def post_model(
         raise ValueError("Failed to reload model configuration")
 
     # Reload host
-    await app.dive_host["default"].reload(new_config=app.load_host_config())
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
 
     return ResultResponse(success=True)
 
@@ -193,7 +192,8 @@ async def post_model_embedding(
         raise ValueError("Failed to reload model configuration")
 
     # Reload host
-    await app.dive_host["default"].reload(new_config=app.load_host_config())
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
 
     return ResultResponse(success=True)
 
@@ -217,7 +217,8 @@ async def post_model_replace_all(
         raise ValueError("Failed to reload model configuration")
 
     # Reload host
-    await app.dive_host["default"].reload(new_config=app.load_host_config())
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
 
     return ResultResponse(success=True)
 
