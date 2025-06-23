@@ -1,6 +1,6 @@
 import json
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi import status
@@ -378,6 +378,41 @@ def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
             },
         },
     )
+
+    # Test ollama
+    model_settings = SaveModelSettingsRequest.model_validate(
+        {
+            "provider": "ollama",
+            "modelSettings": {
+                "active": True,
+                "checked": False,
+                "model": "llama3.1:8b",
+                "modelProvider": "ollama",
+                "apiKey": "ollama-api-key",
+                "numCtx": 999,
+                "maxTokens": 8000,
+                "configuration": {
+                    "temperature": 0.8,
+                    "topP": 0.9,
+                },
+            },
+            "enableTools": True,
+        }
+    )
+
+    # Send request
+    response = client.post(
+        "/api/config/model",
+        content=model_settings.model_dump_json(by_alias=True).encode("utf-8"),
+    )
+
+    from langchain_ollama import ChatOllama
+
+    assert app.dive_host["default"].model._llm_type == "chat-ollama"
+    assert cast(ChatOllama, app.dive_host["default"].model).num_ctx == 999
+
+    # Verify response status code
+    assert response.status_code == SUCCESS_CODE
 
 
 def test_post_model_embedding(test_client):
