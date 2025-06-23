@@ -7,6 +7,8 @@ from typing import Any
 from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 
+from dive_mcp_host.models.helpers import clean_model_kwargs
+
 logger = logging.getLogger("dive_mcp_host.models")
 
 
@@ -38,8 +40,6 @@ def load_model(
         model = model_module.ModelClass(*args, **kwargs)
     If the provider is neither "dive" nor "__load__", it will load model from langchain.
     """
-    # XXX Pass configurations/parameters to the model
-
     logger.debug(
         "Loading model %s with provider %s, kwargs: %s",
         model_name,
@@ -53,16 +53,24 @@ def load_model(
         )
         model = model_module.load_model(*args, **kwargs)
     elif provider == "oap":
-        model = init_chat_model(model=model_name, model_provider="openai", **kwargs)
+        model = init_chat_model(
+            model=model_name,
+            model_provider="openai",
+            **clean_model_kwargs("openai", kwargs),
+        )
     elif provider == "__load__":
         module_path, class_name = model_name.rsplit(":", 1)
         model_module = import_module(module_path)
         class_ = getattr(model_module, class_name)
-        model = class_(*args, **kwargs)
+        model = class_(*args, **clean_model_kwargs(class_, kwargs))
     else:
         if len(args) > 0:
             raise ValueError(
                 f"Additional arguments are not supported for {provider} provider.",
             )
-        model = init_chat_model(model=model_name, model_provider=provider, **kwargs)
+        model = init_chat_model(
+            model=model_name,
+            model_provider=provider,
+            **clean_model_kwargs(provider, kwargs),
+        )
     return model

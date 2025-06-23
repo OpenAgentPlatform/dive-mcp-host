@@ -28,6 +28,7 @@ def to_snake_dict(d: dict[str, str]) -> dict[str, str]:
 
 pydantic_model_config = ConfigDict(
     alias_generator=to_camel,
+    extra="allow",
     validate_by_name=True,
     validate_assignment=True,
     validate_by_alias=True,
