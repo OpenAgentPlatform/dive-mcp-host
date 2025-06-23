@@ -53,10 +53,8 @@ async def list_tools(
     result: dict[str, McpTool] = {}
 
     # get full list of servers from config
-    if app.mcp_server_config_manager.current_config is not None:
-        all_servers = set(
-            app.mcp_server_config_manager.current_config.mcp_servers.keys()
-        )
+    if (config := await app.mcp_server_config_manager.get_current_config()) is not None:
+        all_servers = set(config.mcp_servers.keys())
     else:
         all_servers = set()
 
@@ -74,7 +72,6 @@ async def list_tools(
             error=server_info.error_str,
         )
     logger.debug("active mcp servers: %s", result.keys())
-
     # find missing servers
     missing_servers = all_servers - set(result.keys())
     logger.debug("disabled mcp servers: %s", missing_servers)

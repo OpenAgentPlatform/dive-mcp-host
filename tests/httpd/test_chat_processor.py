@@ -21,7 +21,7 @@ async def server(config_files) -> AsyncGenerator[DiveHostAPI, None]:  # noqa: F8
     service_config_manager = ServiceManager(config_files.service_config_file)
     service_config_manager.initialize()
     server = DiveHostAPI(service_config_manager)
-    server.mcp_server_config_manager.update_all_configs(Config(mcpServers={}))
+    await server.mcp_server_config_manager.update_all_configs(Config(mcpServers={}))
     async with server.prepare():
         yield server
 

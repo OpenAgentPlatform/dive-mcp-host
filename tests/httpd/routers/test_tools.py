@@ -1,7 +1,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, cast
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from fastapi import status
@@ -238,8 +238,7 @@ async def test_list_tools_with_no_config(mock_list_tools, test_client):
 
 @pytest.mark.asyncio
 @patch(
-    "dive_mcp_host.httpd.conf.mcp_servers.MCPServerManager.current_config",
-    new_callable=PropertyMock,
+    "dive_mcp_host.httpd.conf.mcp_servers.MCPServerManager.get_current_config",
 )
 async def test_list_tools_with_missing_server_not_in_cache(
     mock_current_config,
@@ -249,7 +248,7 @@ async def test_list_tools_with_missing_server_not_in_cache(
     _, app = test_client
 
     # Create Mock configuration
-    config_mock = MagicMock()
+    config_mock = AsyncMock()
     config_mock.mcp_servers = {
         "missing_server": MCPServerConfig(),
     }
