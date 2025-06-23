@@ -59,7 +59,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
         plan="free",
     )
 
-    def mock_get_user_mcp(
+    async def mock_get_user_mcp(
         self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
     ) -> list[UserMcpConfig] | None:
         """Mock the get_user_mcp method."""

@@ -91,11 +91,11 @@ class OAPStore(StoreProtocol):
                 return result.url
             return None
 
-    async def get_file(self, location: str) -> bytes:
+    async def get_file(self, file_path: str) -> bytes:
         """Get file from the store."""
-        logger.debug("Getting file from the OAP store: %s", location)
+        logger.debug("Getting file from the OAP store: %s", file_path)
         async with self._get_http_client() as client:
-            response = await client.get(location)
+            response = await client.get(file_path)
             return response.content
 
     def update_token(self, token: str | None) -> None:

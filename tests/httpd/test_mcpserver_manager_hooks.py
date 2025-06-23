@@ -42,7 +42,8 @@ def plugin_manager() -> PluginManager:
     return PluginManager()
 
 
-def test_current_config_hook(
+@pytest.mark.asyncio
+async def test_current_config_hook(
     mock_config_file: str, plugin_manager: PluginManager
 ) -> None:
     """Test the current_config hook functionality."""
@@ -65,7 +66,7 @@ def test_current_config_hook(
     )
 
     # Verify current_config hook is applied
-    current_config = manager.current_config
+    current_config = await manager.get_current_config()
     assert current_config is not None
     assert current_config.mcp_servers["test_server"].transport == "websocket"
 
@@ -87,7 +88,7 @@ def test_current_config_hook(
     )
 
     # Verify new server is added in current_config
-    current_config = manager.current_config
+    current_config = await manager.get_current_config()
     assert current_config is not None
     assert "new_server" in current_config.mcp_servers
     assert current_config.mcp_servers["new_server"].transport == "sse"
@@ -107,7 +108,7 @@ def test_current_config_hook(
     )
 
     # Verify server is removed in current_config
-    current_config = manager.current_config
+    current_config = await manager.get_current_config()
     assert current_config is not None
     assert "test_server" not in current_config.mcp_servers
     assert "new_server" in current_config.mcp_servers
@@ -117,7 +118,8 @@ def test_current_config_hook(
     assert "test_server" in manager._current_config.mcp_servers
 
 
-def test_update_all_configs_hook(
+@pytest.mark.asyncio
+async def test_update_all_configs_hook(
     mock_config_file: str, plugin_manager: PluginManager
 ) -> None:
     """Test the update_all_configs hook functionality."""
@@ -140,7 +142,7 @@ def test_update_all_configs_hook(
     )
 
     # Create new config and add new server before updating
-    new_config = manager.current_config
+    new_config = await manager.get_current_config()
     assert new_config is not None
     new_config.mcp_servers["new_server"] = new_config.mcp_servers[
         "test_server"
@@ -148,10 +150,10 @@ def test_update_all_configs_hook(
     new_config.mcp_servers["new_server"].transport = "sse"
 
     original_config = new_config.model_copy()
-    assert manager.update_all_configs(new_config) is True
+    assert await manager.update_all_configs(new_config) is True
 
     # Verify update_all_configs hook is applied
-    updated_config = manager.current_config
+    updated_config = await manager.get_current_config()
     assert updated_config is not None
     assert updated_config.mcp_servers["new_server"].enabled is False
 
@@ -175,12 +177,12 @@ def test_update_all_configs_hook(
     )
 
     # Update config and verify changes
-    new_config = manager.current_config
+    new_config = await manager.get_current_config()
     assert new_config is not None
     original_config = new_config.model_copy()
-    assert manager.update_all_configs(new_config) is True
+    assert await manager.update_all_configs(new_config) is True
 
-    updated_config = manager.current_config
+    updated_config = await manager.get_current_config()
     assert updated_config is not None
     assert "new_server" not in updated_config.mcp_servers
     assert "another_server" in updated_config.mcp_servers

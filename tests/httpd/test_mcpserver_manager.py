@@ -64,9 +64,10 @@ class TestMCPServerManager:
         """Test retrieving MCP server configuration."""
         manager = MCPServerManager(mock_config_file)
         manager.initialize()
-        assert manager.current_config is not None
-        assert "test_server" in manager.current_config.mcp_servers
-        assert manager.current_config.mcp_servers["test_server"].transport == "stdio"
+        config = await manager.get_current_config()
+        assert config is not None
+        assert "test_server" in config.mcp_servers
+        assert config.mcp_servers["test_server"].transport == "stdio"
 
     @pytest.mark.asyncio
     async def test_initialize(self, mock_config_file):
@@ -74,17 +75,18 @@ class TestMCPServerManager:
         manager = MCPServerManager(mock_config_file)
         manager.initialize()
 
-        assert manager.current_config is not None
-        assert "test_server" in manager.current_config.mcp_servers
-        assert manager.current_config.mcp_servers["test_server"].enabled is True
-        assert manager.current_config.mcp_servers["disabled_server"].enabled is False
+        config = await manager.get_current_config()
+        assert config is not None
+        assert "test_server" in config.mcp_servers
+        assert config.mcp_servers["test_server"].enabled is True
+        assert config.mcp_servers["disabled_server"].enabled is False
 
     @pytest.mark.asyncio
     async def test_get_enabled_servers(self, mock_config_file):
         """Test getting enabled servers."""
         manager = MCPServerManager(mock_config_file)
         manager.initialize()
-        enabled_servers = manager.get_enabled_servers()
+        enabled_servers = await manager.get_enabled_servers()
 
         assert enabled_servers is not None
         assert len(enabled_servers) == 1
@@ -118,12 +120,14 @@ class TestMCPServerManager:
             manager2.initialize()
 
             # Verify managers have different configs
-            assert manager1.current_config is not None
-            assert manager2.current_config is not None
-            assert "test_server" in manager1.current_config.mcp_servers
-            assert "second_server" in manager2.current_config.mcp_servers
-            assert "second_server" not in manager1.current_config.mcp_servers
-            assert "test_server" not in manager2.current_config.mcp_servers
+            config1 = await manager1.get_current_config()
+            config2 = await manager2.get_current_config()
+            assert config1 is not None
+            assert config2 is not None
+            assert "test_server" in config1.mcp_servers
+            assert "second_server" in config2.mcp_servers
+            assert "second_server" not in config1.mcp_servers
+            assert "test_server" not in config2.mcp_servers
 
             # Verify they are different instances
             assert manager1 is not manager2
@@ -154,17 +158,18 @@ class TestMCPServerManager:
         )
 
         # Update all configurations
-        result = manager.update_all_configs(new_config)
+        result = await manager.update_all_configs(new_config)
         assert result is True
 
         # Manager's current_config should be updated
-        assert manager.current_config is not None
-        assert len(manager.current_config.mcp_servers) == 1
-        assert "new_server" in manager.current_config.mcp_servers
-        assert manager.current_config.mcp_servers["new_server"].transport == "websocket"
-        assert manager.current_config.mcp_servers["new_server"].url == "ws://new.url"
-        assert manager.current_config.mcp_servers["new_server"].headers
-        assert manager.current_config.mcp_servers["new_server"].headers.get(
+        config = await manager.get_current_config()
+        assert config is not None
+        assert len(config.mcp_servers) == 1
+        assert "new_server" in config.mcp_servers
+        assert config.mcp_servers["new_server"].transport == "websocket"
+        assert config.mcp_servers["new_server"].url == "ws://new.url"
+        assert config.mcp_servers["new_server"].headers
+        assert config.mcp_servers["new_server"].headers.get(
             "Authorization"
         ) == SecretStr("bearer token2")
 
@@ -207,15 +212,17 @@ class TestMCPServerManagerIntegration:
 
         # Initialize the manager
         result = manager.initialize()
-        assert manager.current_config is not None
-        assert "test_server" in manager.current_config.mcp_servers
+        config = await manager.get_current_config()
+        assert config is not None
+        assert config is not None
+        assert "test_server" in config.mcp_servers
 
         # Get enabled servers
-        enabled_servers = manager.get_enabled_servers()
+        enabled_servers = await manager.get_enabled_servers()
         assert "test_server" in enabled_servers
 
         # Create a new configuration with additional server
-        current_servers = manager.current_config.mcp_servers.copy()
+        current_servers = config.mcp_servers.copy()
         current_servers["new_server"] = MCPServerConfig(
             transport="sse",
             enabled=True,
@@ -225,18 +232,17 @@ class TestMCPServerManagerIntegration:
 
         # Update config with new server
         new_config = Config(mcpServers=current_servers)
-        result = manager.update_all_configs(new_config)
+        result = await manager.update_all_configs(new_config)
         assert result is True
 
         # Verify new server was added in current_config
-        assert manager.current_config is not None
-        assert "new_server" in manager.current_config.mcp_servers
-        assert manager.current_config.mcp_servers["new_server"].transport == "sse"
-        assert (
-            manager.current_config.mcp_servers["new_server"].url == "http://new.server"
-        )
-        assert manager.current_config.mcp_servers["new_server"].headers
-        assert manager.current_config.mcp_servers["new_server"].headers.get(
+        config = await manager.get_current_config()
+        assert config is not None
+        assert "new_server" in config.mcp_servers
+        assert config.mcp_servers["new_server"].transport == "sse"
+        assert config.mcp_servers["new_server"].url == "http://new.server"
+        assert config.mcp_servers["new_server"].headers
+        assert config.mcp_servers["new_server"].headers.get(
             "Authorization"
         ) == SecretStr("bearer token2")
 
@@ -247,8 +253,9 @@ class TestMCPServerManagerIntegration:
         ):
             env_manager = MCPServerManager()
             env_manager.initialize()
-            assert env_manager.current_config is not None
-            assert len(env_manager.current_config.mcp_servers) == 0
+            config = await env_manager.get_current_config()
+            assert config is not None
+            assert len(config.mcp_servers) == 0
 
 
 def test_mcp_server_config_validation():
