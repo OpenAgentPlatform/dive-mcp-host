@@ -146,8 +146,7 @@ def read_oap_config() -> OAPConfig:
         return OAPConfig()
 
     with CONFIG_FILE.open("r") as f:
-        _tmp = OAPConfig.model_validate_json(f.read())
-        return OAPConfig(auth_key=_tmp.auth_key)
+        return OAPConfig.model_validate_json(f.read())
 
 
 def update_oap_token(token: str | None) -> None:
