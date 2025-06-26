@@ -46,6 +46,9 @@ def main() -> None:
     service_config_manager.current_setting.logging_config["root"]["level"] = (
         args.log_level
     )
+    service_config_manager.current_setting.logging_config["loggers"]["dive_mcp_host"][
+        "level"
+    ] = args.log_level
 
     if args.log_dir:
         log_dir = Path(args.log_dir)
