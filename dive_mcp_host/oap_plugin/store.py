@@ -34,12 +34,10 @@ class OAPStore(StoreProtocol):
         self._http_client: httpx.AsyncClient | None = None
 
     @asynccontextmanager
-    async def _get_http_client(self) -> AsyncGenerator[httpx.AsyncClient | None, None]:
+    async def _get_http_client(self) -> AsyncGenerator[httpx.AsyncClient, None]:
         """Get the HTTP client."""
         if self._token is None:
-            logger.warning("Token is not set, skipping OAP store operation")
-            yield None
-            return
+            raise RuntimeError("Token is not set")
 
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {self._token}"},
@@ -78,12 +76,6 @@ class OAPStore(StoreProtocol):
             files = {"file": (new_name, file.file, file.content_type)}
 
         async with self._get_http_client() as client:
-            if client is None:
-                logger.warning(
-                    "OAP store client is not available, skipping file upload"
-                )
-                return None
-
             response = await client.post(
                 f"{self._store_url}/upload_file",
                 files=files,
@@ -103,10 +95,6 @@ class OAPStore(StoreProtocol):
         """Get file from the store."""
         logger.debug("Getting file from the OAP store: %s", file_path)
         async with self._get_http_client() as client:
-            if client is None:
-                logger.warning("OAP store client is not available, cannot get file")
-                raise RuntimeError("OAP store is not configured")
-
             response = await client.get(file_path)
             return response.content
 
