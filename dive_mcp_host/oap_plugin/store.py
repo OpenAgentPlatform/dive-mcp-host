@@ -1,7 +1,7 @@
 import mimetypes
 import uuid
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from logging import getLogger
 from pathlib import Path
 
@@ -10,6 +10,7 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 
 from dive_mcp_host.host.store.base import StoreProtocol
+from dive_mcp_host.oap_plugin.models import TokenNotSetError
 
 logger = getLogger(__name__)
 
@@ -37,7 +38,7 @@ class OAPStore(StoreProtocol):
     async def _get_http_client(self) -> AsyncGenerator[httpx.AsyncClient, None]:
         """Get the HTTP client."""
         if self._token is None:
-            raise RuntimeError("Token is not set")
+            raise TokenNotSetError
 
         async with httpx.AsyncClient(
             headers={"Authorization": f"Bearer {self._token}"},
@@ -75,21 +76,24 @@ class OAPStore(StoreProtocol):
             logger.debug("Saving as file %s", new_name)
             files = {"file": (new_name, file.file, file.content_type)}
 
-        async with self._get_http_client() as client:
-            response = await client.post(
-                f"{self._store_url}/upload_file",
-                files=files,
-            )
-            if not response.is_success:
-                logger.error("Failed to save file to the OAP store: %s", response.text)
-                return None
+        with suppress(TokenNotSetError):
+            async with self._get_http_client() as client:
+                response = await client.post(
+                    f"{self._store_url}/upload_file",
+                    files=files,
+                )
+                if not response.is_success:
+                    logger.error(
+                        "Failed to save file to the OAP store: %s", response.text
+                    )
+                    return None
 
-            json_resp = response.json()
-            result = UploadFileResponse.model_validate(json_resp)
-            if result.result:
-                logger.debug("File saved to the OAP store: %s", result.url)
-                return result.url
-            return None
+                json_resp = response.json()
+                result = UploadFileResponse.model_validate(json_resp)
+                if result.result:
+                    logger.debug("File saved to the OAP store: %s", result.url)
+                    return result.url
+        return None
 
     async def get_file(self, file_path: str) -> bytes:
         """Get file from the store."""
