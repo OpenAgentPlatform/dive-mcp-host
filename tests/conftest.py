@@ -140,3 +140,33 @@ async def echo_tool_streamable_server(
 def log_config() -> LogConfig:
     """Fixture for log Config."""
     return LogConfig()
+
+
+@pytest_asyncio.fixture
+async def pproxy_server(
+    unused_tcp_port_factory: Callable[[], int],
+) -> AsyncGenerator[str, None]:
+    """Fixture for proxy."""
+    port = unused_tcp_port_factory()
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        "-m",
+        "pproxy",
+        "-l",
+        f"http+socks4+socks5://:{port}",
+    )
+    try:
+        for _ in range(20):
+            try:
+                _ = await httpx.AsyncClient().get(f"http://localhost:{port}/xxxx")
+                break
+            except httpx.RemoteProtocolError:
+                break
+            except:  # noqa: E722
+                await asyncio.sleep(0.1)
+        else:
+            raise RuntimeError("Failed to start pproxy server")
+        yield f"localhost:{port}"
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        await proc.wait()

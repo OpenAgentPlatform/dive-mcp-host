@@ -182,7 +182,7 @@ class DiveHostAPI(FastAPI):
         # ================================================
         # Dive Host
         # ================================================
-        config = self.load_host_config()
+        config = await self.load_host_config()
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._plugin_manager)
             await stack.enter_async_context(self._store)
@@ -193,7 +193,7 @@ class DiveHostAPI(FastAPI):
             logger.info("Server Prepare Complete")
             yield
 
-    def load_host_config(self) -> HostConfig:
+    async def load_host_config(self) -> HostConfig:
         """Generate all host configs."""
         model_setting = self._model_config_manager.current_setting
         if model_setting is None:
@@ -212,10 +212,8 @@ class DiveHostAPI(FastAPI):
             raise ValueError("Model config manager is not initialized")
 
         mcp_servers: dict[str, ServerConfig] = {}
-        for (
-            server_name,
-            server_config,
-        ) in self._mcp_server_config_manager.get_enabled_servers().items():
+        servers = await self._mcp_server_config_manager.get_enabled_servers()
+        for server_name, server_config in servers.items():
             if not server_config.enabled:
                 continue
 
@@ -236,6 +234,7 @@ class DiveHostAPI(FastAPI):
                 url=server_config.url or None,
                 transport=server_config.transport or "stdio",
                 headers=server_config.headers or {},
+                proxy=server_config.proxy or None,
             )
 
         logger.debug("got %s mcp servers in config", len(mcp_servers))

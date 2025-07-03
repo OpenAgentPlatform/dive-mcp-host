@@ -30,7 +30,8 @@ dependencies = [
     "langgraph-prebuilt>=0.1.8",
     "langgraph>=0.4.3",
     "fastapi>=0.115.12",
-    "mcp>=1.9",
+    "httpx[brotli,http2,socks,zstd]",
+    "mcp>=1.9.4",
     "anyio>=4.9.0",
     "pydantic>=2.11.4",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
@@ -54,9 +55,11 @@ classifiers = [
 [project.optional-dependencies]
 clipboard = []
 dev = [
+    "pproxy",
     "pytest",
     "pytest-asyncio",
     "pytest-integration",
+    "pytest-subtests",
     "pytest-timeout",
     "langchain-community",
     "ruff",

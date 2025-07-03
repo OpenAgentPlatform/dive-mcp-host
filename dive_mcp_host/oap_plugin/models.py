@@ -32,3 +32,13 @@ class BaseResponse[T](BaseModel):
     status: Literal["success", "error"]
     error: str | None = None
     data: T | None = None
+
+
+class TokenNotSetError(Exception):
+    """Token not set error."""
+
+    message: str = "Token is not set"
+
+    def __str__(self) -> str:
+        """Return the error message."""
+        return self.message

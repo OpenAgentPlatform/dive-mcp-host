@@ -13,7 +13,7 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
 from mcp.types import Tool
 
-from dive_mcp_host.host.conf import HostConfig, LogConfig
+from dive_mcp_host.host.conf import HostConfig, LogConfig, ProxyUrl
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import McpServer, McpServerInfo, ServerConfig, ToolManager
@@ -782,3 +782,46 @@ async def test_tool_progress(
                 assert json.loads(str(result.content))[0]["text"] == "Hello, world!"
             else:
                 assert json.loads(str(result.content)) == []
+
+
+@pytest.mark.asyncio
+async def test_tool_proxy(
+    subtests,
+    pproxy_server: str,
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test proxy settings."""
+    with subtests.test("scheme rewrite"):
+        for prot in ["http", "socks5", "socks", "socks4"]:
+            cfg = json.dumps(
+                {
+                    "name": "echo",
+                    "url": "http://localhost:8888/mcp",
+                    "transport": "streamable",
+                    "proxy": f"{prot}://{pproxy_server}",
+                }
+            )
+            m = ServerConfig.model_validate_json(cfg)
+            assert m.proxy
+            match prot:
+                case "http":
+                    assert m.proxy.scheme == "http"
+                case _ if prot.startswith("socks"):
+                    assert m.proxy.scheme == "socks5"
+
+    for test_cfg in [echo_tool_sse_server, echo_tool_streamable_server]:
+        async with test_cfg as (_, config):
+            cfg = config.copy()
+            for prot in ["http", "socks5"]:
+                cfg["echo"].proxy = ProxyUrl(f"{prot}://{pproxy_server}")
+                with subtests.test(prot=prot, url=cfg["echo"].url):
+                    async with ToolManager(cfg, log_config) as tool_manager:
+                        await tool_manager.initialized_event.wait()
+                        tools = tool_manager.langchain_tools()
+                        assert sorted([i.name for i in tools]) == ["echo", "ignore"]

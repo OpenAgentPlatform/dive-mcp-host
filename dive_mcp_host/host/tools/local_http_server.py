@@ -131,7 +131,11 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
                     async with asyncio.timeout(10):
                         initialize_result = await session.initialize()
                         tools = await session.list_tools()
-                        logger.info("Successfully connected to server %s", config.name)
+                        logger.info(
+                            "Successfully connected to server %s, got tools: %s",
+                            config.name,
+                            tools,
+                        )
                         break
             retried += 1
         else:

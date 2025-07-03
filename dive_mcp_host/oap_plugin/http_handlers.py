@@ -27,7 +27,7 @@ class OAPHttpHandlers:
         self, token: str, app: DiveHostAPI = Depends(get_app)
     ) -> None:
         """Update the device token."""
-        self._mcp_server_manager.update_device_token(
+        await self._mcp_server_manager.update_device_token(
             token, app.mcp_server_config_manager
         )
         self._oap_store.update_token(token)
@@ -36,15 +36,15 @@ class OAPHttpHandlers:
         self, no_revoke: bool = False, app: DiveHostAPI = Depends(get_app)
     ) -> None:
         """Logout the device."""
-        self._mcp_server_manager.update_device_token(
+        await self._mcp_server_manager.update_device_token(
             None, app.mcp_server_config_manager
         )
         if not no_revoke:
-            self._mcp_server_manager.revoke_device_token()
+            await self._mcp_server_manager.revoke_device_token()
 
     async def refresh_config_handler(self, app: DiveHostAPI = Depends(get_app)) -> None:
         """Refresh the config."""
-        self._mcp_server_manager.refresh(app.mcp_server_config_manager)
+        await self._mcp_server_manager.refresh(app.mcp_server_config_manager)
 
     def get_router(self) -> APIRouter:
         """Get the router."""
