@@ -19,7 +19,7 @@ class UserMcpConfig(BaseModel):
     id: str
     name: str
     description: str
-    transport: Literal["sse"]
+    transport: Literal["sse", "streamable"]
     url: str
     headers: dict[str, str]
 
