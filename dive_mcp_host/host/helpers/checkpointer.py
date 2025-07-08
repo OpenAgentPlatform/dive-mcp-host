@@ -1,4 +1,5 @@
 from contextlib import AbstractAsyncContextManager
+from urllib.parse import unquote
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -22,7 +23,7 @@ def get_checkpointer(
     """
     if uri.startswith("sqlite"):
         path = uri.removeprefix("sqlite:///")
-        return AsyncSqliteSaver.from_conn_string(path)
+        return AsyncSqliteSaver.from_conn_string(unquote(path))
     if uri.startswith("postgres"):
         return AsyncPostgresSaver.from_conn_string(uri)
     raise ValueError(f"Unsupported database: {uri}")
