@@ -71,9 +71,10 @@ async def get_mcp_server(
             config=McpServers(),
         )
 
+    config = McpServers.model_validate(config.model_dump(by_alias=True))
     return ConfigResult(
         success=True,
-        config=app.mcp_server_config_manager.current_config,
+        config=config,
     )
 
 
@@ -97,7 +98,7 @@ async def post_mcp_server(
         SaveConfigResult: Result of the save operation with any errors.
     """
     # Update conifg
-    if not app.mcp_server_config_manager.update_all_configs(new_config):
+    if not await app.mcp_server_config_manager.update_all_configs(new_config):
         raise ValueError("Failed to update MCP server configurations")
 
     # Reload host

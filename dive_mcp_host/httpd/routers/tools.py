@@ -43,7 +43,7 @@ async def initialized(
 
 
 @tools.get("/")
-async def list_tools(  # noqa: PLR0912, C901
+async def list_tools(
     app: DiveHostAPI = Depends(get_app),
 ) -> ToolsResult:
     """Lists all available MCP tools.
@@ -54,8 +54,8 @@ async def list_tools(  # noqa: PLR0912, C901
     result: dict[str, McpTool] = {}
 
     # get full list of servers from config
-    if app.mcp_server_config_manager.current_config is not None:
-        all_server_configs = app.mcp_server_config_manager.current_config
+    if (config := await app.mcp_server_config_manager.get_current_config()) is not None:
+        all_server_configs = config
     else:
         all_server_configs = Config()
 
