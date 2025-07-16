@@ -120,25 +120,6 @@ class DocumentInfoMsg:
         return asdict(cls(text=content))
 
 
-@dataclass(slots=True)
-class DocumentBase64Msg:
-    """Document base64 message."""
-
-    text: str
-    type: Literal["text"] = "text"
-
-    @classmethod
-    def create(
-        cls, base64_data: str, file_name: str, content_type: str | None
-    ) -> dict[str, str]:
-        """Create base64 document msg."""
-        if content_type:
-            data = f"data:{content_type};base64,{base64_data}"
-        else:
-            data = base64_data
-        return asdict(cls(text=f"document {file_name}, base64: {data}"))
-
-
 OAP_MIN_COUNT = 2
 
 
@@ -183,17 +164,8 @@ class FileMsgConverter:
                 DocumentInfoMsg.create(path=local_path, url=url, file_name=file_name),
             ]
 
-        # Other file types or providers
-        return [
-            DocumentBase64Msg.create(
-                base64_data=base64_content,
-                file_name=file_name,
-                content_type=content_type,
-            )
-            if base64_content
-            else {},
-            DocumentInfoMsg.create(path=local_path, url=url, file_name=file_name),
-        ]
+        # Other file types or providers, simply pass the document info message
+        return [DocumentInfoMsg.create(path=local_path, url=url, file_name=file_name)]
 
     async def _gen_image_msg_oap(
         self,
