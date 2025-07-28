@@ -51,6 +51,7 @@ async def test_fake_model_tool_call() -> None:
         is_last_step=False,
         today_datetime=today_datetime(),
         remaining_steps=3,
+        structured_response={},
     )
 
     def check_results(results: list[dict[str, Any]], msg: str) -> None:

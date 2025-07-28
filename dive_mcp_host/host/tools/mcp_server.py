@@ -7,6 +7,7 @@ import os
 import sys
 import time
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from datetime import timedelta
 from json import JSONDecodeError
 from json import loads as json_loads
 from logging import getLogger
@@ -15,13 +16,20 @@ from typing import TYPE_CHECKING, Any, Literal, Self
 
 import anyio
 import httpx
+from langchain_core.runnables import (
+    RunnableConfig,  # noqa: TC002 Langchain needs this to get type hits in runtime.
+)
 from langchain_core.tools import BaseTool, ToolException
-from mcp import ClientSession, McpError, StdioServerParameters, types
+from langgraph.config import get_stream_writer
+from mcp import McpError, StdioServerParameters, types
 from mcp.client.sse import sse_client
+from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
 
+from dive_mcp_host.host.agents.agent_factory import ConfigurableKey
+from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import (
     InvalidMcpServerError,
     McpSessionClosedOrFailedError,
@@ -29,10 +37,15 @@ from dive_mcp_host.host.errors import (
     McpSessionNotInitializedError,
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.hack import (
+    ClientSession,
+    create_mcp_http_client_factory,
+    stdio_client,
+)
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
-from dive_mcp_host.host.tools.model_types import ClientState
-from dive_mcp_host.host.tools.stdio_server import stdio_client
+from dive_mcp_host.host.tools.model_types import ChatID, ClientState
+from dive_mcp_host.host.tools.server_session_store import ServerSessionStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
@@ -52,12 +65,23 @@ if TYPE_CHECKING:
 logger = getLogger(__name__)
 
 
+class ToolInfo(types.Tool):
+    """Custom tool info with extra info."""
+
+    enable: bool
+
+    @classmethod
+    def from_tool(cls, tool: types.Tool, enable: bool) -> Self:
+        """Create from mcp Tool type."""
+        return cls(**tool.model_dump(), enable=enable)
+
+
 class McpServerInfo(BaseModel):
     """MCP server capability and tool list."""
 
     name: str
     """The name of the MCP server."""
-    tools: list[types.Tool]
+    tools: list[ToolInfo]
     """The tools provided by the MCP server."""
     initialize_result: types.InitializeResult | None
     """The result of the initialize method.
@@ -95,7 +119,15 @@ class McpServer(ContextProtocol):
         config: ServerConfig,
         log_buffer_length: int = 1000,
     ) -> None:
-        """Initialize the McpToolKit."""
+        """Initialize the McpToolKit.
+
+        Args:
+            name: The name of the MCP server.
+            config: The configuration of the MCP server.
+            log_buffer_length: The length of the log buffer.
+            proxy: The proxy to use for the MCP server.
+                   This proxy overrides the proxy in the config.
+        """
         self.name = name
         self.config = config
         self._log_buffer = LogBuffer(name=name, size=log_buffer_length)
@@ -114,15 +146,22 @@ class McpServer(ContextProtocol):
         self._client_status: ClientState = ClientState.INIT
         self._tool_results: types.ListToolsResult | None = None
         self._initialize_result: types.InitializeResult | None = None
-        self._session_count: int = 0
         self._exception: BaseException | BaseExceptionGroup | None = None
         self._mcp_tools: list[McpTool] = []
         self._retries: int = 0
         self._last_active: float = 0
 
-        self._task: asyncio.Task | None = None
+        # Background task for the server.
+        # Used for stdio, and local http server.
+        self._server_task: asyncio.Task | None = None
 
-        self._session: ClientSession | None = None
+        # stdio can only have one session at a time
+        self._stdio_client_session: ClientSession | None = None
+
+        # Each session is mapped to a chat_id
+        self._session_store: ServerSessionStore = ServerSessionStore(self.name)
+
+        # The pid of the server process
         self._pid: int | None = None
 
         """Methods for different server types."""
@@ -141,6 +180,15 @@ class McpServer(ContextProtocol):
             self._return_session = self._http_session
         else:
             raise InvalidMcpServerError(self.config.name, "Invalid server config")
+
+        self._httpx_client_factory = create_mcp_http_client_factory(
+            proxy=str(self.config.proxy) if self.config.proxy else None,
+        )
+
+    @property
+    def session_count(self) -> int:
+        """Retrive the session count."""
+        return len(self._session_store)
 
     async def _message_handler(
         self,
@@ -169,9 +217,19 @@ class McpServer(ContextProtocol):
         async with asyncio.timeout(10):
             # When using stdio, the initialize call may block indefinitely
             self._initialize_result = await session.initialize()
+            logger.debug(
+                "Client %s initializing, result: %s",
+                self.name,
+                self._initialize_result,
+            )
         tool_results = await session.list_tools()
         self._last_active = time.time()
         mcp_tools = [McpTool.from_tool(tool, self) for tool in tool_results.tools]
+        logger.debug(
+            "Client %s initialized successfully with %d tools",
+            self.name,
+            len(mcp_tools),
+        )
         async with self._cond:
             self._tool_results = tool_results
             self._mcp_tools = mcp_tools
@@ -192,22 +250,40 @@ class McpServer(ContextProtocol):
     @property
     def server_info(self) -> McpServerInfo:
         """Get the server info."""
+        tools: list[ToolInfo] = []
+        if self._tool_results:
+            for tool in self._tool_results.tools:
+                enable: bool = True
+                if tool.name in self.config.exclude_tools:
+                    enable = False
+                tools.append(ToolInfo.from_tool(tool, enable))
+
         return McpServerInfo(
             name=self.name,
             initialize_result=self._initialize_result,
-            tools=self._tool_results.tools if self._tool_results is not None else [],
+            tools=tools,
             client_status=self._client_status,
             error=self._exception,
         )
+
+    def _get_enabled_tools(self) -> list[McpTool]:
+        result: list[McpTool] = []
+        for tool in self._mcp_tools:
+            if tool.name in self.config.exclude_tools:
+                continue
+            result.append(tool)
+        return result
 
     @property
     def mcp_tools(self) -> list[McpTool]:
         """Get the tools."""
         if self._client_status == ClientState.RUNNING:
-            return self._mcp_tools
+            return self._get_enabled_tools()
         return []
 
-    def session(self) -> AbstractAsyncContextManager[ClientSession]:
+    def session(
+        self, chat_id: str = "default"
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -215,7 +291,7 @@ class McpServer(ContextProtocol):
         Returns:
             The context manager for the session.
         """
-        return self._return_session()
+        return self._return_session(chat_id)
 
     async def wait(self, states: list[ClientState]) -> bool:
         """Wait until the client is in the given state or in the failed or closed state.
@@ -277,19 +353,39 @@ class McpServer(ContextProtocol):
                 logger.debug(
                     "%s: wait all sessions to be closed. now is %s",
                     self.name,
-                    self._session_count,
+                    self.session_count,
                 )
+            await self._session_store.cleanup()
             await self._teardown()
 
     @asynccontextmanager
-    async def _session_wrapper(
+    async def _session_ctx_mgr_wrapper(
         self,
+        chat_id: str,
+        session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
         restart_client: Callable[[Exception], bool] = lambda _: False,
-    ) -> AsyncGenerator[None, None]:
-        """Wrap the session to suppress session errors and tracking session count."""
+    ) -> AsyncGenerator[ClientSession, None]:
+        """Get the session ctx mgr from the session store, and handle session errors.
+
+        Args:
+            chat_id: The chat id.
+            session_creator: The session creator.
+            restart_client: The function to determine if the client should be restarted.
+                If the exception is not restartable, return False.
+                If the exception is restartable, return True.
+
+        This wrapper get the session from the session store, and handle the session
+        errors.
+        When error occurs, the exception will pass to restart_client to determine if
+        the client should be restarted. If the client should be restarted, the state
+        will be set to RESTARTING.
+        """
         try:
-            self._session_count += 1
-            yield
+            async with self._session_store.get_session_ctx_mgr(
+                chat_id,
+                session_creator,
+            ) as session:
+                yield session
         except (ToolException, McpError) as e:
             logger.error("Tool exception for %s: %s", self.name, e)
             raise
@@ -330,7 +426,6 @@ class McpServer(ContextProtocol):
             raise
         finally:
             async with self._cond:
-                self._session_count -= 1
                 self._cond.notify_all()
 
     async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915
@@ -358,7 +453,7 @@ class McpServer(ContextProtocol):
                         stream_read, stream_send, message_handler=self._message_handler
                     ) as session,
                 ):
-                    self._session = session
+                    self._stdio_client_session = session
                     self._pid = pid
                     await self._init_tool_info(session)
                     async with self._cond:
@@ -389,6 +484,7 @@ class McpServer(ContextProtocol):
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
                 httpx.ConnectTimeout,
+                ValidationError,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"
@@ -422,7 +518,7 @@ class McpServer(ContextProtocol):
                 await self._log_buffer.push_session_error(self._exception)
 
             self._retries += 1
-            self._session = None
+            self._stdio_client_session = None
             if self._client_status == ClientState.CLOSED:
                 logger.info("Client %s closed, stopping watcher", self.name)
                 return
@@ -447,7 +543,10 @@ class McpServer(ContextProtocol):
 
     async def _stdio_setup(self) -> None:
         """Setup the stdio client."""
-        self._task = asyncio.create_task(self._stdio_client_watcher())
+        self._server_task = asyncio.create_task(
+            self._stdio_client_watcher(),
+            name=f"stdio_client_watcher-{self.name}",
+        )
         async with self._cond:
             await self._cond.wait_for(
                 lambda: self._client_status
@@ -459,19 +558,19 @@ class McpServer(ContextProtocol):
         async with self._cond, asyncio.timeout(30):
             try:
                 await self._cond.wait_for(
-                    lambda: self._session_count == 0,
+                    lambda: self.session_count == 0,
                 )
             except TimeoutError:
                 logger.warning(
                     "Timeout to wait %d sessions to be closed",
-                    self._session_count,
+                    self.session_count,
                 )
-        if self._task:
-            logger.debug("in stdio teardown %s", self._task)
-            self._task.cancel()
+        if self._server_task:
+            logger.debug("in stdio teardown %s", self._server_task.get_name())
+            self._server_task.cancel()
             async with asyncio.timeout(30):
                 with suppress(asyncio.CancelledError):
-                    await self._task
+                    await self._server_task
 
     async def _stdio_wait_for_session(self) -> ClientSession:
         """Only called by the session context manager."""
@@ -491,7 +590,7 @@ class McpServer(ContextProtocol):
             now = time.time()
             if (
                 self._client_status == ClientState.RUNNING
-                and self._session
+                and self._stdio_client_session
                 and (now - self._last_active > self.KEEP_ALIVE_INTERVAL)
             ):
                 # check if the session is still active
@@ -502,7 +601,7 @@ class McpServer(ContextProtocol):
                         now - self._last_active,
                     )
                     async with asyncio.timeout(10):
-                        await self._session.send_ping()
+                        await self._stdio_client_session.send_ping()
                         self._last_active = time.time()
                 except Exception as e:  # noqa: BLE001
                     logger.error(
@@ -518,8 +617,11 @@ class McpServer(ContextProtocol):
                         await self.__change_state(
                             ClientState.RESTARTING, [ClientState.RUNNING], e
                         )
-            if self._client_status == ClientState.RUNNING and self._session:
-                return self._session
+            if (
+                self._client_status == ClientState.RUNNING
+                and self._stdio_client_session
+            ):
+                return self._stdio_client_session
             if retried < self.RETRY_LIMIT - 1:
                 logger.warning(
                     "Session not initialized, retrying, %s status: %s (attempt %d/%d)",
@@ -542,7 +644,9 @@ class McpServer(ContextProtocol):
         )
         raise McpSessionNotInitializedError(self.name)
 
-    def _stdio_session(self) -> AbstractAsyncContextManager[ClientSession]:
+    def _stdio_session(
+        self, chat_id: ChatID
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -552,22 +656,30 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def session_ctx() -> AsyncGenerator[ClientSession, None]:
-            """Get the session.
-
-            If the session is inactive for a long time, ping it first
-            to check if it is still active.
-            """
-            session = await self._stdio_wait_for_session()
-            async with self._session_wrapper(restart_client=lambda _: True):
+        async def _create() -> AsyncGenerator[ClientSession, None]:
+            """Create new session."""
+            try:
+                session = await self._stdio_wait_for_session()
                 await session.initialize()
                 yield session
+            except Exception:
+                logger.exception("stdio session error, chat_id: %s", chat_id)
+                raise
 
-        return session_ctx()
+        return self._session_ctx_mgr_wrapper("default", _create, lambda _: True)
 
     def _http_get_client(
         self,
-    ) -> AbstractAsyncContextManager[tuple[ReadStreamType, WriteStreamType]]:
+        timeout: float = 30,
+        sse_read_timeout: float = 60 * 5,
+    ) -> AbstractAsyncContextManager[
+        tuple[ReadStreamType, WriteStreamType]
+        | tuple[
+            ReadStreamType,
+            WriteStreamType,
+            Callable[[], str | None],
+        ]
+    ]:
         assert self.config.url, "url is required"
         if self.config.transport in ("sse", None):
             return sse_client(
@@ -576,6 +688,20 @@ class McpServer(ContextProtocol):
                     key: value.get_secret_value()
                     for key, value in self.config.headers.items()
                 },
+                timeout=timeout,
+                httpx_client_factory=self._httpx_client_factory,
+                sse_read_timeout=sse_read_timeout,
+            )
+        if self.config.transport in ("streamable"):
+            return streamablehttp_client(
+                url=self.config.url,
+                headers={
+                    key: value.get_secret_value()
+                    for key, value in self.config.headers.items()
+                },
+                timeout=timedelta(seconds=timeout),
+                httpx_client_factory=self._httpx_client_factory,
+                sse_read_timeout=timedelta(seconds=sse_read_timeout),
             )
         if self.config.transport == "websocket":
             return websocket_client(
@@ -588,14 +714,15 @@ class McpServer(ContextProtocol):
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
         async with (
-            self._http_get_client() as streams,
-            ClientSession(*streams, message_handler=self._message_handler) as session,
+            self._http_get_client(sse_read_timeout=30) as streams,
+            ClientSession(
+                *[streams[0], streams[1]], message_handler=self._message_handler
+            ) as session,
         ):
             await self._init_tool_info(session)
 
     async def _http_setup(self) -> None:
         """Setup the http client."""
-        logger.error("http setup")
         self._retries = 0
         for _ in range(self.RETRY_LIMIT):
             should_break = False
@@ -607,6 +734,7 @@ class McpServer(ContextProtocol):
             except* (
                 httpx.ConnectError,
                 httpx.TooManyRedirects,
+                httpx.ConnectTimeout,
             ) as eg:
                 logger.error("http setup error %s", eg.exceptions)
                 self._exception = McpSessionGroupError(
@@ -616,6 +744,8 @@ class McpServer(ContextProtocol):
             except* (
                 McpError,
                 httpx.InvalidURL,
+                Exception,
+                ValidationError,
             ) as eg:
                 err_msg = (
                     f"Client initialization error for {self.name}: {eg.exceptions}"
@@ -640,13 +770,16 @@ class McpServer(ContextProtocol):
             self._retries += 1
             await asyncio.sleep(self.RESTART_INTERVAL)
         async with self._cond:
+            logger.error("http setup failed %s", self._exception)
             await self.__change_state(ClientState.FAILED, None, self._exception)
 
     async def _http_teardown(self) -> None:
         """Teardown the http client. Do nothing."""
-        logger.error("http teardown")
+        logger.debug("http teardown")
 
-    def _http_session(self) -> AbstractAsyncContextManager[ClientSession]:
+    def _http_session(
+        self, chat_id: ChatID
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -656,23 +789,22 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def session_ctx() -> AsyncGenerator[ClientSession, None]:
-            """Get the session.
+        async def _create() -> AsyncGenerator[ClientSession, None]:
+            """Create new session."""
+            try:
+                async with (
+                    self._http_get_client() as streams,
+                    ClientSession(
+                        *[streams[0], streams[1]], message_handler=self._message_handler
+                    ) as session,
+                ):
+                    await session.initialize()
+                    yield session
+            except Exception:
+                logger.exception("http session error, chat_id: %s", chat_id)
+                raise
 
-            If the session is inactive for a long time, ping it first
-            to check if it is still active.
-            """
-            async with (
-                self._http_get_client() as streams,
-                ClientSession(
-                    *streams, message_handler=self._message_handler
-                ) as session,
-                self._session_wrapper(),
-            ):
-                await session.initialize()
-                yield session
-
-        return session_ctx()
+        return self._session_ctx_mgr_wrapper(chat_id, _create)
 
     async def _local_http_process_watcher(self) -> None:
         """Watcher the local http server process."""
@@ -718,6 +850,8 @@ class McpServer(ContextProtocol):
                 McpError,
                 httpx.InvalidURL,
                 httpx.TooManyRedirects,
+                ValidationError,
+                Exception,
             ) as e:
                 logger.exception("Error initializing http server: %s", e)
                 self._exception = McpSessionGroupError(
@@ -744,7 +878,10 @@ class McpServer(ContextProtocol):
 
     async def _local_http_setup(self) -> None:
         """Setup the local http server."""
-        self._task = asyncio.create_task(self._local_http_process_watcher())
+        self._server_task = asyncio.create_task(
+            self._local_http_process_watcher(),
+            name=f"local_http_process_watcher-{self.name}",
+        )
         async with self._cond:
             await self._cond.wait_for(
                 lambda: self._client_status
@@ -753,13 +890,16 @@ class McpServer(ContextProtocol):
 
     async def _local_http_teardown(self) -> None:
         """Teardown the local http server."""
-        if self._task:
-            self._task.cancel()
+        if self._server_task:
+            logger.debug("in local http teardown %s", self._server_task.get_name())
+            self._server_task.cancel()
             async with asyncio.timeout(30):
                 with suppress(asyncio.CancelledError):
-                    await self._task
+                    await self._server_task
 
-    def _local_http_session(self) -> AbstractAsyncContextManager[ClientSession]:
+    def _local_http_session(
+        self, chat_id: str
+    ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
@@ -769,25 +909,26 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def session_ctx() -> AsyncGenerator[ClientSession, None]:
-            """Get the session.
+        async def _create() -> AsyncGenerator[ClientSession, None]:
+            """Create new session."""
+            try:
+                async with (
+                    self._http_get_client() as streams,
+                    ClientSession(
+                        *[streams[0], streams[1]], message_handler=self._message_handler
+                    ) as session,
+                ):
+                    await session.initialize()
+                    yield session
+            except Exception:
+                logger.exception("local http session error, chat_id: %s", chat_id)
+                raise
 
-            If the session is inactive for a long time, ping it first
-            to check if it is still active.
-            """
-            async with (
-                self._http_get_client() as streams,
-                ClientSession(
-                    *streams, message_handler=self._message_handler
-                ) as session,
-                self._session_wrapper(
-                    restart_client=lambda e: isinstance(e, httpx.ConnectError)
-                ),
-            ):
-                await session.initialize()
-                yield session
-
-        return session_ctx()
+        return self._session_ctx_mgr_wrapper(
+            chat_id,
+            _create,
+            lambda e: isinstance(e, httpx.ConnectError),
+        )
 
 
 class McpTool(BaseTool):
@@ -798,12 +939,42 @@ class McpTool(BaseTool):
     mcp_server: McpServer
     kwargs_arg: bool = False
 
-    def _run(self, **kwargs: dict[str, Any]) -> str:
+    def _run(
+        self,
+        _config: RunnableConfig,
+        **kwargs: dict[str, Any],
+    ) -> str:
         """Run the tool."""
-        return asyncio.run(self._arun(**kwargs))
+        return asyncio.run(self._arun(_config, **kwargs))
 
-    async def _arun(self, **kwargs: dict[str, Any]) -> str:
+    async def _arun(
+        self,
+        _config: RunnableConfig,
+        **kwargs: dict[str, Any],
+    ) -> str:
         """Run the tool."""
+
+        async def progress_callback(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
+            """Progress callback."""
+            get_stream_writer()(
+                (
+                    ToolCallProgress.NAME,
+                    ToolCallProgress(
+                        progress=progress,
+                        total=total,
+                        message=message,
+                        tool_call_id=tool_call_id,
+                    ),
+                )
+            )
+
+        tool_call_id = _config.get("metadata", {}).get("tool_call_id", "")
+        chat_id = _config.get("configurable", {}).get(
+            ConfigurableKey.THREAD_ID, "default"
+        )
+
         if not self.kwargs_arg and len(kwargs) == 1 and "kwargs" in kwargs:
             if isinstance(kwargs["kwargs"], str):
                 with suppress(JSONDecodeError):
@@ -813,8 +984,12 @@ class McpTool(BaseTool):
         logger.debug(
             "Executing tool %s.%s with args: %s", self.toolkit_name, self.name, kwargs
         )
-        async with self.mcp_server.session() as session:
-            result = await session.call_tool(self.name, arguments=kwargs)
+        async with self.mcp_server.session(chat_id) as session:
+            result = await session.call_tool(
+                self.name,
+                arguments=kwargs,
+                progress_callback=progress_callback,
+            )
         content = to_json(result.content).decode()
         if result.isError:
             logger.error(

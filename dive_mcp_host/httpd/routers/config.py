@@ -3,13 +3,13 @@ from logging import getLogger
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
-from dive_mcp_host.httpd.conf.mcp_servers import Config
+from dive_mcp_host.httpd.conf.mcp_servers import Config as McpServers
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 from .models import (
+    EmbedConfig,
     McpServerError,
-    McpServers,
     ModelFullConfigs,
     ModelInterfaceDefinition,
     ModelSettingsDefinition,
@@ -63,32 +63,34 @@ async def get_mcp_server(
     Returns:
         ConfigResult[McpServers]: Configuration for MCP servers.
     """
-    if app.mcp_server_config_manager.current_config is None:
+    config = await app.mcp_server_config_manager.get_current_config()
+    if config is None:
         logger.warning("MCP server configuration not found")
         return ConfigResult(
             success=True,
             config=McpServers(),
         )
 
-    config = McpServers.model_validate(
-        app.mcp_server_config_manager.current_config.model_dump(by_alias=True)
-    )
+    config = McpServers.model_validate(config.model_dump(by_alias=True))
     return ConfigResult(
         success=True,
         config=config,
     )
 
 
+# Frontend prefers to use this API for all MCP server config interactions.
+# Doesn't matter if they only want to change a small thing in a single MCP server.
+# Just overwrite the entire config every time.
 @config.post("/mcpserver")
 async def post_mcp_server(
-    servers: McpServers,
+    new_config: McpServers,
     app: DiveHostAPI = Depends(get_app),
     force: bool = False,
 ) -> SaveConfigResult:
     """Save MCP server configurations.
 
     Args:
-        servers (McpServers): The server configurations to save.
+        new_config (McpServers): The server configurations to save.
         app (DiveHostAPI): The DiveHostAPI instance.
         force (bool): If True, reload all mcp servers even if they are not changed.
 
@@ -96,14 +98,12 @@ async def post_mcp_server(
         SaveConfigResult: Result of the save operation with any errors.
     """
     # Update conifg
-    new_config = Config.model_validate(servers.model_dump(by_alias=True))
-    if not app.mcp_server_config_manager.update_all_configs(new_config):
+    if not await app.mcp_server_config_manager.update_all_configs(new_config):
         raise ValueError("Failed to update MCP server configurations")
 
     # Reload host
-    await app.dive_host["default"].reload(
-        new_config=app.load_host_config(), force_mcp=force
-    )
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config, force_mcp=force)
 
     # Get failed MCP servers
     failed_servers: list[McpServerError] = []
@@ -166,7 +166,35 @@ async def post_model(
         raise ValueError("Failed to reload model configuration")
 
     # Reload host
-    await app.dive_host["default"].reload(new_config=app.load_host_config())
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
+
+    return ResultResponse(success=True)
+
+
+@config.post("/model-embedding")
+async def post_model_embedding(
+    embed_config: EmbedConfig,
+    app: DiveHostAPI = Depends(get_app),
+) -> ResultResponse:
+    """Save embedding model settings.
+
+    Args:
+        embed_config (EmbedConfig): The embedding model settings to save.
+        app (DiveHostAPI): The DiveHostAPI instance.
+
+    Returns:
+        ResultResponse: Result of the save operation.
+    """
+    app.model_config_manager.save_embed_settings(embed_config)
+
+    # Reload model config
+    if not app.model_config_manager.initialize():
+        raise ValueError("Failed to reload model configuration")
+
+    # Reload host
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
 
     return ResultResponse(success=True)
 
@@ -190,7 +218,8 @@ async def post_model_replace_all(
         raise ValueError("Failed to reload model configuration")
 
     # Reload host
-    await app.dive_host["default"].reload(new_config=app.load_host_config())
+    host_config = await app.load_host_config()
+    await app.dive_host["default"].reload(new_config=host_config)
 
     return ResultResponse(success=True)
 

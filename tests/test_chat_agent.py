@@ -15,7 +15,8 @@ def agent() -> ChatAgentFactory:
     )
 
 
-def test_chat_agent(agent: ChatAgentFactory):
+@pytest.mark.asyncio
+async def test_chat_agent(agent: ChatAgentFactory):
     """Test the chat agent."""
     graph = agent.create_agent(
         prompt="you are a helpful assistant",
@@ -24,7 +25,7 @@ def test_chat_agent(agent: ChatAgentFactory):
     initial_state = agent.create_initial_state(query="Hello, world!")
     config = agent.create_config(user_id="default", thread_id="default")
 
-    end_state = graph.invoke(initial_state, config)
+    end_state = await graph.ainvoke(initial_state, config)
     assert len(end_state["messages"]) == 2
 
     messages = [
@@ -42,7 +43,7 @@ def test_chat_agent(agent: ChatAgentFactory):
         oversize_policy="window",
     )
 
-    end_state = graph.invoke(initial_state, config)
+    end_state = await graph.ainvoke(initial_state, config)
     assert len(end_state["messages"]) < 100
 
     assert end_state["messages"][-2].content == "last human message"

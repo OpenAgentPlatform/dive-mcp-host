@@ -1,9 +1,8 @@
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Self, TypeVar
+from typing import Any, Literal, Self, TypeVar
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     RootModel,
@@ -27,48 +26,6 @@ class ResultResponse(BaseModel):
 
     success: bool
     message: str | None = None
-
-
-Transport = Literal["stdio", "sse", "websocket"]
-
-
-class McpServerConfig(BaseModel):
-    """MCP server configuration with transport and connection settings."""
-
-    transport: Annotated[
-        Transport, BeforeValidator(lambda v: "stdio" if v == "command" else v)
-    ]
-    enabled: bool | None
-    command: str | None = None
-    args: list[str] | None = Field(default_factory=list)
-    env: dict[str, str] | None = Field(default_factory=dict)
-    url: str | None = None
-    headers: dict[str, SecretStr] | None = Field(default_factory=dict)
-
-    def model_post_init(self, _: Any) -> None:
-        """Post-initialization hook."""
-        if self.transport in ["sse", "websocket"]:
-            if self.url is None:
-                raise ValueError("url is required for sse and websocket transport")
-        elif self.transport == "stdio" and self.command is None:
-            raise ValueError("command is required for stdio transport")
-
-    @field_serializer("headers", when_used="json")
-    def dump_headers(
-        self, headers: dict[str, SecretStr] | None
-    ) -> dict[str, str] | None:
-        """Serialize the headers field to plain text."""
-        if not headers:
-            return None
-        return {k: v.get_secret_value() for k, v in headers.items()}
-
-
-class McpServers(BaseModel):
-    """Collection of MCP server configurations."""
-
-    mcp_servers: dict[str, McpServerConfig] = Field(
-        alias="mcpServers", default_factory=dict
-    )
 
 
 class McpServerError(BaseModel):
@@ -130,6 +87,7 @@ class SimpleToolInfo(BaseModel):
 
     name: str
     description: str
+    enabled: bool = True
 
 
 class McpTool(BaseModel):
@@ -226,18 +184,33 @@ class ModelSingleConfig(BaseModel):
     @model_validator(mode="after")
     def post_validate(self) -> Self:
         """Validate the model config by converting to LLMConfigTypes."""
-        get_llm_config_type(self.model_provider).model_validate(self.model_dump())
-
         # ollama doesn't work well with normal bind tools
         if self.model_provider == "ollama":
             self.tools_in_prompt = True
 
+        self.to_host_llm_config()
+
         return self
+
+    def to_host_llm_config(self) -> LLMConfigTypes:
+        """Convert to LLMConfigTypes."""
+        return get_llm_config_type(self.model_provider).model_validate(
+            self.model_dump()
+        )
 
     @field_serializer("api_key", when_used="json")
     def dump_api_key(self, v: SecretStr | None) -> str | None:
         """Serialize the api_key field to plain text."""
         return v.get_secret_value() if v else None
+
+
+class EmbedConfig(BaseModel):
+    """Config for embedding model."""
+
+    provider: str | None = None
+    model: str | None = None
+    embed_dims: int | None = None
+    api_key: str | None = None
 
 
 class ModelFullConfigs(BaseModel):
@@ -246,6 +219,7 @@ class ModelFullConfigs(BaseModel):
     active_provider: str
     enable_tools: bool
     configs: dict[str, ModelSingleConfig] = Field(default_factory=dict)
+    embed_config: EmbedConfig | None = None
 
     disable_dive_system_prompt: bool = False
     # If True, custom rules will be used directly without extra system prompt from Dive.

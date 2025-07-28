@@ -4,28 +4,20 @@ import logging
 import random
 import secrets
 from contextlib import AbstractAsyncContextManager
-from typing import TYPE_CHECKING, cast
+from copy import deepcopy
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
+from uuid import UUID
 
-import httpx
 import pytest
-from langchain_core.messages import (
-    AIMessage,
-    HumanMessage,
-    ToolCall,
-    ToolMessage,
-)
+from langchain_core.callbacks import AsyncCallbackHandler
+from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
 from mcp.types import Tool
 
-from dive_mcp_host.host.conf import HostConfig, LogConfig
+from dive_mcp_host.host.conf import HostConfig, LogConfig, ProxyUrl
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
-from dive_mcp_host.host.tools import (
-    McpServer,
-    McpServerInfo,
-    ServerConfig,
-    ToolManager,
-)
+from dive_mcp_host.host.tools import McpServer, McpServerInfo, ServerConfig, ToolManager
 from dive_mcp_host.host.tools.mcp_server import McpTool
 from dive_mcp_host.host.tools.model_types import ClientState
 
@@ -88,6 +80,37 @@ async def test_tool_manager_stdio(
 ) -> None:
     """Test the tool manager."""
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        for tool in tools:
+            result = await tool.ainvoke(
+                ToolCall(
+                    name=tool.name,
+                    id="123",
+                    args={"message": "Hello, world!"},
+                    type="tool_call",
+                ),
+            )
+            assert isinstance(result, ToolMessage)
+            if tool.name == "echo":
+                assert json.loads(str(result.content))[0]["text"] == "Hello, world!"
+            else:
+                assert json.loads(str(result.content)) == []
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_streamable(
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test the tool manager."""
+    async with (
+        echo_tool_streamable_server as (port, configs),
+        ToolManager(configs, log_config) as tool_manager,
+    ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
@@ -237,7 +260,182 @@ async def test_tool_manager_massive_tools(
 
 
 @pytest.mark.asyncio
-async def test_mcp_tool_exception_handling(
+async def test_remote_http_mcp_tool_exception_handling(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test the exception handling of the MCP tool.
+
+    This test verifies that:
+    1. When a tool call fails, the exception is properly propagated to the caller
+    2. Subsequent tool calls succeed after the connection is restored
+    """
+    async with (
+        echo_tool_sse_server as (_, configs),
+        McpServer(
+            name="echo",
+            config=configs["echo"],
+            log_buffer_length=log_config.buffer_length,
+        ) as server,
+    ):
+        server.RESTART_INTERVAL = 0.1
+        tools = server.mcp_tools
+        await server.wait([ClientState.RUNNING])
+
+        # First successful tool call creates a session
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        session = server._session_store._map["default"].session
+
+        # session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store._map["default"].session == session
+
+        # Error removes the session
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
+            mocked.side_effect = RuntimeError("test")
+            with pytest.raises(RuntimeError, match="test"):
+                await tools[0].ainvoke(
+                    ToolCall(
+                        name=tools[0].name,
+                        id="123",
+                        args={"xxxx": "Hello, world!"},
+                        type="tool_call",
+                    ),
+                )
+            assert mocked.call_count == 1
+        assert server._client_status in [
+            ClientState.RUNNING,
+            ClientState.RESTARTING,
+        ]
+        assert not server._session_store._map.get("default")
+
+        # New session is created
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store._map["default"].session
+        session = server._session_store._map["default"].session
+
+        # The session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store._map["default"].session == session
+
+
+@pytest.mark.asyncio
+async def test_local_http_mcp_tool_exception_handling(
+    echo_tool_local_sse_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+):
+    """Test the exception handling of the MCP tool.
+
+    This test verifies that:
+    1. When a tool call fails, the exception is properly propagated to the caller
+    2. Subsequent tool calls succeed after the connection is restored
+    """
+    async with McpServer(
+        name="echo",
+        config=echo_tool_local_sse_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+    ) as server:
+        server.RESTART_INTERVAL = 0.1
+        tools = server.mcp_tools
+        await server.wait([ClientState.RUNNING])
+
+        # First successful tool call creates a session
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        session = server._session_store["default"]
+
+        # session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+        # Error removes the session
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
+            mocked.side_effect = RuntimeError("test")
+            with pytest.raises(RuntimeError, match="test"):
+                await tools[0].ainvoke(
+                    ToolCall(
+                        name=tools[0].name,
+                        id="123",
+                        args={"xxxx": "Hello, world!"},
+                        type="tool_call",
+                    ),
+                )
+            assert mocked.call_count == 1
+        assert server._client_status in [
+            ClientState.RUNNING,
+            ClientState.RESTARTING,
+        ]
+        assert not server._session_store._map.get("default")
+
+        # New session is created
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"]
+        session = server._session_store["default"]
+
+        # The session should be reused
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        assert server._session_store["default"] == session
+
+
+@pytest.mark.asyncio
+async def test_stdio_mcp_tool_exception_handling(
     echo_tool_stdio_config: dict[str, ServerConfig],
     log_config: LogConfig,
 ):
@@ -245,8 +443,7 @@ async def test_mcp_tool_exception_handling(
 
     This test verifies that:
     1. When a tool call fails, the exception is properly propagated to the caller
-    2. The SSE connection is automatically reconnected after failure
-    3. Subsequent tool calls succeed after the connection is restored
+    2. Subsequent tool calls succeed after the connection is restored
     """
     async with McpServer(
         name="echo",
@@ -255,8 +452,8 @@ async def test_mcp_tool_exception_handling(
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
-        session = server._session
-        with patch("mcp.ClientSession.call_tool") as mocked:
+        session = server._stdio_client_session
+        with patch("dive_mcp_host.host.tools.hack.ClientSession.call_tool") as mocked:
             mocked.side_effect = RuntimeError("test")
             with pytest.raises(RuntimeError, match="test"):
                 await tools[0].ainvoke(
@@ -273,10 +470,9 @@ async def test_mcp_tool_exception_handling(
             ClientState.RESTARTING,
         ]
         await server.wait([ClientState.RUNNING])
-        # Need to identify which exceptions don't require rebuilding the session
-        # This test verifies that some exceptions allow reusing the existing session
-        # while others (like network errors) require a new session to be created
-        # assert server._session == session
+        # The session should be recreated
+        assert server._stdio_client_session != session
+        session = server._stdio_client_session
         await tools[0].ainvoke(
             ToolCall(
                 name=tools[0].name,
@@ -286,24 +482,9 @@ async def test_mcp_tool_exception_handling(
             ),
         )
 
-        with patch("mcp.ClientSession.call_tool") as mocked:
-            mocked.side_effect = httpx.ReadTimeout("test")
-            with pytest.raises(httpx.ReadTimeout, match="test"):
-                await tools[0].ainvoke(
-                    ToolCall(
-                        name=tools[0].name,
-                        id="123",
-                        args={"xxxx": "Hello, world!"},
-                        type="tool_call",
-                    ),
-                )
-            assert mocked.call_count == 1
-        assert server._client_status in [
-            ClientState.RESTARTING,
-            ClientState.RUNNING,
-        ]
         await server.wait([ClientState.RUNNING])
-        assert server._session != session
+        # The session should be reused
+        assert server._stdio_client_session == session
         await tools[0].ainvoke(
             ToolCall(
                 name=tools[0].name,
@@ -546,3 +727,129 @@ def test_tool_missing_properties(log_config: LogConfig) -> None:
         assert "properties" in mcp_tool.args_schema
     else:
         assert "properties" in mcp_tool.args_schema.model_json_schema()
+
+
+@pytest.mark.asyncio
+async def test_tool_progress(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test the tool progress report."""
+    import logging
+
+    class CustomCallbackManager(AsyncCallbackHandler):
+        async def on_custom_event(
+            self,
+            name: str,
+            data: dict[str, Any],
+            *,
+            run_id: UUID,
+            tags: list[str] | None = None,
+            metadata: dict[str, Any] | None = None,
+            **kwargs: Any,
+        ) -> None:
+            logging.error(
+                "Custom event: %s, run_id: %s, tags: %s, metadata: %s,"
+                " kwargs: %s, data: %s",
+                name,
+                run_id,
+                tags,
+                metadata,
+                kwargs,
+                data,
+            )
+
+    async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        for tool in tools:
+            if tool.name != "echo":
+                continue
+            result = await tool.ainvoke(
+                ToolCall(
+                    name=tool.name,
+                    id="123",
+                    args={"message": "Hello, world!", "delay_ms": 1000},
+                    type="tool_call",
+                ),
+                config={
+                    "callbacks": [CustomCallbackManager()],
+                },
+            )
+
+            assert isinstance(result, ToolMessage)
+            if tool.name == "echo":
+                assert json.loads(str(result.content))[0]["text"] == "Hello, world!"
+            else:
+                assert json.loads(str(result.content)) == []
+
+
+@pytest.mark.asyncio
+async def test_tool_proxy(
+    subtests,
+    pproxy_server: str,
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test proxy settings."""
+    with subtests.test("scheme rewrite"):
+        for prot in ["http", "socks5", "socks", "socks4"]:
+            cfg = json.dumps(
+                {
+                    "name": "echo",
+                    "url": "http://localhost:8888/mcp",
+                    "transport": "streamable",
+                    "proxy": f"{prot}://{pproxy_server}",
+                }
+            )
+            m = ServerConfig.model_validate_json(cfg)
+            assert m.proxy
+            match prot:
+                case "http":
+                    assert m.proxy.scheme == "http"
+                case _ if prot.startswith("socks"):
+                    assert m.proxy.scheme == "socks5"
+
+    for test_cfg in [echo_tool_sse_server, echo_tool_streamable_server]:
+        async with test_cfg as (_, config):
+            cfg = config.copy()
+            for prot in ["http", "socks5"]:
+                cfg["echo"].proxy = ProxyUrl(f"{prot}://{pproxy_server}")
+                with subtests.test(prot=prot, url=cfg["echo"].url):
+                    async with ToolManager(cfg, log_config) as tool_manager:
+                        await tool_manager.initialized_event.wait()
+                        tools = tool_manager.langchain_tools()
+                        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+
+
+@pytest.mark.asyncio
+async def test_tool_manager_exclude_tools(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+):
+    """Make sure excluded tools are not passed to the llm."""
+    async with (
+        echo_tool_sse_server as (_, configs),
+        ToolManager(configs) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 2
+        assert tools[0].name == "echo"
+        assert tools[1].name == "ignore"
+
+        # Disable 'igonre' tool
+        new_config = deepcopy(configs)
+        new_config["echo"].exclude_tools = ["ignore"]
+        await tool_manager.reload(new_config)
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "echo"

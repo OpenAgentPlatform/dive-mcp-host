@@ -13,12 +13,13 @@ from langchain_core.messages import (
     HumanMessage,
     RemoveMessage,
     SystemMessage,
+    ToolCall,
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
 from langchain_core.prompt_values import ChatPromptValue
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable, RunnableConfig, RunnablePassthrough
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver, V
 from langgraph.graph import END, StateGraph
@@ -31,6 +32,7 @@ from langgraph.utils.runnable import RunnableCallable
 from pydantic import BaseModel
 
 from dive_mcp_host.host.agents.agent_factory import AgentFactory, initial_messages
+from dive_mcp_host.host.agents.file_in_additional_kwargs import FileMsgConverter
 from dive_mcp_host.host.agents.message_order import tool_call_order
 from dive_mcp_host.host.agents.tools_in_prompt import (
     convert_messages,
@@ -38,9 +40,10 @@ from dive_mcp_host.host.agents.tools_in_prompt import (
 )
 from dive_mcp_host.host.helpers import today_datetime
 from dive_mcp_host.host.prompt import PromptType, tools_prompt
+from dive_mcp_host.host.store.base import StoreManagerProtocol
 
-StructuredResponse = dict | BaseModel
-StructuredResponseSchema = dict | type[BaseModel]
+type StructuredResponse = dict | BaseModel
+type StructuredResponseSchema = dict | type[BaseModel]
 
 
 class AgentState(MessagesState):
@@ -92,6 +95,41 @@ def get_prompt_runnable(prompt: PromptType | ChatPromptTemplate | None) -> Runna
     return prompt_runnable
 
 
+class HackedToolNode(ToolNode):
+    """hacked tool node to inject tool_call_id into the config.
+
+    This is a hack. If langgraph support tool_call_id, we will remove this class.
+    """
+
+    async def _arun_one(
+        self,
+        call: ToolCall,
+        input_type: Literal["list", "dict", "tool_calls"],
+        config: RunnableConfig,
+    ) -> ToolMessage:
+        if "metadata" in config:
+            config["metadata"]["tool_call_id"] = call["id"]
+        else:
+            config["metadata"] = {
+                "tool_call_id": call["id"],
+            }
+        return await super()._arun_one(call, input_type, config)
+
+    def _run_one(
+        self,
+        call: ToolCall,
+        input_type: Literal["list", "dict", "tool_calls"],
+        config: RunnableConfig,
+    ) -> ToolMessage:
+        if "metadata" in config:
+            config["metadata"]["tool_call_id"] = call["id"]
+        else:
+            config["metadata"] = {
+                "tool_call_id": call["id"],
+            }
+        return super()._run_one(call, input_type, config)
+
+
 class ChatAgentFactory(AgentFactory[AgentState]):
     """A factory for ChatAgents."""
 
@@ -100,6 +138,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         model: BaseChatModel,
         tools: Sequence[BaseTool] | ToolNode,
         tools_in_prompt: bool = False,
+        store: StoreManagerProtocol | None = None,
     ) -> None:
         """Initialize the chat agent factory."""
         self._model = model
@@ -109,6 +148,12 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         self._response_format: (
             StructuredResponseSchema | tuple[str, StructuredResponseSchema] | None
         ) = None
+
+        self._file_msg_converter = (
+            FileMsgConverter(model_provider=self._model_class, store=store).runnable
+            if store
+            else RunnablePassthrough()
+        )
 
         # changed when self._build_graph is called
         self._tool_classes: list[BaseTool] = []
@@ -160,22 +205,28 @@ class ChatAgentFactory(AgentFactory[AgentState]):
             )
         )
 
-    def _call_model(self, state: AgentState, config: RunnableConfig) -> AgentState:
+    async def _call_model(
+        self, state: AgentState, config: RunnableConfig
+    ) -> AgentState:
+        # TODO: _validate_chat_history
         if not self._tools_in_prompt:
             model = self._model
             if self._tool_classes:
                 model = self._model.bind_tools(self._tool_classes)
-            model_runnable = self._prompt | drop_empty_messages | model
+            model_runnable = (
+                self._prompt | self._file_msg_converter | drop_empty_messages | model
+            )
         else:
             model_runnable = (
                 self._prompt
                 | self._tool_prompt
                 | convert_messages
+                | self._file_msg_converter
                 | drop_empty_messages
                 | self._model
             )
 
-        response = model_runnable.invoke(state, config)
+        response = await model_runnable.ainvoke(state, config)
         if isinstance(response, AIMessage):
             response = extract_tool_calls(response)
         if self._check_more_steps_needed(state, response):
@@ -254,7 +305,9 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         graph.add_edge("before_agent", "agent")
 
         tool_node = (
-            self._tools if isinstance(self._tools, ToolNode) else ToolNode(self._tools)
+            self._tools
+            if isinstance(self._tools, ToolNode)
+            else HackedToolNode(self._tools)
         )
         self._tool_classes = list(tool_node.tools_by_name.values())
         graph.add_node("tools", tool_node)
@@ -323,9 +376,15 @@ def get_chat_agent_factory(
     model: BaseChatModel,
     tools: Sequence[BaseTool] | ToolNode,
     tools_in_prompt: bool = False,
+    store: StoreManagerProtocol | None = None,
 ) -> ChatAgentFactory:
     """Get an agent factory."""
-    return ChatAgentFactory(model, tools, tools_in_prompt)
+    return ChatAgentFactory(
+        model=model,
+        tools=tools,
+        tools_in_prompt=tools_in_prompt,
+        store=store,
+    )
 
 
 @RunnableCallable

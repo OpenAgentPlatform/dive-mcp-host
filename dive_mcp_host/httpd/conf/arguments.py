@@ -5,7 +5,7 @@ from typing import Annotated, Self
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR
+from dive_mcp_host.env import DIVE_CONFIG_DIR
 
 type StrPath = str | Path
 
@@ -35,6 +35,11 @@ class Arguments(BaseModel):
 
     mcp_config: Annotated[StrPath, AfterValidator(_convert_path)] = Field(
         description="MCP configuration file.",
+        default="",
+    )
+
+    plugin_config: Annotated[StrPath | None, AfterValidator(_convert_path)] = Field(
+        description="Plugin configuration file.",
         default="",
     )
 
@@ -114,6 +119,8 @@ class Arguments(BaseModel):
             self.mcp_config = cwd.joinpath("mcp_config.json")
         if not self.command_alias_config:
             self.command_alias_config = cwd.joinpath("command_alias.json")
+        if not self.plugin_config:
+            self.plugin_config = cwd.joinpath("plugin_config.json")
         if not self.log_dir:
             self.log_dir = cwd.joinpath("logs")
         return self

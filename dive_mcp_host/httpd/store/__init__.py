@@ -1,4 +1,4 @@
-from .local import LocalStore
-from .store import Store
+from dive_mcp_host.host.store.base import StoreProtocol
+from dive_mcp_host.httpd.store.local import LocalStore
 
-__all__ = ["LocalStore", "Store"]
+__all__ = ["LocalStore", "StoreProtocol"]

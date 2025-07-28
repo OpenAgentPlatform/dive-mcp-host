@@ -3,7 +3,8 @@
 import argparse
 from pathlib import Path
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
 
 from dive_mcp_host.cli.cli_types import CLIArgs
 from dive_mcp_host.host.conf import HostConfig
@@ -67,6 +68,7 @@ async def run() -> None:
         with Path(args.prompt_file).open("r") as f:
             system_prompt = f.read()
 
+    output_parser = StrOutputParser()
     async with DiveMcpHost(config) as mcp_host:
         print("Waiting for tools to initialize...")
         await mcp_host.tools_initialized_event.wait()
@@ -75,7 +77,15 @@ async def run() -> None:
         current_chat_id = chat.chat_id
         async with chat:
             async for response in chat.query(query, stream_mode="messages"):
-                print(response[0].content, end="")  # type: ignore
+                assert isinstance(response, tuple)
+                msg = response[0]
+                if isinstance(msg, AIMessage):
+                    content = output_parser.invoke(msg)
+                    print(content, end="")
+                    continue
+                print(f"\n\n==== Start Of {type(msg)} ===")
+                print(msg)
+                print(f"==== End Of {type(msg)} ===\n")
 
     print()
     print(f"Chat ID: {current_chat_id}")

@@ -543,7 +543,10 @@ def test_verify_azure(test_client):
         )
         _check_verify_streaming_response(response, model_name)
     else:
-        pytest.skip("SILICONFLOW_API_KEY is not set")
+        pytest.skip(
+            "AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_DEPLOYMENT_NAME,"
+            " AZURE_OPENAI_API_VERSION are not set"
+        )
 
 
 @pytest.mark.skip(reason="Skip for now, openrouter's issue changes alot.")

@@ -4,14 +4,15 @@ Support Restful API and websocket.
 """
 
 import socket
+from logging.config import dictConfig
 from pathlib import Path
 
 import uvicorn
 
+from dive_mcp_host.env import RESOURCE_DIR
 from dive_mcp_host.httpd.app import create_app
 from dive_mcp_host.httpd.conf.arguments import Arguments
 from dive_mcp_host.httpd.conf.httpd_service import ConfigLocation, ServiceManager
-from dive_mcp_host.httpd.conf.misc import RESOURCE_DIR
 
 
 def main() -> None:
@@ -23,6 +24,8 @@ def main() -> None:
     if service_config_manager.current_setting is None:
         raise ValueError("Service config manager is not initialized")
 
+    dictConfig(service_config_manager.current_setting.logging_config)
+
     # Overwrite defaults from command line arguments
     resource_dir = Path(args.working_dir) if args.working_dir else RESOURCE_DIR
     service_config_manager.overwrite_paths(
@@ -31,6 +34,7 @@ def main() -> None:
             model_config_path=str(args.llm_config),
             prompt_config_path=str(args.custom_rules),
             command_alias_config_path=str(args.command_alias_config),
+            plugin_config_path=str(args.plugin_config),
         ),
         resource_dir=resource_dir,
         log_dir=args.log_dir,
@@ -42,6 +46,9 @@ def main() -> None:
     service_config_manager.current_setting.logging_config["root"]["level"] = (
         args.log_level
     )
+    service_config_manager.current_setting.logging_config["loggers"]["dive_mcp_host"][
+        "level"
+    ] = args.log_level
 
     if args.log_dir:
         log_dir = Path(args.log_dir)

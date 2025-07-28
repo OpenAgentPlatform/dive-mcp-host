@@ -5,9 +5,14 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from dive_mcp_host.host.conf.llm import LLMConfigTypes, get_llm_config_type
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, write_then_replace
-from dive_mcp_host.httpd.routers.models import ModelFullConfigs, ModelSingleConfig
+from dive_mcp_host.env import DIVE_CONFIG_DIR
+from dive_mcp_host.host.conf.llm import LLMConfigTypes
+from dive_mcp_host.httpd.conf.misc import write_then_replace
+from dive_mcp_host.httpd.routers.models import (
+    EmbedConfig,
+    ModelFullConfigs,
+    ModelSingleConfig,
+)
 
 # Logger setup
 logger = logging.getLogger(__name__)
@@ -51,9 +56,7 @@ class ModelManager:
             if model_config := (
                 self._full_config.configs.get(self._full_config.active_provider)
             ):
-                self._current_setting = get_llm_config_type(
-                    model_config.model_provider
-                ).model_validate(model_config.model_dump())
+                self._current_setting = model_config.to_host_llm_config()
             else:
                 self._current_setting = None
         except ValidationError as e:
@@ -118,6 +121,24 @@ class ModelManager:
             self._full_config.active_provider = provider
             self._full_config.configs[provider] = upload_model_settings
             self._full_config.enable_tools = enable_tools
+
+        write_then_replace(
+            Path(self._config_path),
+            self._full_config.model_dump_json(by_alias=True, exclude_none=True),
+        )
+
+    def save_embed_settings(
+        self,
+        embed_settings: EmbedConfig,
+    ) -> None:
+        """Save embedding model configuration.
+
+        Args:
+            embed_settings: Embedding model settings to upload.
+        """
+        if not self._full_config:
+            raise ValueError("Model configuration not initialized")
+        self._full_config.embed_config = embed_settings
 
         write_then_replace(
             Path(self._config_path),

@@ -152,8 +152,9 @@ async def stdio_client(  # noqa: C901, PLR0915
         tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream, process.pid
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Error closing process %s: %s", process.pid, exc)
+        except Exception as exc:
+            logger.error("Error, closing process %s: %s", process.pid, exc)
+            raise
         finally:
             # Clean up process to prevent any dangling orphaned processes
             logger.info("Terminated process %s", process.pid)

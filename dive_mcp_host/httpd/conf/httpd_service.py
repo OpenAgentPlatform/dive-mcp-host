@@ -6,9 +6,9 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import make_url
 
+from dive_mcp_host.env import DIVE_CONFIG_DIR, RESOURCE_DIR
 from dive_mcp_host.host.conf import CheckpointerConfig, LogConfig
 from dive_mcp_host.httpd.conf.arguments import StrPath
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR, RESOURCE_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class ConfigLocation(BaseModel):
     model_config_path: str | None = None
     prompt_config_path: str | None = None
     command_alias_config_path: str | None = None
+    plugin_config_path: str | None = None
 
 
 class ServiceConfig(BaseModel):

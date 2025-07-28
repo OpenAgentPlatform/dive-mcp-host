@@ -2,7 +2,7 @@ from enum import StrEnum
 from logging import getLogger
 from pathlib import Path
 
-from dive_mcp_host.httpd.conf.misc import RESOURCE_DIR
+from dive_mcp_host.env import RESOURCE_DIR
 
 logger = getLogger(__name__)
 

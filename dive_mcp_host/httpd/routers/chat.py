@@ -1,20 +1,17 @@
 from typing import TYPE_CHECKING, Annotated, TypeVar
+from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from dive_mcp_host.httpd.database.models import (
-    Chat,
-    ChatMessage,
-    QueryInput,
-)
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
-from dive_mcp_host.httpd.routers.models import (
-    ResultResponse,
-    SortBy,
-    UserInputError,
+from dive_mcp_host.httpd.routers.models import ResultResponse, SortBy, UserInputError
+from dive_mcp_host.httpd.routers.utils import (
+    ChatProcessor,
+    EventStreamContextManager,
+    get_filename_remove_url,
 )
-from dive_mcp_host.httpd.routers.utils import ChatProcessor, EventStreamContextManager
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
@@ -83,7 +80,7 @@ async def create_chat(  # noqa: PLR0913
     if filepaths is None:
         filepaths = []
 
-    images, documents = await app.store.upload_files(files, filepaths)
+    images, documents = await app.store.upload_files(files + filepaths)
 
     stream = EventStreamContextManager()
     response = stream.get_response()
@@ -96,6 +93,11 @@ async def create_chat(  # noqa: PLR0913
 
     stream.add_task(process)
     return response
+
+
+# Frontend sets the message id to "0" when calling edit API
+# on an errored message.
+ERROR_MSG_ID = "0"
 
 
 @chat.post("/edit")
@@ -122,13 +124,17 @@ async def edit_chat(  # noqa: PLR0913
     if chat_id is None or message_id is None:
         raise UserInputError("Chat ID and Message ID are required")
 
+    # message id needs to be unique
+    if message_id == ERROR_MSG_ID:
+        message_id = str(uuid4())
+
     if files is None:
         files = []
 
     if filepaths is None:
         filepaths = []
 
-    images, documents = await app.store.upload_files(files, filepaths)
+    images, documents = await app.store.upload_files(files + filepaths)
 
     stream = EventStreamContextManager()
     response = stream.get_response()
@@ -194,6 +200,8 @@ async def get_chat(
             chat_id=chat_id,
             user_id=dive_user["user_id"],
         )
+        if chat:
+            chat = get_filename_remove_url(chat)
     return DataResult(success=True, message=None, data=chat)
 
 

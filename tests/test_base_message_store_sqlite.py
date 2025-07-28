@@ -669,9 +669,7 @@ async def test_update_message_content_not_found(
     )
 
     # Try to update a non-existent message
-    with pytest.raises(
-        ValueError, match="Message non_existent_message not found or access denied"
-    ):
+    with pytest.raises(ValueError, match="Message non_existent_message not found"):
         await message_store.update_message_content(
             message_id="non_existent_message",
             data=update_data,
@@ -699,7 +697,7 @@ async def test_update_message_content_wrong_user(
     # Try to update the message with wrong user ID
     with pytest.raises(
         ValueError,
-        match=f"Message {user_message.message_id} not found or access denied",
+        match=f"Message {user_message.message_id} not found",
     ):
         await message_store.update_message_content(
             message_id=user_message.message_id,

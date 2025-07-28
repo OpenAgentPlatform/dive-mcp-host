@@ -1,22 +1,25 @@
 import json
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
 from dive_mcp_host.httpd.routers.config import SaveModelSettingsRequest
-from dive_mcp_host.httpd.routers.models import McpServerConfig, ModelFullConfigs
+from dive_mcp_host.httpd.routers.models import (
+    EmbedConfig,
+    ModelFullConfigs,
+)
+from tests import helper
 
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.server import DiveHostAPI
 
-from tests import helper
-
 # Mock data
 MOCK_MCP_CONFIG = {
-    "default": McpServerConfig(
+    "default": MCPServerConfig(
         transport="command",  # type: ignore  # Test backward compatibility
         enabled=True,
         command="node",
@@ -375,6 +378,101 @@ def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
         },
     )
 
+    # Test ollama
+    model_settings = SaveModelSettingsRequest.model_validate(
+        {
+            "provider": "ollama",
+            "modelSettings": {
+                "active": True,
+                "checked": False,
+                "model": "llama3.1:8b",
+                "modelProvider": "ollama",
+                "apiKey": "ollama-api-key",
+                "numCtx": 999,
+                "maxTokens": 8000,
+                "configuration": {
+                    "temperature": 0.8,
+                    "topP": 0.9,
+                },
+            },
+            "enableTools": True,
+        }
+    )
+
+    # Send request
+    response = client.post(
+        "/api/config/model",
+        content=model_settings.model_dump_json(by_alias=True).encode("utf-8"),
+    )
+
+    from langchain_ollama import ChatOllama
+
+    assert app.dive_host["default"].model._llm_type == "chat-ollama"
+    assert cast(ChatOllama, app.dive_host["default"].model).num_ctx == 999
+
+    # Verify response status code
+    assert response.status_code == SUCCESS_CODE
+
+
+def test_post_model_embedding(test_client):
+    """Test the /api/config/model-embedding POST endpoint."""
+    client, _ = test_client
+    # Prepare request data
+    embed_config = EmbedConfig(
+        provider="openai",
+        model="text-embedding-3-small",
+        api_key="openai-api-key",
+        embed_dims=1024,
+    )
+
+    response = client.post(
+        "/api/config/model-embedding",
+        json=embed_config.model_dump(by_alias=True),
+    )
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+        },
+    )
+    response = client.get("/api/config/model")
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "config": {
+                "activeProvider": "dive",
+                "enableTools": True,
+                "configs": {
+                    "dive": {
+                        "modelProvider": "dive",
+                        "model": "fake",
+                        "maxTokens": None,
+                        "apiKey": None,
+                        "configuration": {
+                            "baseURL": None,
+                            "temperature": 0.0,
+                            "topP": None,
+                        },
+                        "active": True,
+                        "checked": False,
+                    }
+                },
+                "embedConfig": {
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "embed_dims": 1024,
+                    "api_key": "openai-api-key",
+                },
+            },
+        },
+    )
+
 
 def test_post_model_replace_all(test_client):
     """Test the /api/config/model/replaceAll POST endpoint."""
@@ -667,7 +765,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
     # Disable tool
     payload = {
         "mcpServers": {
-            "echo": McpServerConfig(
+            "echo": MCPServerConfig(
                 transport="stdio",
                 command="python3",
                 enabled=False,
@@ -677,6 +775,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     "--transport=stdio",
                 ],
                 env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
                 url=None,
             ).model_dump(),
         }
@@ -709,6 +808,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "--transport=stdio",
                         ],
                         "env": {"NODE_ENV": "production"},
+                        "exclude_tools": ["echo"],
                         "url": None,
                     },
                 },
@@ -734,6 +834,302 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
                         },
                         {"name": "ignore", "description": "Do nothing."},
+                    ],
+                    "description": "",
+                    "enabled": False,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+
+def test_exclude_tools(test_client):
+    """Test if exclude tools will work."""
+    client, _ = test_client
+
+    # check tools api default status
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Disable tool
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=True,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": False,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Remove from 'exclude_tools'
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=True,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=[],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is enabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+
+def test_exclude_tools_on_disabled_mcp(test_client):
+    """Test if exclude tools will work on disabled mcp."""
+    client, _ = test_client
+
+    # check tools api default status
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Disable mcp
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=False,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=[],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the mcp is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": False,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Add tools to from 'exclude_tools'
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=False,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": False,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": False,

@@ -203,6 +203,7 @@ def test_anthropic_model():
         assert manager.current_setting
         assert isinstance(manager.current_setting, LLMAnthropicConfig)
         assert manager.current_setting.max_tokens == 128000  # type: ignore
+        assert manager.current_setting.default_headers
         assert (
             manager.current_setting.default_headers.get("anthropic-beta")
             == "output-128k-2025-02-19"
@@ -216,4 +217,6 @@ def test_anthropic_model():
         assert manager.current_setting
         assert isinstance(manager.current_setting, LLMAnthropicConfig)
         assert manager.current_setting.max_tokens == 8129  # type: ignore
-        assert manager.current_setting.default_headers.get("anthropic-beta") is None
+        assert (
+            manager.current_setting.default_headers is None
+        )  # No beta headers for small max_tokens

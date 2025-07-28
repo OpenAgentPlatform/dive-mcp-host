@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import Field, RootModel
 
-from dive_mcp_host.httpd.conf.misc import DIVE_CONFIG_DIR
+from dive_mcp_host.env import DIVE_CONFIG_DIR
 
 logger = logging.getLogger(__name__)
 

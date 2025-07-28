@@ -8,8 +8,8 @@ import pytest
 import pytest_asyncio
 from pydantic import AnyUrl
 
+from dive_mcp_host.env import RESOURCE_DIR
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
-from dive_mcp_host.httpd.conf.misc import RESOURCE_DIR
 
 # Register custom mark
 integration = pytest.mark.integration

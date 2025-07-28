@@ -6,7 +6,7 @@ from logging import getLogger
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -15,10 +15,12 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from dive_mcp_host.host.conf import HostConfig, ServerConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
+from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.httpd.abort_controller import AbortController
 from dive_mcp_host.httpd.conf.command_alias import CommandAliasManager
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
@@ -28,8 +30,11 @@ from dive_mcp_host.httpd.conf.prompt import PromptManager
 from dive_mcp_host.httpd.database.migrate import db_migration
 from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.msg_store.sqlite import SQLiteMessageStore
+from dive_mcp_host.httpd.middlewares.plugins import PluginMiddlewaresManager
+from dive_mcp_host.httpd.routers.plugins import RouterPlugin
 from dive_mcp_host.httpd.store.cache import LocalFileCache
-from dive_mcp_host.httpd.store.local import LocalStore
+from dive_mcp_host.httpd.store.manager import StoreManager
+from dive_mcp_host.plugins.registry import PluginManager, load_plugins_config
 
 logger = getLogger(__name__)
 
@@ -85,12 +90,17 @@ class DiveHostAPI(FastAPI):
 
         self._engine: AsyncEngine | None = None
 
+        self._abort_controller = AbortController()
+
         if self._service_config_manager.current_setting is None:
             raise ValueError("Service manager is not initialized")
+
+        self._plugin_manager = PluginManager()
 
         self._mcp_server_config_manager = MCPServerManager(
             self._service_config_manager.current_setting.config_location.mcp_server_config_path
         )
+        self._mcp_server_config_manager.register_hook(self._plugin_manager)
         self._model_config_manager = ModelManager(
             self._service_config_manager.current_setting.config_location.model_config_path
         )
@@ -101,7 +111,23 @@ class DiveHostAPI(FastAPI):
             self._service_config_manager.current_setting.config_location.command_alias_config_path
         )
 
-        self._abort_controller = AbortController()
+        self._plugin_middlewares_manager = PluginMiddlewaresManager()
+        self.add_middleware(
+            BaseHTTPMiddleware, dispatch=self._plugin_middlewares_manager.dispatch
+        )
+        self._plugin_middlewares_manager.register_hook(self._plugin_manager)
+
+        self._plugin_router = APIRouter(tags=["plugins"])
+        self._router_plugin = RouterPlugin(self._plugin_router)
+        self._router_plugin.register_hook(self._plugin_manager)
+
+        plugins_config = load_plugins_config(
+            self._service_config_manager.current_setting.config_location.plugin_config_path
+        )
+        for plugin_config in plugins_config:
+            self._plugin_manager.register_plugin(plugin_config)
+
+        self.include_router(self._plugin_router, prefix="/api/plugins")
 
     def _load_configs(self) -> None:
         """Load all configs."""
@@ -145,9 +171,10 @@ class DiveHostAPI(FastAPI):
         # ================================================
         # Store
         # ================================================
-        self._store = LocalStore(
+        self._store = StoreManager(
             root_dir=self._service_config_manager.current_setting.resource_dir
         )
+        self._store.register_hook(self._plugin_manager)
         self._local_file_cache = LocalFileCache(
             root_dir=self._service_config_manager.current_setting.resource_dir
         )
@@ -155,16 +182,18 @@ class DiveHostAPI(FastAPI):
         # ================================================
         # Dive Host
         # ================================================
-        config = self.load_host_config()
+        config = await self.load_host_config()
         async with AsyncExitStack() as stack:
-            default_host = DiveMcpHost(config)
+            await stack.enter_async_context(self._plugin_manager)
+            await stack.enter_async_context(self._store)
+            default_host = DiveMcpHost(config, self._store)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
 
             logger.info("Server Prepare Complete")
             yield
 
-    def load_host_config(self) -> HostConfig:
+    async def load_host_config(self) -> HostConfig:
         """Generate all host configs."""
         model_setting = self._model_config_manager.current_setting
         if model_setting is None:
@@ -179,11 +208,12 @@ class DiveHostAPI(FastAPI):
         if self._command_alias_config_manager.current_config is None:
             raise ValueError("Command alias config manager is not initialized")
 
+        if self._model_config_manager.full_config is None:
+            raise ValueError("Model config manager is not initialized")
+
         mcp_servers: dict[str, ServerConfig] = {}
-        for (
-            server_name,
-            server_config,
-        ) in self._mcp_server_config_manager.get_enabled_servers().items():
+        servers = await self._mcp_server_config_manager.get_enabled_servers()
+        for server_name, server_config in servers.items():
             if not server_config.enabled:
                 continue
 
@@ -204,10 +234,15 @@ class DiveHostAPI(FastAPI):
                 url=server_config.url or None,
                 transport=server_config.transport or "stdio",
                 headers=server_config.headers or {},
+                proxy=server_config.proxy or None,
+                exclude_tools=server_config.exclude_tools,
             )
+
+        logger.debug("got %s mcp servers in config", len(mcp_servers))
 
         return HostConfig(
             llm=model_setting,
+            embed=self._model_config_manager.full_config.embed_config,
             checkpointer=self._service_config_manager.current_setting.checkpointer,
             mcp_servers=mcp_servers,
             log_config=self._service_config_manager.current_setting.mcp_server_log,
@@ -288,7 +323,7 @@ class DiveHostAPI(FastAPI):
         return self._msg_store
 
     @property
-    def store(self) -> LocalStore:
+    def store(self) -> StoreManagerProtocol:
         """Get the store."""
         return self._store
 

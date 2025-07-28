@@ -1,6 +1,8 @@
 import asyncio
 import json
 import os
+import time
+from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from unittest import mock
 from unittest.mock import MagicMock
@@ -14,10 +16,13 @@ from langchain_core.messages import (
     ToolCall,
     ToolMessage,
 )
-from pydantic import AnyUrl
+from langgraph.checkpoint.memory import InMemorySaver
+from pydantic import AnyUrl, SecretStr
 
+from dive_mcp_host.host.chat import Chat
 from dive_mcp_host.host.conf import CheckpointerConfig, HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
+from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import ThreadNotFoundError, ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
@@ -380,7 +385,7 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         llm=LLMConfig(
             model="gpt-4o",
             model_provider="openai",
-            api_key="fake",
+            api_key=SecretStr("fake"),
         ),
         mcp_servers=echo_tool_stdio_config,
     )
@@ -506,3 +511,152 @@ async def test_thread_query_error_with_state(sqlite_uri: str) -> None:
     # Clean up DEBUG environment
     if delete_debug:
         del os.environ["DEBUG"]
+
+
+@pytest.mark.asyncio
+async def test_custom_event(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+) -> None:
+    """Test the custom event."""
+    async with (
+        echo_tool_sse_server as (_, configs),
+        DiveMcpHost(
+            HostConfig(
+                llm=LLMConfig(
+                    model="fake",
+                    model_provider="dive",
+                ),
+                mcp_servers=configs,
+            )
+        ) as mcp_host,
+    ):
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat()
+        model = cast("FakeMessageToolModel", mcp_host.model)
+        model.responses = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 1000},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(
+                content="Bye",
+            ),
+        ]
+        done = False
+        async with chat:
+            async for i in chat.query(
+                HumanMessage(content="Hello, world!"),
+                stream_mode=["custom", "messages"],
+            ):
+                i = cast(tuple[str, Any], i)
+                if i[0] == "custom":
+                    assert isinstance(i[1], tuple)
+                    assert i[1][0] == "tool_call_progress"
+                    assert isinstance(i[1][1], ToolCallProgress)
+                    done = True
+        assert done
+
+
+@pytest.mark.asyncio
+async def test_resend_after_abort(  # noqa: C901
+    echo_tool_stdio_config: dict[str, ServerConfig],
+) -> None:
+    """Test that resend after abort works."""
+    config = HostConfig(
+        llm=LLMConfig(
+            model="fake",
+            model_provider="dive",
+        ),
+        mcp_servers=echo_tool_stdio_config,
+    )
+
+    async with DiveMcpHost(config) as mcp_host:
+        mcp_host._checkpointer = InMemorySaver()
+        fake_responses = [
+            AIMessage(
+                content="Call echo tool",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 2000},
+                        id="phase1-tool-1",
+                        type="tool_call",
+                    ),
+                ],
+                id="phase1-1",
+            ),
+            AIMessage(
+                content="Bye",
+                id="phase1-2",
+            ),
+        ]
+
+        ts = time.time()
+        got_msg = False
+
+        async def _abort_task(chat: Chat) -> None:
+            while True:
+                if got_msg and time.time() - ts > 0.5:
+                    chat.abort()
+                    break
+                await asyncio.sleep(0.1)
+
+        fake_model = cast("FakeMessageToolModel", mcp_host.model)
+        fake_model.responses = fake_responses
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat(chat_id="chat_id")
+        async with chat:
+            task = asyncio.create_task(_abort_task(chat))
+            async for r in chat.query(
+                HumanMessage(content="Hello, world!", id="H1"),
+                stream_mode=["messages", "values", "updates"],
+            ):
+                if r[0] == "messages":  # type: ignore
+                    got_msg = True
+                    ts = time.time()
+        await task
+
+        resend = [HumanMessage(content="Resend message!", id="H1")]
+        fake_responses = [
+            AIMessage(
+                content="Call echo tool",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!"},
+                        id="phase2-tool-1",
+                        type="tool_call",
+                    ),
+                ],
+                id="phase2-1",
+            ),
+            AIMessage(
+                content="Bye",
+                id="phase2-2",
+            ),
+        ]
+        fake_model.i = 0
+        fake_model.responses = fake_responses
+        chat = mcp_host.chat(chat_id="chat_id")
+        async with chat:
+            async for r in chat.query(
+                resend,  # type: ignore
+                is_resend=True,
+            ):
+                r = cast(tuple[str, list[BaseMessage]], r)
+                if r[0] == "messages":
+                    for m in r[1]:
+                        assert m.id
+                        if isinstance(m, HumanMessage):
+                            assert m.id == "H1"
+                        elif isinstance(m, AIMessage):
+                            assert m.id.startswith("phase2-")
