@@ -1,9 +1,8 @@
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Self, TypeVar
+from typing import Any, Literal, Self, TypeVar
 
 from pydantic import (
     BaseModel,
-    BeforeValidator,
     ConfigDict,
     Field,
     RootModel,
@@ -27,45 +26,6 @@ class ResultResponse(BaseModel):
 
     success: bool
     message: str | None = None
-
-
-Transport = Literal["stdio", "sse", "websocket", "streamable"]
-
-
-class McpServerConfig(BaseModel):
-    """MCP server configuration with transport and connection settings."""
-
-    transport: Annotated[
-        Transport, BeforeValidator(lambda v: "stdio" if v == "command" else v)
-    ]
-    enabled: bool | None
-    command: str | None = None
-    args: list[str] | None = Field(default_factory=list)
-    env: dict[str, str] | None = Field(default_factory=dict)
-    url: str | None = None
-    headers: dict[str, SecretStr] | None = Field(default_factory=dict)
-    extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
-
-    def model_post_init(self, _: Any) -> None:
-        """Post-initialization hook."""
-        if self.transport in ["sse", "websocket"]:
-            if self.url is None:
-                raise ValueError("url is required for sse and websocket transport")
-        elif self.transport == "stdio" and self.command is None:
-            raise ValueError("command is required for stdio transport")
-
-    @field_serializer("headers", when_used="json")
-    def dump_api_key(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
-        """Serialize the api_key field to plain text."""
-        return {k: v.get_secret_value() for k, v in v.items()} if v else None
-
-
-class McpServers(BaseModel):
-    """Collection of MCP server configurations."""
-
-    mcp_servers: dict[str, McpServerConfig] = Field(
-        alias="mcpServers", default_factory=dict
-    )
 
 
 class McpServerError(BaseModel):
@@ -127,6 +87,7 @@ class SimpleToolInfo(BaseModel):
 
     name: str
     description: str
+    enabled: bool = True
 
 
 class McpTool(BaseModel):

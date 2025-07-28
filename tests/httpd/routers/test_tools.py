@@ -20,9 +20,10 @@ from tests import helper
 class MockTool:
     """Mock Tool class."""
 
-    def __init__(self, name, description=None):
+    def __init__(self, name: str, description: str | None = None, enable: bool = True):
         self.name = name
         self.description = description
+        self.enable = enable
 
 
 class MockServerInfo:
@@ -88,7 +89,11 @@ def test_list_tools_mock_cache(
     (client, _) = test_client
     mock_mcp_server_info.return_value = {
         "test_tool": MockServerInfo(
-            tools=[MockTool(name="test_tool", description="Test tool description")]
+            tools=[
+                MockTool(
+                    name="test_tool", description="Test tool description", enable=True
+                )
+            ]
         )
     }
     mocked_cache = MagicMock()
@@ -250,7 +255,7 @@ async def test_list_tools_with_missing_server_not_in_cache(
     # Create Mock configuration
     config_mock = AsyncMock()
     config_mock.mcp_servers = {
-        "missing_server": MCPServerConfig(),
+        "missing_server": MCPServerConfig(command="123"),
     }
     mock_current_config.return_value = config_mock
 

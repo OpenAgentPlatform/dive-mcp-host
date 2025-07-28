@@ -27,12 +27,21 @@ class MCPServerConfig(BaseModel):
     ) = "stdio"
     enabled: bool = True
     command: str | None = None
-    args: list[str] | None = None
-    env: dict[str, str] | None = None
+    args: list[str] | None = Field(default_factory=list)
+    env: dict[str, str] | None = Field(default_factory=dict)
     url: str | None = None
-    headers: dict[str, SecretStr] | None = None
     extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
     proxy: ProxyUrl | None = None
+    headers: dict[str, SecretStr] | None = Field(default_factory=dict)
+    exclude_tools: list[str] = Field(default_factory=list)
+
+    def model_post_init(self, _: Any) -> None:
+        """Post-initialization hook."""
+        if self.transport in ["sse", "websocket"]:
+            if self.url is None:
+                raise ValueError("url is required for sse and websocket transport")
+        elif self.transport == "stdio" and self.command is None:
+            raise ValueError("command is required for stdio transport")
 
     @field_serializer("headers", when_used="json")
     def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:
@@ -43,7 +52,9 @@ class MCPServerConfig(BaseModel):
 class Config(BaseModel):
     """Model of mcp_config.json."""
 
-    mcp_servers: dict[str, MCPServerConfig] = Field(alias="mcpServers")
+    mcp_servers: dict[str, MCPServerConfig] = Field(
+        alias="mcpServers", default_factory=dict
+    )
 
 
 type McpServerConfigCallback = Callable[[Config], Config | Coroutine[Any, Any, Config]]
