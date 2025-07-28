@@ -1124,12 +1124,10 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                     "tools": [
                         {
                             "name": "echo",
-                            "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",
                             "enabled": False,
                         },
                         {
                             "name": "ignore",
-                            "description": "Do nothing.",
                             "enabled": True,
                         },
                     ],
