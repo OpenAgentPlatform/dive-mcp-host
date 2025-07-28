@@ -828,6 +828,7 @@ async def test_tool_proxy(
                         assert sorted([i.name for i in tools]) == ["echo", "ignore"]
 
 
+@pytest.mark.asyncio
 async def test_tool_manager_exclude_tools(
     echo_tool_sse_server: AbstractAsyncContextManager[
         tuple[int, dict[str, ServerConfig]]
