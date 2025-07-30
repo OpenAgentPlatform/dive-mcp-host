@@ -277,6 +277,7 @@ def test_mcp_server_config_validation():
             "headers": {
                 "Authorization": "bearer token"
             },
+            "url": "http://localhost:8080/sse",
             "args": [
                 "-y",
                 "@someone/some-package"
@@ -299,13 +300,14 @@ def test_mcp_server_config_validation():
         "@modelcontextprotocol/server-filesystem",
         "/tmp",  # noqa: S108
     ]
-    assert config.mcp_servers["filesystem"].env is None
+    assert config.mcp_servers["filesystem"].env == {}
     assert config.mcp_servers["yt-dlp"].transport == "sse"
     assert config.mcp_servers["yt-dlp"].headers == {
         "Authorization": SecretStr("bearer token")
     }
     assert config.mcp_servers["yt-dlp"].enabled is False
     assert config.mcp_servers["yt-dlp"].command == "np"
+    assert config.mcp_servers["yt-dlp"].url == "http://localhost:8080/sse"
     assert config.mcp_servers["yt-dlp"].args == [
         "-y",
         "@someone/some-package",

@@ -6,21 +6,20 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
 from dive_mcp_host.httpd.routers.config import SaveModelSettingsRequest
 from dive_mcp_host.httpd.routers.models import (
     EmbedConfig,
-    McpServerConfig,
     ModelFullConfigs,
 )
+from tests import helper
 
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.server import DiveHostAPI
 
-from tests import helper
-
 # Mock data
 MOCK_MCP_CONFIG = {
-    "default": McpServerConfig(
+    "default": MCPServerConfig(
         transport="command",  # type: ignore  # Test backward compatibility
         enabled=True,
         command="node",
@@ -766,7 +765,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
     # Disable tool
     payload = {
         "mcpServers": {
-            "echo": McpServerConfig(
+            "echo": MCPServerConfig(
                 transport="stdio",
                 command="python3",
                 enabled=False,
@@ -776,6 +775,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     "--transport=stdio",
                 ],
                 env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
                 url=None,
             ).model_dump(),
         }
@@ -808,6 +808,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "--transport=stdio",
                         ],
                         "env": {"NODE_ENV": "production"},
+                        "exclude_tools": ["echo"],
                         "url": None,
                     },
                 },
@@ -833,6 +834,302 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
                         },
                         {"name": "ignore", "description": "Do nothing."},
+                    ],
+                    "description": "",
+                    "enabled": False,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+
+def test_exclude_tools(test_client):
+    """Test if exclude tools will work."""
+    client, _ = test_client
+
+    # check tools api default status
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Disable tool
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=True,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": False,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Remove from 'exclude_tools'
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=True,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=[],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is enabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+
+def test_exclude_tools_on_disabled_mcp(test_client):
+    """Test if exclude tools will work on disabled mcp."""
+    client, _ = test_client
+
+    # check tools api default status
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": True,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Disable mcp
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=False,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=[],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the mcp is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
+                    ],
+                    "description": "",
+                    "enabled": False,
+                    "icon": "",
+                    "error": None,
+                }
+            ],
+        },
+    )
+
+    # Add tools to from 'exclude_tools'
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=False,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=["echo"],
+                url=None,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the tool is disabled
+    response = client.get("/api/tools")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "tools": [
+                {
+                    "name": "echo",
+                    "tools": [
+                        {
+                            "name": "echo",
+                            "enabled": False,
+                        },
+                        {
+                            "name": "ignore",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": False,
