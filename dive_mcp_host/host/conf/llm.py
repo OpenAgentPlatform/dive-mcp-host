@@ -129,6 +129,8 @@ class LLMConfig(BaseLLMConfig):
         remove_keys = []
         if self.model_provider == "openai" and self.model == "o3-mini":
             remove_keys.extend(["temperature", "top_p"])
+        if self.model_provider == "ollama":
+            remove_keys.extend(["provider"])
         if kwargs.get("skip_tls_verify"):
             if self.model_provider == "ollama":
                 kwargs.update({"client_kwargs": {"verify": False}})
