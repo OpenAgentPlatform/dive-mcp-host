@@ -43,7 +43,7 @@ class _SessionStoreItem:
 
     async def waiting_loop(self) -> None:
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(60)
             if (
                 time.time() - self.active_ts > MAX_IDLE_TIME
                 and len(self.client_tasks) == 0
