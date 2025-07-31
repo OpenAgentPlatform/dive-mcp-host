@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal, Self
 
+from httpx import AsyncClient, Client
 from pydantic import (
     BaseModel,
     BeforeValidator,
@@ -80,6 +81,7 @@ class LLMConfiguration(BaseModel):
     """Configuration for the LLM model."""
 
     base_url: str | None = Field(default=None, alias="baseURL")
+    skip_tls_verify: bool | None = Field(default=None)
     temperature: float | None = Field(default=0)
     top_p: float | None = Field(default=None)
 
@@ -90,6 +92,8 @@ class LLMConfiguration(BaseModel):
         kwargs = {}
         if self.base_url:
             kwargs["base_url"] = self.base_url
+        if self.skip_tls_verify:
+            kwargs["skip_tls_verify"] = self.skip_tls_verify
         if self.temperature:
             kwargs["temperature"] = self.temperature
         if self.top_p:
@@ -125,6 +129,16 @@ class LLMConfig(BaseLLMConfig):
         remove_keys = []
         if self.model_provider == "openai" and self.model == "o3-mini":
             remove_keys.extend(["temperature", "top_p"])
+        if kwargs.get("skip_tls_verify"):
+            if self.model_provider == "ollama":
+                kwargs.update({"client_kwargs": {"verify": False}})
+            elif self.model_provider == "openai":
+                kwargs.update(
+                    {
+                        "http_client": Client(verify=False),  # noqa: S501
+                        "http_async_client": AsyncClient(verify=False),  # noqa: S501
+                    }
+                )
         for key in remove_keys:
             kwargs.pop(key, None)
         return to_snake_dict(kwargs)
