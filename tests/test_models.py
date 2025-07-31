@@ -1,3 +1,4 @@
+from ssl import CERT_NONE
 from typing import Any
 
 import pytest
@@ -189,3 +190,43 @@ def test_model_single_config_validate() -> None:
     assert config.azure_deployment == "fake"
     assert config.api_key == SecretStr("fake")
     assert config.api_version == "2023-03-15-preview"
+
+
+def test_openai_skip_tls_verify() -> None:
+    """Test the OpenAI skip TLS verify."""
+    config = LLMConfig(
+        model="gpt-4o",
+        model_provider="openai",
+        api_key=SecretStr("fake"),
+        configuration=LLMConfiguration(
+            skip_tls_verify=True,
+        ),
+    )
+    model = load_model(
+        config.model_provider, config.model, **(config.to_load_model_kwargs())
+    )
+    assert (
+        model.client._client._client._transport._pool._ssl_context.verify_mode  # type: ignore
+        == CERT_NONE
+    )
+    assert (
+        model.async_client._client._client._transport._pool._ssl_context.verify_mode  # type: ignore
+        == CERT_NONE
+    )
+
+
+def test_ollama_skip_tls_verify() -> None:
+    """Test the Ollama skip TLS verify."""
+    config = LLMConfig(
+        model="llama3.1",
+        model_provider="ollama",
+        api_key=SecretStr("fake"),
+        configuration=LLMConfiguration(
+            skip_tls_verify=True,
+        ),
+    )
+    model = load_model(
+        config.model_provider, config.model, **(config.to_load_model_kwargs())
+    )
+
+    assert model._client._client._transport._pool._ssl_context.verify_mode == CERT_NONE  # type: ignore
