@@ -111,7 +111,7 @@ class McpServer(ContextProtocol):
 
     RETRY_LIMIT: int = 3
     KEEP_ALIVE_INTERVAL: float = 60
-    RESTART_INTERVAL: float = 3
+    RESTART_INTERVAL: float = 1
 
     def __init__(
         self,
@@ -441,7 +441,11 @@ class McpServer(ContextProtocol):
         """
         env = os.environ.copy()
         env.update(self.config.env)
-        while True:
+        start_time = time.time()
+        while (
+            self._retries == 0
+            or (time.time() - start_time) < self.config.initial_timeout
+        ):
             should_break = False
             try:
                 logger.debug("Attempting to initialize client %s", self.name)
@@ -471,6 +475,7 @@ class McpServer(ContextProtocol):
                             self.name,
                             self._client_status,
                         )
+                        return
             except* ProcessLookupError as eg:
                 # this raised when a stdio process is exited
                 # and the initialize call is timeout
@@ -527,24 +532,24 @@ class McpServer(ContextProtocol):
             if self._client_status == ClientState.CLOSED:
                 logger.info("Client %s closed, stopping watcher", self.name)
                 return
-            if self._retries >= self.RETRY_LIMIT or should_break:
-                logger.warning(
-                    "client for [%s] failed after %d retries %s",
-                    self.name,
-                    self._retries,
-                    self._exception,
-                )
-                async with self._cond:
-                    if self._client_status != ClientState.CLOSED:
-                        await self.__change_state(ClientState.FAILED, None, False)
-                return
+            if should_break:
+                break
             logger.debug(
-                "Retrying client initialization for %s (attempt %d/%d)",
+                "Retrying client initialization for %s (attempt %d)",
                 self.name,
                 self._retries,
-                self.RETRY_LIMIT,
             )
             await asyncio.sleep(self.RESTART_INTERVAL)
+
+        logger.warning(
+            "client for [%s] failed after %d retries %s",
+            self.name,
+            self._retries,
+            self._exception,
+        )
+        async with self._cond:
+            if self._client_status != ClientState.CLOSED:
+                await self.__change_state(ClientState.FAILED, None, False)
 
     async def _stdio_setup(self) -> None:
         """Setup the stdio client."""
@@ -732,7 +737,11 @@ class McpServer(ContextProtocol):
     async def _http_setup(self) -> None:
         """Setup the http client."""
         self._retries = 0
-        for _ in range(self.RETRY_LIMIT):
+        start_time = time.time()
+        while (
+            self._retries == 0
+            or (time.time() - start_time) < self.config.initial_timeout
+        ):
             should_break = False
             try:
                 await self._http_init_client()
