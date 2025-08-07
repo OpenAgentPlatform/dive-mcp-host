@@ -65,7 +65,12 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
             value = headers[key]
             if isinstance(value, SecretStr):
                 headers[key] = value.get_secret_value()
-        return sse_client(url=url, headers=headers)
+        return sse_client(
+            url=url,
+            headers=headers,
+            sse_read_timeout=config.initial_timeout,
+            timeout=config.initial_timeout,
+        )
 
     get_client = _sse_client if config.transport == "sse" else websocket_client
     logger.debug("Starting local MCP server %s with command: %s", config.name, command)
@@ -128,7 +133,12 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
                     get_client(url=config.url) as streams,
                     ClientSession(*streams) as session,
                 ):
-                    async with asyncio.timeout(10):
+                    logger.debug(
+                        "Server %s initalizing with timeout: %s",
+                        config.name,
+                        config.initial_timeout,
+                    )
+                    async with asyncio.timeout(config.initial_timeout):
                         initialize_result = await session.initialize()
                         tools = await session.list_tools()
                         logger.info(

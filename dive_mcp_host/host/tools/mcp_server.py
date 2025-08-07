@@ -214,11 +214,16 @@ class McpServer(ContextProtocol):
 
     async def _init_tool_info(self, session: ClientSession) -> None:
         """Initialize the session."""
-        async with asyncio.timeout(10):
+        logger.debug(
+            "Client %s initalizing with timeout: %s",
+            self.name,
+            self.config.initial_timeout,
+        )
+        async with asyncio.timeout(self.config.initial_timeout):
             # When using stdio, the initialize call may block indefinitely
             self._initialize_result = await session.initialize()
             logger.debug(
-                "Client %s initializing, result: %s",
+                "Client %s initialize result: %s",
                 self.name,
                 self._initialize_result,
             )
@@ -714,7 +719,10 @@ class McpServer(ContextProtocol):
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
         async with (
-            self._http_get_client(sse_read_timeout=30) as streams,
+            self._http_get_client(
+                sse_read_timeout=self.config.initial_timeout,
+                timeout=self.config.initial_timeout,
+            ) as streams,
             ClientSession(
                 *[streams[0], streams[1]], message_handler=self._message_handler
             ) as session,

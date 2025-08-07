@@ -34,6 +34,7 @@ class MCPServerConfig(BaseModel):
     proxy: ProxyUrl | None = None
     headers: dict[str, SecretStr] | None = Field(default_factory=dict)
     exclude_tools: list[str] = Field(default_factory=list)
+    initial_timeout: float = Field(default=10, ge=10)
 
     def model_post_init(self, _: Any) -> None:
         """Post-initialization hook."""

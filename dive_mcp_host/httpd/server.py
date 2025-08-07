@@ -236,6 +236,7 @@ class DiveHostAPI(FastAPI):
                 headers=server_config.headers or {},
                 proxy=server_config.proxy or None,
                 exclude_tools=server_config.exclude_tools,
+                initial_timeout=server_config.initial_timeout,
             )
 
         logger.debug("got %s mcp servers in config", len(mcp_servers))

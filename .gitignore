@@ -45,3 +45,4 @@ cache/
 upload/
 cli_config.json
 logs/
+oap_config.json
