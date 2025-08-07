@@ -433,7 +433,7 @@ class McpServer(ContextProtocol):
             async with self._cond:
                 self._cond.notify_all()
 
-    async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915
+    async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915, PLR0912
         """Client watcher task.
 
         Restart the client if need.
