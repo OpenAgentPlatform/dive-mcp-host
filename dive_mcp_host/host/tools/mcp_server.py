@@ -475,6 +475,10 @@ class McpServer(ContextProtocol):
                             self.name,
                             self._client_status,
                         )
+                        if self._client_status == ClientState.RESTARTING:
+                            self._retries = 0
+                            start_time = time.time()
+                            continue
                         return
             except* ProcessLookupError as eg:
                 # this raised when a stdio process is exited
