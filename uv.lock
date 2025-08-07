@@ -446,7 +446,7 @@ requires-dist = [
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "httpx", extras = ["brotli", "http2", "socks", "zstd"] },
-    { name = "langchain", specifier = ">=0.3.27" },
+    { name = "langchain", specifier = ">=0.3.27,<0.4" },
     { name = "langchain-anthropic", specifier = ">=0.3.18" },
     { name = "langchain-aws", specifier = ">=0.2.23" },
     { name = "langchain-community", marker = "extra == 'dev'" },
@@ -460,7 +460,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.22" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.11" },
     { name = "langgraph-prebuilt", specifier = ">=0.2.2,<0.5" },
-    { name = "mcp", specifier = ">=1.10.1,<1.11" },
+    { name = "mcp", specifier = ">=1.12,<1.13" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pproxy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
@@ -1307,7 +1307,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.10.1"
+version = "1.12.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1317,13 +1317,14 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7c/68/63045305f29ff680a9cd5be360c755270109e6b76f696ea6824547ddbc30/mcp-1.10.1.tar.gz", hash = "sha256:aaa0957d8307feeff180da2d9d359f2b801f35c0c67f1882136239055ef034c2", size = 392969, upload-time = "2025-06-27T12:03:08.982Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4d/19/9955e2df5384ff5dd25d38f8e88aaf89d2d3d9d39f27e7383eaf0b293836/mcp-1.12.3.tar.gz", hash = "sha256:ab2e05f5e5c13e1dc90a4a9ef23ac500a6121362a564447855ef0ab643a99fed", size = 427203, upload-time = "2025-07-31T18:36:36.795Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/3f/435a5b3d10ae242a9d6c2b33175551173c3c61fe637dc893be05c4ed0aaf/mcp-1.10.1-py3-none-any.whl", hash = "sha256:4d08301aefe906dce0fa482289db55ce1db831e3e67212e65b5e23ad8454b3c5", size = 150878, upload-time = "2025-06-27T12:03:07.328Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/8b/0be74e3308a486f1d127f3f6767de5f9f76454c9b4183210c61cc50999b6/mcp-1.12.3-py3-none-any.whl", hash = "sha256:5483345bf39033b858920a5b6348a303acacf45b23936972160ff152107b850e", size = 158810, upload-time = "2025-07-31T18:36:34.915Z" },
 ]
 
 [[package]]
