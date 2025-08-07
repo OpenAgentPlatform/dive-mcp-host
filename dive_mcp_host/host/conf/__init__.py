@@ -58,6 +58,7 @@ class ServerConfig(BaseModel):
         ProxyUrl | None,
         BeforeValidator(_rewrite_socks),
     ] = None
+    initial_timeout: float = 10
 
     @field_serializer("headers", when_used="json")
     def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:

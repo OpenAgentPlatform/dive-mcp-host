@@ -4,19 +4,22 @@ import logging
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 import anyio
 import anyio.abc
 import anyio.lowlevel
+from anyio.abc import Process
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from anyio.streams.text import TextReceiveStream
 from mcp import types
 from mcp.client.stdio import StdioServerParameters, get_default_environment
-from mcp.client.stdio.win32 import (
+from mcp.os.posix.utilities import terminate_posix_process_tree
+from mcp.os.win32.utilities import (
+    FallbackProcess,
     get_windows_executable_command,
-    terminate_windows_process,
+    terminate_windows_process_tree,
 )
 from mcp.shared.message import SessionMessage
 
@@ -42,6 +45,8 @@ DEFAULT_INHERITED_ENV_VARS = (
     if sys.platform == "win32"
     else ["HOME", "LOGNAME", "PATH", "SHELL", "TERM", "USER"]
 )
+
+PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
 @asynccontextmanager
@@ -156,12 +161,29 @@ async def stdio_client(  # noqa: C901, PLR0915
             logger.error("Error, closing process %s: %s", process.pid, exc)
             raise
         finally:
-            # Clean up process to prevent any dangling orphaned processes
-            logger.info("Terminated process %s", process.pid)
-            # Some process never terminates, so we need to kill it.
-            await terminate_windows_process(process)
-            status = await process.wait()
-            logger.info("Process %s exited with status %s", process.pid, status)
+            # MCP spec: stdio shutdown sequence
+            # 1. Close input stream to server
+            # 2. Wait for server to exit, or send SIGTERM if it doesn't exit in time
+            # 3. Send SIGKILL if still not exited
+            if process.stdin:
+                with suppress(Exception):
+                    await process.stdin.aclose()
+            try:
+                # Give the process time to exit gracefully after stdin closes
+                with anyio.fail_after(PROCESS_TERMINATION_TIMEOUT):
+                    await process.wait()
+            except TimeoutError:
+                # Process didn't exit from stdin closure, use platform-specific
+                # termination
+                # which handles SIGTERM -> SIGKILL escalation
+                await _terminate_process_tree(process)
+            except ProcessLookupError:
+                # Process already exited, which is fine
+                pass
+            await read_stream.aclose()
+            await write_stream.aclose()
+            await read_stream_writer.aclose()
+            await write_stream_reader.aclose()
     logger.error("Process %s closed", "xx")
 
 
@@ -189,3 +211,23 @@ async def _create_platform_compatible_process(
     logger.info("launched process: %s, pid: %s", command, process.pid)
 
     return process
+
+
+async def _terminate_process_tree(
+    process: Process | FallbackProcess, timeout_seconds: float = 2.0
+) -> None:
+    """Terminate a process and all its children using platform-specific methods.
+
+    Unix: Uses os.killpg() for atomic process group termination
+    Windows: Uses Job Objects via pywin32 for reliable child process cleanup
+
+    Args:
+        process: The process to terminate
+        timeout_seconds: Timeout in seconds before force killing (default: 2.0)
+    """
+    if sys.platform == "win32":
+        await terminate_windows_process_tree(process, timeout_seconds)
+    else:
+        # FallbackProcess should only be used for Windows compatibility
+        assert isinstance(process, Process)
+        await terminate_posix_process_tree(process, timeout_seconds)

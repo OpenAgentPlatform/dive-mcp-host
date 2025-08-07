@@ -6,7 +6,14 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, BeforeValidator, Field, SecretStr, field_serializer
+from pydantic import (
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    SecretStr,
+    field_serializer,
+)
 
 from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.host.conf import ProxyUrl
@@ -34,6 +41,13 @@ class MCPServerConfig(BaseModel):
     proxy: ProxyUrl | None = None
     headers: dict[str, SecretStr] | None = Field(default_factory=dict)
     exclude_tools: list[str] = Field(default_factory=list)
+    initial_timeout: float = Field(default=10, ge=10, alias="initialTimeout")
+
+    model_config = ConfigDict(
+        validate_by_name=True,
+        validate_by_alias=True,
+        serialize_by_alias=True,
+    )
 
     def model_post_init(self, _: Any) -> None:
         """Post-initialization hook."""
@@ -54,6 +68,12 @@ class Config(BaseModel):
 
     mcp_servers: dict[str, MCPServerConfig] = Field(
         alias="mcpServers", default_factory=dict
+    )
+
+    model_config = ConfigDict(
+        validate_by_name=True,
+        validate_by_alias=True,
+        serialize_by_alias=True,
     )
 
 

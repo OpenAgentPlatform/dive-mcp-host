@@ -1139,3 +1139,93 @@ def test_exclude_tools_on_disabled_mcp(test_client):
             ],
         },
     )
+
+
+def test_mcp_initalize_timeout(test_client):
+    """Test if exclude tools will work on disabled mcp."""
+    client, _ = test_client
+
+    # check mcp default config
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "config": {
+                "mcpServers": {
+                    "echo": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python3",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                        "env": {"NODE_ENV": "production"},
+                        "url": None,
+                        "initialTimeout": 10,
+                    },
+                },
+            },
+        },
+    )
+
+    # Update initial timeout
+    payload = {
+        "mcpServers": {
+            "echo": MCPServerConfig(
+                transport="stdio",
+                command="python3",
+                enabled=True,
+                args=[
+                    "-m",
+                    "dive_mcp_host.host.tools.echo",
+                    "--transport=stdio",
+                ],
+                env={"NODE_ENV": "production"},
+                exclude_tools=[],
+                url=None,
+                initialTimeout=999,
+            ).model_dump(),
+        }
+    }
+
+    response = client.post(
+        "/api/config/mcpserver",
+        json=payload,
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Check if the mcp has intalized timeout setting
+    response = client.get("/api/config/mcpserver")
+
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "config": {
+                "mcpServers": {
+                    "echo": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python3",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                        "env": {"NODE_ENV": "production"},
+                        "url": None,
+                        "initialTimeout": 999,
+                    },
+                },
+            },
+        },
+    )
