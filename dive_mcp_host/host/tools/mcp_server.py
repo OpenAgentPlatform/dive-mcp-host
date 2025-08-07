@@ -111,7 +111,7 @@ class McpServer(ContextProtocol):
 
     RETRY_LIMIT: int = 3
     KEEP_ALIVE_INTERVAL: float = 60
-    RESTART_INTERVAL: float = 3
+    RESTART_INTERVAL: float = 1
 
     def __init__(
         self,
@@ -214,11 +214,16 @@ class McpServer(ContextProtocol):
 
     async def _init_tool_info(self, session: ClientSession) -> None:
         """Initialize the session."""
-        async with asyncio.timeout(10):
+        logger.debug(
+            "Client %s initalizing with timeout: %s",
+            self.name,
+            self.config.initial_timeout,
+        )
+        async with asyncio.timeout(self.config.initial_timeout):
             # When using stdio, the initialize call may block indefinitely
             self._initialize_result = await session.initialize()
             logger.debug(
-                "Client %s initializing, result: %s",
+                "Client %s initialize result: %s",
                 self.name,
                 self._initialize_result,
             )
@@ -428,7 +433,7 @@ class McpServer(ContextProtocol):
             async with self._cond:
                 self._cond.notify_all()
 
-    async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915
+    async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915, PLR0912
         """Client watcher task.
 
         Restart the client if need.
@@ -436,7 +441,11 @@ class McpServer(ContextProtocol):
         """
         env = os.environ.copy()
         env.update(self.config.env)
-        while True:
+        start_time = time.time()
+        while (
+            self._retries == 0
+            or (time.time() - start_time) < self.config.initial_timeout
+        ):
             should_break = False
             try:
                 logger.debug("Attempting to initialize client %s", self.name)
@@ -466,6 +475,11 @@ class McpServer(ContextProtocol):
                             self.name,
                             self._client_status,
                         )
+                        if self._client_status == ClientState.RESTARTING:
+                            self._retries = 0
+                            start_time = time.time()
+                            continue
+                        return
             except* ProcessLookupError as eg:
                 # this raised when a stdio process is exited
                 # and the initialize call is timeout
@@ -522,24 +536,24 @@ class McpServer(ContextProtocol):
             if self._client_status == ClientState.CLOSED:
                 logger.info("Client %s closed, stopping watcher", self.name)
                 return
-            if self._retries >= self.RETRY_LIMIT or should_break:
-                logger.warning(
-                    "client for [%s] failed after %d retries %s",
-                    self.name,
-                    self._retries,
-                    self._exception,
-                )
-                async with self._cond:
-                    if self._client_status != ClientState.CLOSED:
-                        await self.__change_state(ClientState.FAILED, None, False)
-                return
+            if should_break:
+                break
             logger.debug(
-                "Retrying client initialization for %s (attempt %d/%d)",
+                "Retrying client initialization for %s (attempt %d)",
                 self.name,
                 self._retries,
-                self.RETRY_LIMIT,
             )
             await asyncio.sleep(self.RESTART_INTERVAL)
+
+        logger.warning(
+            "client for [%s] failed after %d retries %s",
+            self.name,
+            self._retries,
+            self._exception,
+        )
+        async with self._cond:
+            if self._client_status != ClientState.CLOSED:
+                await self.__change_state(ClientState.FAILED, None, False)
 
     async def _stdio_setup(self) -> None:
         """Setup the stdio client."""
@@ -714,7 +728,10 @@ class McpServer(ContextProtocol):
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
         async with (
-            self._http_get_client(sse_read_timeout=30) as streams,
+            self._http_get_client(
+                sse_read_timeout=self.config.initial_timeout,
+                timeout=self.config.initial_timeout,
+            ) as streams,
             ClientSession(
                 *[streams[0], streams[1]], message_handler=self._message_handler
             ) as session,
@@ -724,7 +741,11 @@ class McpServer(ContextProtocol):
     async def _http_setup(self) -> None:
         """Setup the http client."""
         self._retries = 0
-        for _ in range(self.RETRY_LIMIT):
+        start_time = time.time()
+        while (
+            self._retries == 0
+            or (time.time() - start_time) < self.config.initial_timeout
+        ):
             should_break = False
             try:
                 await self._http_init_client()

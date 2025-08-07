@@ -4,6 +4,7 @@ import signal
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from time import time
 from typing import Any
 
 import httpx
@@ -30,7 +31,6 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
     command: str | None = None,
     args: list[str] | None = None,
     env: dict[str, str] | None = None,
-    max_connection_retries: int = 10,
     headers: dict[str, Any] | None = None,
 ) -> AsyncGenerator[tuple[InitializeResult, ListToolsResult, int], None]:
     """Create a local MCP server client.
@@ -65,7 +65,13 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
             value = headers[key]
             if isinstance(value, SecretStr):
                 headers[key] = value.get_secret_value()
-        return sse_client(url=url, headers=headers)
+        logger.debug("Connecting sse client with timeout: %s", config.initial_timeout)
+        return sse_client(
+            url=url,
+            headers=headers,
+            sse_read_timeout=config.initial_timeout,
+            timeout=config.initial_timeout,
+        )
 
     get_client = _sse_client if config.transport == "sse" else websocket_client
     logger.debug("Starting local MCP server %s with command: %s", config.name, command)
@@ -80,7 +86,6 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
     ):
         logger.error("Failed to start subprocess for %s", config.name)
         raise RuntimeError("failed to start subprocess")
-    retried = 0
 
     # it tooks time to start the server, so we need to retry
     async def _read_stdout(
@@ -114,21 +119,20 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
         name="read-stdout",
     )
 
+    start_time = time()
     try:
-        while retried < max_connection_retries:
-            await asyncio.sleep(0.3 if retried == 0 else 1)
-            logger.debug(
-                "Attempting to connect to server %s (attempt %d/%d)",
-                config.name,
-                retried + 1,
-                max_connection_retries,
-            )
+        logger.debug(
+            "Server %s initalizing with timeout: %s",
+            config.name,
+            config.initial_timeout,
+        )
+        while (time() - start_time) < config.initial_timeout:
             with suppress(TimeoutError, httpx.HTTPError):
                 async with (
                     get_client(url=config.url) as streams,
                     ClientSession(*streams) as session,
                 ):
-                    async with asyncio.timeout(10):
+                    async with asyncio.timeout(config.initial_timeout):
                         initialize_result = await session.initialize()
                         tools = await session.list_tools()
                         logger.info(
@@ -136,16 +140,19 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
                             config.name,
                             tools,
                         )
-                        break
-            retried += 1
+                    logger.info("Connected to the server %s", config.name)
+                    yield initialize_result, tools, subprocess.pid
+                    break
+            await asyncio.sleep(0.3)
         else:
-            raise InvalidMcpServerError(config.name)
-        logger.info(
-            "Connected to the server %s after %d attempts", config.name, retried
-        )
-        yield initialize_result, tools, subprocess.pid
+            logger.warning(
+                "Connected to the server %s failed after %s seconds",
+                config.name,
+                config.initial_timeout,
+            )
+            raise InvalidMcpServerError(config.name, reason="failed to initalize")
     finally:
-        with suppress(TimeoutError):
+        with suppress(TimeoutError, ProcessLookupError, asyncio.CancelledError):
             logger.debug("Terminating subprocess for %s", config.name)
             read_stderr_task.cancel()
             read_stdout_task.cancel()
@@ -158,7 +165,7 @@ async def local_http_server(  # noqa: C901, PLR0913, PLR0915
             subprocess = None
         if subprocess:
             logger.info("Timeout to terminate mcp-server %s. Kill it.", config.name)
-            with suppress(TimeoutError):
+            with suppress(TimeoutError, ProcessLookupError, asyncio.CancelledError):
                 read_stderr_task.cancel()
                 read_stdout_task.cancel()
                 subprocess.kill()

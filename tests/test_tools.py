@@ -853,3 +853,51 @@ async def test_tool_manager_exclude_tools(
         tools = tool_manager.langchain_tools()
         assert len(tools) == 1
         assert tools[0].name == "echo"
+
+
+@pytest.mark.asyncio
+async def test_custum_initalize_timeout(
+    echo_tool_local_sse_config: dict[str, ServerConfig],
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+):
+    """Test if our customized timeout actually apply."""
+    echo_tool_local_sse_config["echo"].initial_timeout = 0
+    async with McpServer(
+        name="echo",
+        config=echo_tool_local_sse_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+    ) as server:
+        assert server.server_info.client_status == ClientState.FAILED
+
+    echo_tool_stdio_config["echo"].initial_timeout = 0
+    async with McpServer(
+        name="echo",
+        config=echo_tool_stdio_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+    ) as server:
+        assert server.server_info.client_status == ClientState.FAILED
+
+    async with echo_tool_streamable_server as (_, config):
+        config["echo"].initial_timeout = 0
+        async with McpServer(
+            name="echo",
+            config=config["echo"],
+            log_buffer_length=log_config.buffer_length,
+        ) as server:
+            assert server.server_info.client_status == ClientState.FAILED
+
+    async with echo_tool_sse_server as (_, config):
+        config["echo"].initial_timeout = 0
+        async with McpServer(
+            name="echo",
+            config=config["echo"],
+            log_buffer_length=log_config.buffer_length,
+        ) as server:
+            assert server.server_info.client_status == ClientState.FAILED
