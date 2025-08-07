@@ -808,7 +808,7 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "--transport=stdio",
                         ],
                         "env": {"NODE_ENV": "production"},
-                        "excludeTools": ["echo"],
+                        "exclude_tools": ["echo"],
                         "url": None,
                     },
                 },
@@ -1189,7 +1189,7 @@ def test_mcp_initalize_timeout(test_client):
                 env={"NODE_ENV": "production"},
                 exclude_tools=[],
                 url=None,
-                initial_timeout=999,
+                initialTimeout=999,
             ).model_dump(),
         }
     }

@@ -14,7 +14,6 @@ from pydantic import (
     SecretStr,
     field_serializer,
 )
-from pydantic.alias_generators import to_camel
 
 from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.host.conf import ProxyUrl
@@ -38,14 +37,13 @@ class MCPServerConfig(BaseModel):
     args: list[str] | None = Field(default_factory=list)
     env: dict[str, str] | None = Field(default_factory=dict)
     url: str | None = None
-    extra_data: dict[str, Any] | None = Field(default=None)
+    extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
     proxy: ProxyUrl | None = None
     headers: dict[str, SecretStr] | None = Field(default_factory=dict)
     exclude_tools: list[str] = Field(default_factory=list)
-    initial_timeout: float = Field(default=10, ge=10)
+    initial_timeout: float = Field(default=10, ge=10, alias="initialTimeout")
 
     model_config = ConfigDict(
-        alias_generator=to_camel,
         validate_by_name=True,
         validate_by_alias=True,
         serialize_by_alias=True,
@@ -68,10 +66,11 @@ class MCPServerConfig(BaseModel):
 class Config(BaseModel):
     """Model of mcp_config.json."""
 
-    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    mcp_servers: dict[str, MCPServerConfig] = Field(
+        alias="mcpServers", default_factory=dict
+    )
 
     model_config = ConfigDict(
-        alias_generator=to_camel,
         validate_by_name=True,
         validate_by_alias=True,
         serialize_by_alias=True,
