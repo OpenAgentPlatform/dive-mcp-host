@@ -189,6 +189,7 @@ async def test_host_google(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
 @pytest.mark.asyncio
 async def test_bedrock(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
+    # claude-3-7-sonnet
     if (key_id := environ.get("BEDROCK_ACCESS_KEY_ID")) and (
         access_key := environ.get("BEDROCK_SECRET_ACCESS_KEY")
     ):
@@ -196,6 +197,32 @@ async def test_bedrock(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
         config = HostConfig(
             llm=LLMBedrockConfig(
                 model="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+                model_provider="bedrock",
+                credentials=Credentials(
+                    access_key_id=SecretStr(key_id),
+                    secret_access_key=SecretStr(access_key),
+                    session_token=SecretStr(token or ""),
+                ),
+                region="us-east-1",
+            ),
+            mcp_servers=echo_tool_stdio_config,
+        )
+    else:
+        pytest.skip(
+            "need environment variable BEDROCK_ACCESS_KEY_ID,"
+            " BEDROCK_SECRET_ACCESS_KEY, BEDROCK_SESSION_TOKEN to run this test"
+        )
+
+    await _run_the_test(config)
+
+    # claude-sonnet-4
+    if (key_id := environ.get("BEDROCK_ACCESS_KEY_ID")) and (
+        access_key := environ.get("BEDROCK_SECRET_ACCESS_KEY")
+    ):
+        token = environ.get("BEDROCK_SESSION_TOKEN")
+        config = HostConfig(
+            llm=LLMBedrockConfig(
+                model="us.anthropic.claude-sonnet-4-20250514-v1:0",
                 model_provider="bedrock",
                 credentials=Credentials(
                     access_key_id=SecretStr(key_id),
