@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
 from dive_mcp_host.host.conf import HostConfig, LogConfig
-from dive_mcp_host.host.conf.llm import LLMConfig, LLMConfigTypes
+from dive_mcp_host.host.conf.llm import LLMConfigTypes
 from dive_mcp_host.host.errors import ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools.misc import TestTool
@@ -399,7 +399,7 @@ class ModelVerifyService:
 class ModelVerifyRequest(BaseModel):
     """Model verify request."""
 
-    model_settings: LLMConfig | None = Field(alias="modelSettings", default=None)
+    model_settings: LLMConfigTypes | None = Field(alias="modelSettings", default=None)
 
 
 def get_verify_subjects(llm_config: LLMConfigTypes) -> list[VERIFY_SUBJECTS]:
