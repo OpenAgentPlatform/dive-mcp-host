@@ -276,14 +276,19 @@ class _LogFile:
         self._logger = getLogger(self._name)
         self._logger.setLevel(INFO)
         self._logger.propagate = False
-        handler = TimedRotatingFileHandler(
-            self._path,
-            when="D",
-            interval=1,
-            backupCount=rotation_files,
-            encoding="utf-8",
-        )
-        self._logger.addHandler(handler)
+        try:
+            handler = TimedRotatingFileHandler(
+                self._path,
+                when="D",
+                interval=1,
+                backupCount=rotation_files,
+                encoding="utf-8",
+            )
+            self._logger.addHandler(handler)
+        except FileNotFoundError:
+            logger.exception(
+                "Could not create TimedRotatingFileHandler, only stdout will be used"
+            )
 
     async def __call__(self, log: LogMsg) -> None:
         self._logger.info(log.model_dump_json())

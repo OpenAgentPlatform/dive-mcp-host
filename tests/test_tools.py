@@ -131,6 +131,37 @@ async def test_tool_manager_streamable(
 
 
 @pytest.mark.asyncio
+async def test_tool_manager_tool_name_with_slash(
+    echo_with_slash_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test the tool manager."""
+    async with (
+        echo_with_slash_tool_streamable_server as (port, configs),
+        ToolManager(configs, log_config) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        for tool in tools:
+            result = await tool.ainvoke(
+                ToolCall(
+                    name=tool.name,
+                    id="123",
+                    args={"message": "Hello, world!"},
+                    type="tool_call",
+                ),
+            )
+            assert isinstance(result, ToolMessage)
+            if tool.name == "echo":
+                assert json.loads(str(result.content))[0]["text"] == "Hello, world!"
+            else:
+                assert json.loads(str(result.content)) == []
+
+
+@pytest.mark.asyncio
 async def test_tool_manager_reload(
     echo_tool_stdio_config: dict[str, ServerConfig],
     log_config: LogConfig,
