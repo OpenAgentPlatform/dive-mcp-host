@@ -230,3 +230,104 @@ def test_ollama_skip_tls_verify() -> None:
     )
 
     assert model._client._client._transport._pool._ssl_context.verify_mode == CERT_NONE  # type: ignore
+
+
+def test_opus_4_1_temperature_top_p() -> None:
+    """Test the temperature and top_p."""
+    raw_config: dict = {
+        "modelProvider": "anthropic",
+        "model": "claude-opus-4-1",
+    }
+
+    # test opus 4.1
+    simple_1 = raw_config.copy()
+    llm_config = LLMConfig.model_validate(simple_1)
+
+    # with temperature and top_p
+    simple_2 = raw_config.copy()
+    simple_2["configuration"] = {"temperature": 0.5, "top_p": 0.5}
+    llm_config = LLMConfig.model_validate(simple_2)
+    # should be subset of llm_config.to_load_model_kwargs()
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "top_p" not in kwargs
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 0.5
+
+    # test only temperature
+    simple_3 = raw_config.copy()
+    simple_3["configuration"] = {"temperature": 0.5}
+    llm_config = LLMConfig.model_validate(simple_3)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "top_p" not in kwargs
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 0.5
+
+    # test only top_p
+    simple_4 = raw_config.copy()
+    simple_4["configuration"] = {"top_p": 0.5}
+    llm_config = LLMConfig.model_validate(simple_4)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "top_p" in kwargs
+    assert "temperature" not in kwargs
+    assert kwargs["top_p"] == 0.5
+
+    # oap provider
+    simple_5 = simple_2.copy()
+    simple_5["modelProvider"] = "oap"
+    llm_config = LLMConfig.model_validate(simple_5)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "top_p" not in kwargs
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 0.5
+
+    # test general llm config
+    simple_6 = simple_2.copy()
+    simple_6["model"] = "gpt-4o"
+    llm_config = LLMConfig.model_validate(simple_6)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "top_p" in kwargs
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 0.5
+    assert kwargs["top_p"] == 0.5
+
+
+def test_gpt_5_temperature() -> None:
+    """Test the GPT-5 temperature."""
+    raw_config: dict = {
+        "modelProvider": "openai",
+        "model": "gpt-5",
+    }
+
+    simple_1 = raw_config.copy()
+    llm_config = LLMConfig.model_validate(simple_1)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "temperature" not in kwargs
+
+    simple_2 = raw_config.copy()
+    simple_2["configuration"] = {"temperature": 0.5}
+    llm_config = LLMConfig.model_validate(simple_2)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 1
+
+    simple_3 = raw_config.copy()
+    simple_3["configuration"] = {"temperature": 0}
+    llm_config = LLMConfig.model_validate(simple_3)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "temperature" not in kwargs
+
+    # test oap provider
+    simple_4 = simple_2.copy()
+    simple_4["modelProvider"] = "oap"
+    llm_config = LLMConfig.model_validate(simple_4)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 1
+
+    # test general llm config
+    simple_5 = simple_2.copy()
+    simple_5["model"] = "gpt-4o"
+    llm_config = LLMConfig.model_validate(simple_5)
+    kwargs = llm_config.to_load_model_kwargs()
+    assert "temperature" in kwargs
+    assert kwargs["temperature"] == 0.5
