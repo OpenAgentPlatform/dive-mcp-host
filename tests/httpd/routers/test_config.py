@@ -285,7 +285,7 @@ def test_get_model(test_client):
                 "configs": {
                     "dive": {
                         "configuration": {
-                            "temperature": 0.0,
+                            "temperature": None,
                             "topP": None,
                         },
                         "model": "fake",
@@ -369,7 +369,7 @@ def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
                         "modelProvider": "dive",
                         "maxTokens": None,
                         "configuration": {
-                            "temperature": 0.0,
+                            "temperature": None,
                             "topP": None,
                         },
                     },
@@ -456,7 +456,7 @@ def test_post_model_embedding(test_client):
                         "apiKey": None,
                         "configuration": {
                             "baseURL": None,
-                            "temperature": 0.0,
+                            "temperature": None,
                             "topP": None,
                         },
                         "active": True,

@@ -82,7 +82,7 @@ class LLMConfiguration(BaseModel):
 
     base_url: str | None = Field(default=None, alias="baseURL")
     skip_tls_verify: bool | None = Field(default=None)
-    temperature: float | None = Field(default=0)
+    temperature: float | None = Field(default=None)
     top_p: float | None = Field(default=None)
 
     model_config = pydantic_model_config
@@ -149,6 +149,28 @@ class LLMConfig(BaseLLMConfig):
     def dump_api_key(self, v: SecretStr | None) -> str | None:
         """Serialize the api_key field to plain text."""
         return v.get_secret_value() if v else None
+
+    @model_validator(mode="after")
+    def temperature_top_p(self) -> Self:
+        """Update default headers for large tokens."""
+        if (
+            "claude-opus-4-1" in self.model
+            and self.configuration
+            and self.configuration.temperature
+            and self.configuration.top_p
+        ):
+            self.configuration.top_p = None
+
+        if (
+            "gpt-5" in self.model
+            and self.configuration
+            and (temperature := self.configuration.temperature)
+        ):
+            if temperature > 0:
+                self.configuration.temperature = 1
+            else:
+                self.configuration.temperature = None
+        return self
 
 
 class LLMBedrockConfig(BaseLLMConfig):

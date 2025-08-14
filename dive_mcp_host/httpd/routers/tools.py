@@ -124,7 +124,7 @@ async def list_tools(  # noqa: PLR0912, C901
     return ToolsResult(success=True, message=None, tools=list(result.values()))
 
 
-@tools.get("/{server_name}/logs/stream")
+@tools.get("/logs/stream")
 async def stream_server_logs(
     server_name: str,
     stream_until: ClientState | None = None,

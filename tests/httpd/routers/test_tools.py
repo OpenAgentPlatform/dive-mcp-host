@@ -373,7 +373,9 @@ def test_tools_cache_after_update(test_client):
 def test_stream_logs_notfound(test_client: tuple[TestClient, DiveHostAPI]):
     """Test stream_logs function with not found server."""
     client, _ = test_client
-    response = client.get("/api/tools/missing_server/logs/stream")
+    response = client.get(
+        "/api/tools/logs/stream", params={"server_name": "missing_server"}
+    )
     for line in response.iter_lines():
         content = line.removeprefix("data: ")
         if content in ("[DONE]", ""):
@@ -413,8 +415,63 @@ def test_stream_logs_notfound_wait(test_client: tuple[TestClient, DiveHostAPI]):
     with ThreadPoolExecutor(1) as executor:
         executor.submit(update_tools)
         response = client.get(
-            "/api/tools/missing_server/logs/stream",
+            "/api/tools/logs/stream",
             params={
+                "server_name": "missing_server",
+                "stop_on_notfound": False,
+                "max_retries": 5,
+                "stream_until": "running",
+            },
+        )
+        responses: list[LogMsg] = []
+        for line in response.iter_lines():
+            content = line.removeprefix("data: ")
+            if content in ("[DONE]", ""):
+                continue
+
+            data = LogMsg.model_validate_json(content)
+            responses.append(data)
+
+        assert len(responses) >= 3
+        assert responses[-3].event == LogEvent.STREAMING_ERROR
+
+        assert responses[-2].event == LogEvent.STDERR
+        assert responses[-2].client_state == ClientState.INIT
+
+        assert responses[-1].event == LogEvent.STATUS_CHANGE
+        assert responses[-1].client_state == ClientState.RUNNING
+
+
+def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test stream_logs before log buffer is registered."""
+    client, _ = test_client
+
+    def update_tools():
+        _ = client.post(
+            "/api/config/mcpserver",
+            json={
+                "mcpServers": {
+                    "name/with/slash": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    }
+                }
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    with ThreadPoolExecutor(1) as executor:
+        executor.submit(update_tools)
+        response = client.get(
+            "/api/tools/logs/stream",
+            params={
+                "server_name": "name/with/slash",
                 "stop_on_notfound": False,
                 "max_retries": 5,
                 "stream_until": "running",
