@@ -304,11 +304,12 @@ def test_gpt_5_temperature() -> None:
     assert "temperature" not in kwargs
 
     simple_2 = raw_config.copy()
-    simple_2["configuration"] = {"temperature": 0.5}
+    simple_2["configuration"] = {"temperature": 0.5, "top_p": 0.5}
     llm_config = LLMConfig.model_validate(simple_2)
     kwargs = llm_config.to_load_model_kwargs()
     assert "temperature" in kwargs
     assert kwargs["temperature"] == 1
+    assert "top_p" not in kwargs
 
     simple_3 = raw_config.copy()
     simple_3["configuration"] = {"temperature": 0}
@@ -323,6 +324,7 @@ def test_gpt_5_temperature() -> None:
     kwargs = llm_config.to_load_model_kwargs()
     assert "temperature" in kwargs
     assert kwargs["temperature"] == 1
+    assert "top_p" not in kwargs
 
     # test general llm config
     simple_5 = simple_2.copy()
@@ -331,3 +333,5 @@ def test_gpt_5_temperature() -> None:
     kwargs = llm_config.to_load_model_kwargs()
     assert "temperature" in kwargs
     assert kwargs["temperature"] == 0.5
+    assert "top_p" in kwargs
+    assert kwargs["top_p"] == 0.5
