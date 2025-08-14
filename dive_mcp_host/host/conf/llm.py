@@ -161,15 +161,19 @@ class LLMConfig(BaseLLMConfig):
         ):
             self.configuration.top_p = None
 
-        if (
-            "gpt-5" in self.model
-            and self.configuration
-            and (temperature := self.configuration.temperature)
-        ):
-            if temperature > 0:
+        if "gpt-5" in self.model and self.configuration:
+            temperature = self.configuration.temperature
+            top_p = self.configuration.top_p
+
+            if temperature and temperature > 0:
                 self.configuration.temperature = 1
-            else:
+            elif temperature == 0:
                 self.configuration.temperature = None
+
+            # gpt 5 is not supported for top_p
+            if top_p is not None:
+                self.configuration.top_p = None
+
         return self
 
 
