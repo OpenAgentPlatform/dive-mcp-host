@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AnyUrl,

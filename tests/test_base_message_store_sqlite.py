@@ -218,7 +218,7 @@ async def test_get_all_chats(
             role=Role.USER,
             content="Hello, this is a test message",
             files=[],
-            tool_calls=[],
+            toolCalls=[],
         )
     )
     await session.commit()
@@ -325,7 +325,7 @@ async def test_create_message(
         role=Role.USER,
         content="This is a new test message",
         files=[],
-        tool_calls=[],
+        toolCalls=[],
     )
 
     # Create message
@@ -367,7 +367,7 @@ async def test_create_message_with_resource_usage(
         role=Role.ASSISTANT,
         content="This is an assistant message",
         files=[],
-        tool_calls=[],
+        toolCalls=[],
         resource_usage=resource_usage,
     )
 
@@ -744,3 +744,37 @@ async def test_update_message_content_empty_data(
     assert db_message.content == ""
     assert db_message.files == ""
     assert db_message.tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_patch_chat(sqlite_message_store: SQLiteMessageStore):
+    """Test if patch works."""
+    chat = await sqlite_message_store.create_chat(
+        chat_id="dummy_chat_id", title="dummy_title"
+    )
+    assert chat
+    assert chat.id == "dummy_chat_id"
+    assert chat.title == "dummy_title"
+
+    new_chat = await sqlite_message_store.patch_chat(chat_id="does not exist")
+    assert new_chat is None
+
+    new_chat = await sqlite_message_store.patch_chat(chat_id=chat.id)
+    assert new_chat
+    assert new_chat.title == chat.title
+    assert new_chat.starred_at == chat.starred_at
+
+    new_chat = await sqlite_message_store.patch_chat(chat_id=chat.id, title="new_title")
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is None
+
+    new_chat = await sqlite_message_store.patch_chat(chat_id=chat.id, star=True)
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is not None
+
+    new_chat = await sqlite_message_store.patch_chat(chat_id=chat.id, star=False)
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is None

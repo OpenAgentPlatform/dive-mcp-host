@@ -73,7 +73,7 @@ class ModelSettingsProperty(BaseModel):
 class ModelSettingsDefinition(ModelSettingsProperty):
     """Model settings definition with nested properties."""
 
-    type: Literal["string", "number", "object"]
+    type: Literal["string", "number", "object"]  # type: ignore
     properties: dict[str, ModelSettingsProperty] | None = None
 
 

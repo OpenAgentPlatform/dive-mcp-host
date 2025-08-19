@@ -29,6 +29,8 @@ class Chat(BaseModel):
     id: str
     title: str
     created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime | None = Field(alias="updatedAt")
+    starred_at: datetime | None = Field(alias="starredAt")
     user_id: str | None
 
 
