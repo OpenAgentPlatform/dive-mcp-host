@@ -12,6 +12,7 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from dive_mcp_host.host.conf import EmbedConfig
 from dive_mcp_host.host.conf.llm import (
     LLMConfigTypes,
     LLMConfiguration,
@@ -202,15 +203,6 @@ class ModelSingleConfig(BaseModel):
     def dump_api_key(self, v: SecretStr | None) -> str | None:
         """Serialize the api_key field to plain text."""
         return v.get_secret_value() if v else None
-
-
-class EmbedConfig(BaseModel):
-    """Config for embedding model."""
-
-    provider: str | None = None
-    model: str | None = None
-    embed_dims: int | None = None
-    api_key: str | None = None
 
 
 class ModelFullConfigs(BaseModel):
