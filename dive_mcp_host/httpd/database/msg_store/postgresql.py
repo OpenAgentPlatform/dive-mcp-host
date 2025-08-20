@@ -42,13 +42,15 @@ class PostgreSQLMessageStore(BaseMessageStore):
             )
             await self._session.execute(query)
 
+        current_ts = datetime.now(UTC)
         query = (
             insert(ORMChat)
             .values(
                 {
                     "id": chat_id,
                     "title": title,
-                    "created_at": datetime.now(UTC),
+                    "created_at": current_ts,
+                    "updated_at": current_ts,
                     "user_id": user_id,
                 },
             )
@@ -62,5 +64,7 @@ class PostgreSQLMessageStore(BaseMessageStore):
             id=chat.id,
             title=chat.title,
             createdAt=chat.created_at,
+            updatedAt=chat.updated_at,
+            starredAt=chat.starred_at,
             user_id=chat.user_id,
         )

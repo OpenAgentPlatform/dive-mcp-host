@@ -55,6 +55,8 @@ class Chat(Base):
         id: Chat ID.
         title: Chat title.
         created_at: Chat creation timestamp.
+        updated_at: Chat update timestamp.
+        starred_at: Chat star timestamp.
         user_id: User ID or fingerprint, depending on the prefix.
     """
 
@@ -64,6 +66,12 @@ class Chat(Base):
     title: Mapped[str] = mapped_column(Text())
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True).with_variant(Text(), "sqlite"),
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True).with_variant(Text(), "sqlite")
+    )
+    starred_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True).with_variant(Text(), "sqlite")
     )
     user_id: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
