@@ -13,8 +13,8 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.types import StreamMode
 
@@ -66,13 +66,13 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         self._checkpointer = checkpointer
         self._model = model
         self._system_prompt = system_prompt
-        self._agent: CompiledGraph | None = None
+        self._agent: CompiledStateGraph | None = None
         self._agent_factory: AgentFactory[STATE_TYPE] = agent_factory
         self._abort_signal: asyncio.Event | None = None
         self._disable_default_system_prompt = disable_default_system_prompt
 
     @property
-    def active_agent(self) -> CompiledGraph:
+    def active_agent(self) -> CompiledStateGraph:
         """The active agent of the chat."""
         if self._agent is None:
             raise GraphNotCompiledError(self._chat_id)

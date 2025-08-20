@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dive-mcp-host"
-version = "0.2.2"
+version = "0.4.0"
 description = "A MCP host for Dive"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -17,7 +17,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "langchain-anthropic>=0.3.18",
-    "langchain-core>=0.3.72",
+    "langchain-core>=0.3.74",
     "langchain-deepseek>=0.1.4",
     "langchain-google-genai>=2.1.9",
     "langchain-openai>=0.3.28",
@@ -27,8 +27,8 @@ dependencies = [
     "langchain>=0.3.27,<0.4",
     "langgraph-checkpoint-postgres>=2.0.22",
     "langgraph-checkpoint-sqlite>=2.0.11",
-    "langgraph-prebuilt>=0.2.2,<0.5",
-    "langgraph>=0.4.10,<0.5",
+    "langgraph-prebuilt>=0.6.4",
+    "langgraph>=0.6.6",
     "fastapi>=0.116.1",
     "httpx[brotli,http2,socks,zstd]",
     "mcp>=1.12,<1.13",
