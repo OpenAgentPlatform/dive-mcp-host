@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from dive_mcp_host.httpd.database.models import Chat, ChatMessage, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
@@ -28,12 +29,19 @@ class DataResult[T](ResultResponse):
     data: T | None
 
 
+class ChatList(BaseModel):
+    """Result data type for list API."""
+
+    starred: list[Chat] = Field(default_factory=list)
+    normal: list[Chat] = Field(default_factory=list)
+
+
 @chat.get("/list")
 async def list_chat(
     app: DiveHostAPI = Depends(get_app),
     dive_user: "DiveUser" = Depends(get_dive_user),
     sort_by: SortBy = SortBy.CHAT,
-) -> DataResult[list[Chat]]:
+) -> DataResult[ChatList]:
     """List all available chats.
 
     Args:
@@ -45,14 +53,21 @@ async def list_chat(
             default: 'chat'
 
     Returns:
-        DataResult[list[Chat]]: List of available chats.
+        DataResult[ChatList]: List of starred and normal chats.
     """
+    result = ChatList()
     async with app.db_sessionmaker() as session:
         chats = await app.msg_store(session).get_all_chats(
             dive_user["user_id"],
             sort_by=sort_by,
         )
-    return DataResult(success=True, message=None, data=chats)
+        for chat in chats:
+            if chat.starred_at:
+                result.starred.append(chat)
+                continue
+            result.normal.append(chat)
+
+    return DataResult(success=True, message=None, data=result)
 
 
 @chat.post("")
@@ -93,6 +108,37 @@ async def create_chat(  # noqa: PLR0913
 
     stream.add_task(process)
     return response
+
+
+@chat.patch("/{chat_id}")
+async def patch_chat(
+    chat_id: str,
+    dive_user: "DiveUser" = Depends(get_dive_user),
+    app: DiveHostAPI = Depends(get_app),
+    title: Annotated[str | None, Body()] = None,
+    star: Annotated[bool | None, Body()] = None,
+) -> ResultResponse:
+    """Edit chat title.
+
+    Args:
+        chat_id (str): The ID of the chat to edit.
+        title (str | None): The new title for this chat if provided.
+        star (bool | None): New star status for this chat if provided.
+        dive_user: DiveUser: The current Dive user.
+        app (DiveHostAPI): The DiveHostAPI instance.
+    """
+    async with app.db_sessionmaker() as session:
+        chat = await app.msg_store(session).patch_chat(
+            chat_id=chat_id,
+            user_id=dive_user["user_id"],
+            title=title,
+            star=star,
+        )
+        if chat is None:
+            raise UserInputError(f"Chat {chat_id} not found")
+        await session.commit()
+
+    return ResultResponse(success=True)
 
 
 # Frontend sets the message id to "0" when calling edit API

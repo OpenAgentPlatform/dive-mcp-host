@@ -603,3 +603,39 @@ async def test_create_chat_duplicate(
     result = await session.scalar(query)
     assert result is not None
     assert result.title == title  # Title should not be updated
+
+
+@pytest.mark.asyncio
+async def test_patch_chat(postgresql_message_store: PostgreSQLMessageStore):
+    """Test if patch works."""
+    chat = await postgresql_message_store.create_chat(
+        chat_id="dummy_chat_id", title="dummy_title"
+    )
+    assert chat
+    assert chat.id == "dummy_chat_id"
+    assert chat.title == "dummy_title"
+
+    new_chat = await postgresql_message_store.patch_chat(chat_id="does not exist")
+    assert new_chat is None
+
+    new_chat = await postgresql_message_store.patch_chat(chat_id=chat.id)
+    assert new_chat
+    assert new_chat.title == chat.title
+    assert new_chat.starred_at == chat.starred_at
+
+    new_chat = await postgresql_message_store.patch_chat(
+        chat_id=chat.id, title="new_title"
+    )
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is None
+
+    new_chat = await postgresql_message_store.patch_chat(chat_id=chat.id, star=True)
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is not None
+
+    new_chat = await postgresql_message_store.patch_chat(chat_id=chat.id, star=False)
+    assert new_chat
+    assert new_chat.title == "new_title"
+    assert new_chat.starred_at is None

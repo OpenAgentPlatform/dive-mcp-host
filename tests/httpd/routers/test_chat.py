@@ -63,18 +63,20 @@ def test_list_chat_with_sort_by(test_client: tuple[TestClient, DiveHostAPI]):
         response_data,
         {
             "success": True,
-            "data": [
-                {
-                    "id": test_chat_id_2,
-                    "title": "I am a fake model.",
-                    "user_id": None,
-                },
-                {
-                    "id": TEST_CHAT_ID,
-                    "title": "I am a fake model.",
-                    "user_id": None,
-                },
-            ],
+            "data": {
+                "normal": [
+                    {
+                        "id": test_chat_id_2,
+                        "title": "I am a fake model.",
+                        "user_id": None,
+                    },
+                    {
+                        "id": TEST_CHAT_ID,
+                        "title": "I am a fake model.",
+                        "user_id": None,
+                    },
+                ]
+            },
         },
     )
 
@@ -86,18 +88,20 @@ def test_list_chat_with_sort_by(test_client: tuple[TestClient, DiveHostAPI]):
         response_data,
         {
             "success": True,
-            "data": [
-                {
-                    "id": TEST_CHAT_ID,
-                    "title": "I am a fake model.",
-                    "user_id": None,
-                },
-                {
-                    "id": test_chat_id_2,
-                    "title": "I am a fake model.",
-                    "user_id": None,
-                },
-            ],
+            "data": {
+                "normal": [
+                    {
+                        "id": TEST_CHAT_ID,
+                        "title": "I am a fake model.",
+                        "user_id": None,
+                    },
+                    {
+                        "id": test_chat_id_2,
+                        "title": "I am a fake model.",
+                        "user_id": None,
+                    },
+                ]
+            },
         },
     )
 
@@ -116,13 +120,15 @@ def test_list_chat(test_client):
         response_data,
         {
             "success": True,
-            "data": [
-                {
-                    "id": TEST_CHAT_ID,
-                    "title": "I am a fake model.",
-                    "user_id": None,
-                }
-            ],
+            "data": {
+                "normal": [
+                    {
+                        "id": TEST_CHAT_ID,
+                        "title": "I am a fake model.",
+                        "user_id": None,
+                    }
+                ]
+            },
         },
     )
 
@@ -651,6 +657,115 @@ def test_retry_chat_missing_params(test_client):
     body = response.json()
     # Verify the exception message
     assert "Chat ID and Message ID are required" in body.get("message")
+
+
+def test_patch_chat(test_client):
+    """Test the /api/chat/{chat_id} PATCH endpoint."""
+    client, app = test_client
+
+    # Create a test chat first
+    test_chat_id = str(uuid.uuid4())
+    response = client.post(
+        "/api/chat",
+        data={"message": "Test message for patch", "chatId": test_chat_id},
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Test updating title
+    new_title = "Updated Chat Title"
+    response = client.patch(
+        f"/api/chat/{test_chat_id}",
+        json={"title": new_title},
+    )
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+
+    # Verify the title was updated
+    response = client.get(f"/api/chat/{test_chat_id}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["data"]["chat"]["title"] == new_title
+
+    # Test updating star status
+    response = client.patch(
+        f"/api/chat/{test_chat_id}",
+        json={"star": True},
+    )
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+
+    # Verify the star status was updated
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "data": {
+                "starred": [
+                    {
+                        "title": "Updated Chat Title",
+                    }
+                ],
+                "normal": [
+                    {
+                        "title": "I am a fake model.",
+                    },
+                ],
+            },
+        },
+    )
+
+    # Test updating both title and star status
+    final_title = "Final Updated Title"
+    response = client.patch(
+        f"/api/chat/{test_chat_id}",
+        json={"title": final_title, "star": False},
+    )
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+
+    # Check that both is applied
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    helper.dict_subset(
+        response_data,
+        {
+            "success": True,
+            "message": None,
+            "data": {
+                "starred": [],
+                "normal": [
+                    {
+                        "title": final_title,
+                    },
+                    {
+                        "title": "I am a fake model.",
+                    },
+                ],
+            },
+        },
+    )
+
+
+def test_patch_chat_nonexistent(test_client):
+    """Test the /api/chat/{chat_id} PATCH endpoint with non-existent chat."""
+    client, app = test_client
+
+    # Try to patch a non-existent chat
+    nonexistent_chat_id = str(uuid.uuid4())
+    response = client.patch(
+        f"/api/chat/{nonexistent_chat_id}",
+        json={"title": "New Title"},
+    )
+
+    assert response.status_code == BAD_REQUEST_CODE
 
 
 def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0912, PLR0915

@@ -56,6 +56,8 @@ class BaseMessageStore(AbstractMessageStore):
                 - 'msg': Sort by message creation time.
                 default: 'chat'
 
+        Starred chat will always be at top.
+
         Returns:
             List of Chat objects.
         """
@@ -75,6 +77,7 @@ class BaseMessageStore(AbstractMessageStore):
                     ORMChat.user_id,
                 )
                 .where(ORMChat.user_id == user_id)
+                .order_by(desc(ORMChat.starred_at))
                 .order_by(desc("last_message_at"))
             )
             result = await self._session.execute(query)
@@ -84,6 +87,7 @@ class BaseMessageStore(AbstractMessageStore):
             query = (
                 select(ORMChat)
                 .where(ORMChat.user_id == user_id)
+                .order_by(desc(ORMChat.starred_at))
                 .order_by(desc(ORMChat.created_at))
             )
             result = await self._session.scalars(query)
@@ -98,9 +102,55 @@ class BaseMessageStore(AbstractMessageStore):
                 title=chat.title,
                 createdAt=chat.created_at,
                 user_id=chat.user_id,
+                updatedAt=chat.updated_at,
+                starredAt=chat.starred_at,
             )
             for chat in chats
         ]
+
+    async def patch_chat(
+        self,
+        chat_id: str,
+        user_id: str | None = None,
+        title: str | None = None,
+        star: bool | None = None,
+    ) -> Chat | None:
+        """Patch chat.
+
+        Args:
+            chat_id: Unique identifier for the chat.
+            user_id: User ID or fingerprint, depending on the prefix.
+            title: New title for the chat.
+            star: Star the chat.
+
+        Returns:
+            The updated chat, or None if chat is not found.
+        """
+        query = update(ORMChat).where(ORMChat.user_id == user_id, ORMChat.id == chat_id)
+
+        current_ts = datetime.now(UTC)
+        query = query.values(updated_at=current_ts)
+        if star is True:
+            query = query.values(starred_at=current_ts)
+        elif star is False:
+            query = query.values(starred_at=None)
+        if title is not None:
+            query = query.values(title=title)
+
+        query = query.returning(ORMChat)
+
+        result: ORMChat | None = await self._session.scalar(query)
+        if not result:
+            return None
+
+        return Chat(
+            id=result.id,
+            title=result.title,
+            createdAt=result.created_at,
+            updatedAt=result.updated_at,
+            starredAt=result.starred_at,
+            user_id=result.user_id,
+        )
 
     async def get_chat_with_messages(
         self,
@@ -133,6 +183,8 @@ class BaseMessageStore(AbstractMessageStore):
             id=data.id,
             title=data.title,
             createdAt=data.created_at,
+            updatedAt=data.updated_at,
+            starredAt=data.starred_at,
             user_id=data.user_id,
         )
         messages: list[Message] = []
@@ -154,7 +206,7 @@ class BaseMessageStore(AbstractMessageStore):
                     chatId=msg.chat_id,
                     messageId=msg.message_id,
                     files=json.loads(msg.files) if msg.files else [],
-                    tool_calls=msg.tool_calls or [],
+                    toolCalls=msg.tool_calls or [],
                     resource_usage=resource_usage,
                 ),
             )
@@ -246,7 +298,7 @@ class BaseMessageStore(AbstractMessageStore):
             chatId=new_msg.chat_id,
             messageId=new_msg.message_id,
             files=json.loads(new_msg.files),
-            tool_calls=new_msg.tool_calls or [],
+            toolCalls=new_msg.tool_calls or [],
             resource_usage=resource_usage,
         )
 
@@ -394,7 +446,7 @@ class BaseMessageStore(AbstractMessageStore):
             chatId=updated_message.chat_id,
             messageId=updated_message.message_id,
             files=json.loads(updated_message.files) if updated_message.files else [],
-            tool_calls=updated_message.tool_calls or [],
+            toolCalls=updated_message.tool_calls or [],
             resource_usage=resource_usage,
         )
 
@@ -454,6 +506,6 @@ class BaseMessageStore(AbstractMessageStore):
             chatId=message.chat_id,
             messageId=message.message_id,
             files=json.loads(message.files) if message.files else [],
-            tool_calls=message.tool_calls or [],
+            toolCalls=message.tool_calls or [],
             resource_usage=resource_usage,
         )

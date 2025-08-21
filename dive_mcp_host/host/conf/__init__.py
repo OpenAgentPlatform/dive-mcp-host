@@ -13,7 +13,6 @@ from pydantic import (
 )
 
 from dive_mcp_host.host.conf.llm import LLMConfigTypes
-from dive_mcp_host.httpd.routers.models import EmbedConfig
 
 
 class CheckpointerConfig(BaseModel):
@@ -78,6 +77,15 @@ class LogConfig(BaseModel):
     log_dir: Path = Field(default_factory=lambda: Path.cwd() / "logs")
     rotation_files: int = 5
     buffer_length: int = 1000
+
+
+class EmbedConfig(BaseModel):
+    """Config for embedding model."""
+
+    provider: str | None = None
+    model: str | None = None
+    embed_dims: int | None = None
+    api_key: str | None = None
 
 
 class HostConfig(BaseModel):
