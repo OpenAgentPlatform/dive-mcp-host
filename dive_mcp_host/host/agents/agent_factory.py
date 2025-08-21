@@ -5,8 +5,8 @@ from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver, V
-from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 
 from dive_mcp_host.host.prompt import PromptType
@@ -37,7 +37,7 @@ class AgentFactory[T: MessagesState](Protocol):
         checkpointer: BaseCheckpointSaver[V] | None = None,
         store: BaseStore | None = None,
         debug: bool = False,
-    ) -> CompiledGraph:
+    ) -> CompiledStateGraph:
         """Create an agent.
 
         Args:
