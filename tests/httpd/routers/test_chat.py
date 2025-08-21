@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from fastapi import status
 from fastapi.testclient import TestClient
-from langchain_core.messages import AIMessage, AIMessageChunk
+from langchain_core.messages import AIMessage, AIMessageChunk, ToolCall
 
 from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
@@ -1170,3 +1170,42 @@ def test_chat_error(test_client, monkeypatch):
 
     assert has_chat_info
     assert has_error
+
+
+def test_chat_with_tool_progress(
+    test_client: tuple[TestClient, DiveHostAPI], monkeypatch
+):
+    """I can get the progress message."""
+    client, app = test_client
+
+    fake_responses = [
+        AIMessage(
+            content="msg 1",
+            tool_calls=[
+                ToolCall(
+                    name="echo",
+                    args={"message": "Hello, world!", "delay_ms": 100},
+                    id="123",
+                    type="tool_call",
+                ),
+            ],
+        ),
+        AIMessage(
+            content="msg 2",
+        ),
+    ]
+    model = cast(FakeMessageToolModel, app.dive_host["default"].model)
+    model.responses = fake_responses
+
+    response = client.post(
+        "/api/chat", data={"chatId": TEST_CHAT_ID, "message": "Calculate 2+2"}
+    )
+
+    has_progress = False
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj["message"]:
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "tool_call_progress":
+                has_progress = True
+
+    assert has_progress

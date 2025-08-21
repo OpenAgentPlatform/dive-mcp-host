@@ -30,6 +30,7 @@ from dive_mcp_host.host.agents.file_in_additional_kwargs import (
     OAP_MIN_COUNT,
 )
 from dive_mcp_host.host.agents.message_order import FAKE_TOOL_RESPONSE
+from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import LogBufferNotFoundError
 from dive_mcp_host.host.store.base import FileType
 from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
@@ -476,7 +477,7 @@ class ChatProcessor:
             await stack.enter_async_context(chat)
             response_generator = chat.query(
                 messages,
-                stream_mode=["messages", "values", "updates"],
+                stream_mode=["messages", "values", "updates", "custom"],
                 is_resend=is_resend,
             )
             return await self._handle_response(response_generator)
@@ -573,6 +574,14 @@ class ChatProcessor:
                                 msg.model_dump_json(),
                             )
                             await self._stream_tool_calls_msg(msg)
+            elif res_type == "custom":
+                if res_content[0] == ToolCallProgress.NAME:
+                    await self.stream.write(
+                        StreamMessage(
+                            type="tool_call_progress",
+                            content=res_content[1],
+                        )
+                    )
 
         # Find the most recent user and AI messages from newest to oldest
         user_message = next(

@@ -54,7 +54,6 @@ def config_files() -> Generator[ConfigFileNames, None, None]:
             ServiceConfig(
                 db=DBConfig(
                     uri=f"sqlite:///{db_file.name}",
-                    async_uri=f"sqlite+aiosqlite:///{db_file.name}",
                 ),
                 checkpointer=CheckpointerConfig(
                     uri=AnyUrl(f"sqlite:///{db_file.name}"),
