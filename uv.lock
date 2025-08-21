@@ -460,7 +460,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.22" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=2.0.11" },
     { name = "langgraph-prebuilt", specifier = ">=0.6.4" },
-    { name = "mcp", specifier = ">=1.12,<1.13" },
+    { name = "mcp", specifier = ">=1.13" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pproxy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
@@ -1307,7 +1307,7 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.12.3"
+version = "1.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1322,9 +1322,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4d/19/9955e2df5384ff5dd25d38f8e88aaf89d2d3d9d39f27e7383eaf0b293836/mcp-1.12.3.tar.gz", hash = "sha256:ab2e05f5e5c13e1dc90a4a9ef23ac500a6121362a564447855ef0ab643a99fed", size = 427203, upload-time = "2025-07-31T18:36:36.795Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/a8/564c094de5d6199f727f5d9f5672dbec3b00dfafd0f67bf52d995eaa5951/mcp-1.13.0.tar.gz", hash = "sha256:70452f56f74662a94eb72ac5feb93997b35995e389b3a3a574e078bed2aa9ab3", size = 434709, upload-time = "2025-08-14T15:03:58.58Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8f/8b/0be74e3308a486f1d127f3f6767de5f9f76454c9b4183210c61cc50999b6/mcp-1.12.3-py3-none-any.whl", hash = "sha256:5483345bf39033b858920a5b6348a303acacf45b23936972160ff152107b850e", size = 158810, upload-time = "2025-07-31T18:36:34.915Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/6b/46b8bcefc2ee9e2d2e8d2bd25f1c2512f5a879fac4619d716b194d6e7ccc/mcp-1.13.0-py3-none-any.whl", hash = "sha256:8b1a002ebe6e17e894ec74d1943cc09aa9d23cb931bf58d49ab2e9fa6bb17e4b", size = 160226, upload-time = "2025-08-14T15:03:56.641Z" },
 ]
 
 [[package]]

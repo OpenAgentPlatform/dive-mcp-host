@@ -18,6 +18,7 @@ from dive_mcp_host.host.conf.llm import (
     LLMConfiguration,
     get_llm_config_type,
 )
+from dive_mcp_host.host.custom_events import ToolCallProgress
 
 T = TypeVar("T")
 
@@ -140,7 +141,13 @@ class StreamMessage(BaseModel):
     """Stream message."""
 
     type: Literal[
-        "text", "tool_calls", "tool_result", "error", "chat_info", "message_info"
+        "text",
+        "tool_calls",
+        "tool_call_progress",
+        "tool_result",
+        "error",
+        "chat_info",
+        "message_info",
     ]
     content: (
         str
@@ -148,6 +155,7 @@ class StreamMessage(BaseModel):
         | ToolResultContent
         | ChatInfoContent
         | MessageInfoContent
+        | ToolCallProgress
     )
 
 

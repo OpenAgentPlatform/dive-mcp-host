@@ -974,22 +974,39 @@ class McpTool(BaseTool):
         **kwargs: dict[str, Any],
     ) -> str:
         """Run the tool."""
+        custom_event_queue = asyncio.Queue()
+
+        async def _stream_writer_bridge() -> None:
+            """Stream writer."""
+            stream_writer = get_stream_writer()
+            while True:
+                a = await custom_event_queue.get()
+                if a is None:
+                    return
+                try:
+                    stream_writer(a)
+                except Exception as e:
+                    logger.exception("stream_writer error %s", e)
+                    return
 
         async def progress_callback(
             progress: float, total: float | None, message: str | None
         ) -> None:
             """Progress callback."""
-            get_stream_writer()(
-                (
-                    ToolCallProgress.NAME,
-                    ToolCallProgress(
-                        progress=progress,
-                        total=total,
-                        message=message,
-                        tool_call_id=tool_call_id,
-                    ),
+            try:
+                await custom_event_queue.put(
+                    (
+                        ToolCallProgress.NAME,
+                        ToolCallProgress(
+                            progress=progress,
+                            total=total,
+                            message=message,
+                            tool_call_id=tool_call_id,
+                        ),
+                    )
                 )
-            )
+            except Exception as e:
+                logger.exception("progress_callback error %s", e)
 
         tool_call_id = _config.get("metadata", {}).get("tool_call_id", "")
         chat_id = _config.get("configurable", {}).get(
@@ -1006,11 +1023,19 @@ class McpTool(BaseTool):
             "Executing tool %s.%s with args: %s", self.toolkit_name, self.name, kwargs
         )
         async with self.mcp_server.session(chat_id) as session:
-            result = await session.call_tool(
-                self.name,
-                arguments=kwargs,
-                progress_callback=progress_callback,
+            stream_writer_task = asyncio.create_task(
+                _stream_writer_bridge(), name=f"stream_writer-{self.name}"
             )
+            try:
+                result = await session.call_tool(
+                    self.name,
+                    arguments=kwargs,
+                    progress_callback=progress_callback,
+                )
+            finally:
+                with suppress(Exception):
+                    custom_event_queue.put_nowait(None)
+                await stream_writer_task
         content = to_json(result.content).decode()
         if result.isError:
             logger.error(
