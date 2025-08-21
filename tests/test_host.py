@@ -514,6 +514,59 @@ async def test_thread_query_error_with_state(sqlite_uri: str) -> None:
 
 
 @pytest.mark.asyncio
+async def test_custom_event_streamable(
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+) -> None:
+    """Test the custom event."""
+    async with (
+        echo_tool_streamable_server as (_, configs),
+        DiveMcpHost(
+            HostConfig(
+                llm=LLMConfig(
+                    model="fake",
+                    model_provider="dive",
+                ),
+                mcp_servers=configs,
+            )
+        ) as mcp_host,
+    ):
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat()
+        model = cast("FakeMessageToolModel", mcp_host.model)
+        model.responses = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 1000},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(
+                content="Bye",
+            ),
+        ]
+        done = False
+        async with chat:
+            async for i in chat.query(
+                HumanMessage(content="Hello, world!"),
+                stream_mode=["custom", "messages"],
+            ):
+                i = cast(tuple[str, Any], i)
+                if i[0] == "custom":
+                    assert isinstance(i[1], tuple)
+                    assert i[1][0] == "tool_call_progress"
+                    assert isinstance(i[1][1], ToolCallProgress)
+                    done = True
+        assert done
+
+
+@pytest.mark.asyncio
 async def test_custom_event(
     echo_tool_sse_server: AbstractAsyncContextManager[
         tuple[int, dict[str, ServerConfig]]
