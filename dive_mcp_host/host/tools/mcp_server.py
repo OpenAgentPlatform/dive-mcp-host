@@ -952,6 +952,27 @@ class McpServer(ContextProtocol):
         )
 
 
+async def _stream_writer_bridge(custom_event_queue: asyncio.Queue) -> None:
+    """Stream writer."""
+    # XXX: the stream writer sometimes is not available, so we need to handle the error.
+    try:
+        stream_writer = get_stream_writer()
+    except Exception:  # noqa: BLE001
+        logger.debug("get_stream_writer error", exc_info=True)
+        stream_writer = None
+
+    while True:
+        a = await custom_event_queue.get()
+        if a is None:
+            return
+        if stream_writer:
+            try:
+                stream_writer(a)
+            except Exception as e:
+                logger.exception("stream_writer error %s", e)
+                stream_writer = None
+
+
 class McpTool(BaseTool):
     """A tool for the MCP."""
 
@@ -975,19 +996,6 @@ class McpTool(BaseTool):
     ) -> str:
         """Run the tool."""
         custom_event_queue = asyncio.Queue()
-
-        async def _stream_writer_bridge() -> None:
-            """Stream writer."""
-            stream_writer = get_stream_writer()
-            while True:
-                a = await custom_event_queue.get()
-                if a is None:
-                    return
-                try:
-                    stream_writer(a)
-                except Exception as e:
-                    logger.exception("stream_writer error %s", e)
-                    return
 
         async def progress_callback(
             progress: float, total: float | None, message: str | None
@@ -1024,7 +1032,8 @@ class McpTool(BaseTool):
         )
         async with self.mcp_server.session(chat_id) as session:
             stream_writer_task = asyncio.create_task(
-                _stream_writer_bridge(), name=f"stream_writer-{self.name}"
+                _stream_writer_bridge(custom_event_queue),
+                name=f"stream_writer-{self.name}",
             )
             try:
                 result = await session.call_tool(
