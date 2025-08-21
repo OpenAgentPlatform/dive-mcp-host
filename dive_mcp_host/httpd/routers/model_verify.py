@@ -10,7 +10,6 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import AIMessage, ToolMessage
-from langgraph.pregel.io import AddableUpdatesDict
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
@@ -341,7 +340,7 @@ class ModelVerifyService:
                     "Use tool to check the weather of Taipei",
                     stream_mode=["updates"],
                 ):
-                    if isinstance(data, AddableUpdatesDict):
+                    if isinstance(data, dict):
                         for _, v in data.items():
                             for msg in v.get("messages", []):
                                 if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -379,7 +378,7 @@ class ModelVerifyService:
                     "Use tool to check the weather of Taipei",
                     stream_mode=["updates"],
                 ):
-                    if isinstance(data, AddableUpdatesDict):
+                    if isinstance(data, dict):
                         for _, v in data.items():
                             for msg in v.get("messages", []):
                                 if isinstance(msg, AIMessage) and msg.tool_calls:

@@ -14,7 +14,7 @@ import uuid
 from logging import getLogger
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolCall, ToolMessage
-from langgraph.utils.runnable import RunnableCallable
+from langgraph.utils.runnable import RunnableCallable  # type: ignore
 
 logger = getLogger(__name__)
 

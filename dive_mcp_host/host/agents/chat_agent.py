@@ -23,12 +23,12 @@ from langchain_core.runnables import Runnable, RunnableConfig, RunnablePassthrou
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver, V
 from langgraph.graph import END, StateGraph
-from langgraph.graph.graph import CompiledGraph
 from langgraph.graph.message import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 from langgraph.managed import IsLastStep, RemainingSteps
 from langgraph.prebuilt.tool_node import ToolNode
 from langgraph.store.base import BaseStore
-from langgraph.utils.runnable import RunnableCallable
+from langgraph.utils.runnable import RunnableCallable  # type: ignore
 from pydantic import BaseModel
 
 from dive_mcp_host.host.agents.agent_factory import AgentFactory, initial_messages
@@ -345,7 +345,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         checkpointer: BaseCheckpointSaver[V] | None = None,
         store: BaseStore | None = None,
         debug: bool = False,
-    ) -> CompiledGraph:
+    ) -> CompiledStateGraph:
         """Create a react agent."""
         self._prompt = get_prompt_runnable(prompt)
         if self._graph is None:
