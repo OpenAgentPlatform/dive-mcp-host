@@ -6,7 +6,12 @@ import asyncio
 import os
 import sys
 import time
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
+from contextlib import (
+    AbstractAsyncContextManager,
+    AsyncExitStack,
+    asynccontextmanager,
+    suppress,
+)
 from datetime import timedelta
 from json import JSONDecodeError
 from json import loads as json_loads
@@ -22,6 +27,7 @@ from langchain_core.runnables import (
 from langchain_core.tools import BaseTool, ToolException
 from langgraph.config import get_stream_writer
 from mcp import McpError, StdioServerParameters, types
+from mcp.client.auth import OAuthFlowError
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.websocket import websocket_client
@@ -29,7 +35,10 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
 
 from dive_mcp_host.host.agents.agent_factory import ConfigurableKey
-from dive_mcp_host.host.custom_events import ToolCallProgress
+from dive_mcp_host.host.custom_events import (
+    ToolAuthenticationRequired,
+    ToolCallProgress,
+)
 from dive_mcp_host.host.errors import (
     InvalidMcpServerError,
     McpSessionClosedOrFailedError,
@@ -48,13 +57,14 @@ from dive_mcp_host.host.tools.model_types import ChatID, ClientState
 from dive_mcp_host.host.tools.server_session_store import ServerSessionStore
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable
+    from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from mcp.shared.message import SessionMessage
     from mcp.shared.session import RequestResponder
 
     from dive_mcp_host.host.conf import ServerConfig
+    from dive_mcp_host.host.tools.oauth import OAuthManager
 
     type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
     type WriteStreamType = MemoryObjectSendStream[SessionMessage]
@@ -120,6 +130,7 @@ class McpServer(ContextProtocol):
         self,
         name: str,
         config: ServerConfig,
+        auth_manager: OAuthManager,
         log_buffer_length: int = 1000,
     ) -> None:
         """Initialize the McpToolKit.
@@ -128,11 +139,11 @@ class McpServer(ContextProtocol):
             name: The name of the MCP server.
             config: The configuration of the MCP server.
             log_buffer_length: The length of the log buffer.
-            proxy: The proxy to use for the MCP server.
-                   This proxy overrides the proxy in the config.
+            auth_manager: The OAuth manager to use for the MCP server.
         """
         self.name = name
         self.config = config
+        self._auth_manager: OAuthManager = auth_manager
         self._log_buffer = LogBuffer(name=name, size=log_buffer_length)
         self._stderr_log_proxy = LogProxy(
             callback=self._log_buffer.push_stderr,
@@ -291,7 +302,9 @@ class McpServer(ContextProtocol):
         return []
 
     def session(
-        self, chat_id: str = "default"
+        self,
+        chat_id: str = "default",
+        auth_handler: Callable[[str], Awaitable[None]] | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -300,7 +313,7 @@ class McpServer(ContextProtocol):
         Returns:
             The context manager for the session.
         """
-        return self._return_session(chat_id)
+        return self._return_session(chat_id, auth_handler)
 
     async def wait(self, states: list[ClientState]) -> bool:
         """Wait until the client is in the given state or in the failed or closed state.
@@ -663,7 +676,9 @@ class McpServer(ContextProtocol):
         raise McpSessionNotInitializedError(self.name)
 
     def _stdio_session(
-        self, chat_id: ChatID
+        self,
+        chat_id: ChatID,
+        auth_handler: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -690,6 +705,7 @@ class McpServer(ContextProtocol):
         self,
         timeout: float = 30,
         sse_read_timeout: float = 60 * 5,
+        auth: httpx.Auth | None = None,
     ) -> AbstractAsyncContextManager[
         tuple[ReadStreamType, WriteStreamType]
         | tuple[
@@ -720,6 +736,7 @@ class McpServer(ContextProtocol):
                 timeout=timedelta(seconds=timeout),
                 httpx_client_factory=self._httpx_client_factory,
                 sse_read_timeout=timedelta(seconds=sse_read_timeout),
+                auth=auth,
             )
         if self.config.transport == "websocket":
             return websocket_client(
@@ -731,19 +748,31 @@ class McpServer(ContextProtocol):
 
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
-        async with (
-            self._http_get_client(
-                sse_read_timeout=self.config.initial_timeout,
-                timeout=self.config.initial_timeout,
-            ) as streams,
-            ClientSession(
-                *[streams[0], streams[1]], message_handler=self._message_handler
-            ) as session,
-        ):
+        async with AsyncExitStack() as stack:
+            assert self.config.url
+            auth = await stack.enter_async_context(
+                self.auth_manager.with_client(
+                    self.name,
+                    server_url=self.config.url,
+                )
+            )
+            streams = await stack.enter_async_context(
+                self._http_get_client(
+                    sse_read_timeout=self.config.initial_timeout,
+                    timeout=self.config.initial_timeout,
+                    auth=auth,
+                )
+            )
+            session = await stack.enter_async_context(
+                ClientSession(
+                    *[streams[0], streams[1]], message_handler=self._message_handler
+                )
+            )
             await self._init_tool_info(session)
 
     async def _http_setup(self) -> None:
         """Setup the http client."""
+        unauthenticated = False
         try:
             await self._http_init_client()
             async with self._cond:
@@ -754,7 +783,6 @@ class McpServer(ContextProtocol):
             httpx.ConnectError,
             httpx.TooManyRedirects,
             httpx.ConnectTimeout,
-            httpx.HTTPStatusError,
         ) as eg:
             logger.error("http setup error %s", eg.exceptions)
             self._exception = McpSessionGroupError(
@@ -762,26 +790,45 @@ class McpServer(ContextProtocol):
                 eg.exceptions,
             )
 
+        except* httpx.HTTPStatusError as eg:
+            err_msg = f"Client http error for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(err_msg, eg.exceptions)
+            for e in eg.exceptions:
+                logger.error("http setup error %s", e)
+                if isinstance(e, httpx.HTTPStatusError):
+                    if e.response.status_code == httpx.codes.UNAUTHORIZED:
+                        unauthenticated = True
+
         except* (
             McpError,
             httpx.InvalidURL,
+            OAuthFlowError,
             Exception,
             ValidationError,
         ) as eg:
             err_msg = f"Client initialization error for {self.name}: {eg.exceptions}"
+            if any(isinstance(e, OAuthFlowError) for e in eg.exceptions):
+                unauthenticated = True
             logger.exception(err_msg)
             self._exception = McpSessionGroupError(err_msg, eg.exceptions)
 
         async with self._cond:
             logger.error("http setup failed %s", self._exception)
-            await self.__change_state(ClientState.FAILED, None, self._exception)
+            await self.__change_state(
+                ClientState.UNAUTHORIZED if unauthenticated else ClientState.FAILED,
+                None,
+                self._exception,
+            )
 
     async def _http_teardown(self) -> None:
         """Teardown the http client. Do nothing."""
         logger.debug("http teardown")
 
     def _http_session(
-        self, chat_id: ChatID
+        self,
+        chat_id: ChatID,
+        auth_handler: Callable[[str], Awaitable[None]] | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -795,12 +842,25 @@ class McpServer(ContextProtocol):
         async def _create() -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
-                async with (
-                    self._http_get_client() as streams,
-                    ClientSession(
-                        *[streams[0], streams[1]], message_handler=self._message_handler
-                    ) as session,
-                ):
+                async with AsyncExitStack() as stack:
+                    assert self.config.url
+                    auth = await stack.enter_async_context(
+                        self.auth_manager.with_client(
+                            self.name,
+                            auth_callback=auth_handler,
+                            server_url=self.config.url,
+                            wait_auth=True,
+                        )
+                    )
+                    streams = await stack.enter_async_context(
+                        self._http_get_client(auth=auth)
+                    )
+                    session = await stack.enter_async_context(
+                        ClientSession(
+                            *[streams[0], streams[1]],
+                            message_handler=self._message_handler,
+                        )
+                    )
                     await session.initialize()
                     yield session
             except Exception:
@@ -901,7 +961,9 @@ class McpServer(ContextProtocol):
                     await self._server_task
 
     def _local_http_session(
-        self, chat_id: str
+        self,
+        chat_id: str,
+        auth_handler: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -933,6 +995,30 @@ class McpServer(ContextProtocol):
             lambda e: isinstance(e, httpx.ConnectError),
         )
 
+    @property
+    def auth_manager(self) -> OAuthManager:
+        """Get the auth manager."""
+        return self._auth_manager
+
+    async def create_oauth_authorization(self) -> str:
+        """Authorize the OAuth client."""
+        if self.config.transport != "streamable":
+            raise RuntimeError("Only streamable transport is supported for oauth")
+
+        if self.auth_manager is None:
+            raise RuntimeError("OAuth manager is not initialized")
+
+        assert self.config.url
+        return await self.auth_manager.authorization_task(
+            self.name,
+            self._http_get_client,
+            {
+                "sse_read_timeout": self.config.initial_timeout,
+                "timeout": self.config.initial_timeout,
+            },
+            self.config.url,
+        )
+
 
 async def _stream_writer_bridge(custom_event_queue: asyncio.Queue) -> None:
     """Stream writer."""
@@ -945,6 +1031,7 @@ async def _stream_writer_bridge(custom_event_queue: asyncio.Queue) -> None:
 
     while True:
         a = await custom_event_queue.get()
+        logger.debug("custom_event_queue: %s", a)
         if a is None:
             return
         if stream_writer:
@@ -998,6 +1085,16 @@ class McpTool(BaseTool):
             except Exception as e:
                 logger.exception("progress_callback error %s", e)
 
+        async def auth_callback(auth_url: str) -> None:
+            """Auth callback."""
+            logger.info("auth_callback: %s", auth_url)
+            await custom_event_queue.put(
+                (
+                    ToolAuthenticationRequired.NAME,
+                    ToolAuthenticationRequired(auth_url=auth_url),
+                )
+            )
+
         tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
         chat_id = config.get("configurable", {}).get(
             ConfigurableKey.THREAD_ID, "default"
@@ -1023,34 +1120,39 @@ class McpTool(BaseTool):
 
         abort_task = None
 
-        async with self.mcp_server.session(chat_id) as session:
-            stream_writer_task = asyncio.create_task(
-                _stream_writer_bridge(custom_event_queue),
-                name=f"stream_writer-{self.name}",
-            )
-            try:
-                tool_task = asyncio.create_task(
-                    session.call_tool(
-                        self.name,
-                        arguments=kwargs,
-                        progress_callback=progress_callback,
+        stream_writer_task = asyncio.create_task(
+            _stream_writer_bridge(custom_event_queue),
+            name=f"stream_writer-{self.name}",
+        )
+
+        try:
+            async with self.mcp_server.session(chat_id, auth_callback) as session:
+                try:
+                    tool_task = asyncio.create_task(
+                        session.call_tool(
+                            self.name,
+                            arguments=kwargs,
+                            progress_callback=progress_callback,
+                        )
                     )
-                )
-                if abort_signal:
-                    abort_task = asyncio.create_task(_abort_task(tool_task))
-                result = await tool_task
-            except asyncio.CancelledError as canceld:
-                logger.warning("tool call cancelled %s", canceld)
-                result = types.CallToolResult(
-                    content=[types.TextContent(type="text", text="<user_aborted>")],
-                )
-            finally:
-                with suppress(Exception):
-                    custom_event_queue.put_nowait(None)
-                await stream_writer_task
-                if abort_task:
-                    abort_task.cancel()
+                    if abort_signal:
+                        abort_task = asyncio.create_task(_abort_task(tool_task))
+                    result = await tool_task
+                except asyncio.CancelledError as canceld:
+                    logger.warning("tool call cancelled %s", canceld)
+                    result = types.CallToolResult(
+                        content=[types.TextContent(type="text", text="<user_aborted>")],
+                    )
+                finally:
+                    if abort_task:
+                        abort_task.cancel()
+        finally:
+            with suppress(Exception):
+                custom_event_queue.put_nowait(None)
+            await stream_writer_task
+
         content = to_json(result.content).decode()
+
         if result.isError:
             logger.error(
                 "Tool execution failed for %s.%s: %s",

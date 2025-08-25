@@ -31,7 +31,10 @@ from dive_mcp_host.host.agents.file_in_additional_kwargs import (
     OAP_MIN_COUNT,
 )
 from dive_mcp_host.host.agents.message_order import FAKE_TOOL_RESPONSE
-from dive_mcp_host.host.custom_events import ToolCallProgress
+from dive_mcp_host.host.custom_events import (
+    ToolAuthenticationRequired,
+    ToolCallProgress,
+)
 from dive_mcp_host.host.errors import LogBufferNotFoundError
 from dive_mcp_host.host.store.base import FileType, StoreManagerProtocol
 from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
@@ -46,7 +49,9 @@ from dive_mcp_host.httpd.database.models import (
     Role,
 )
 from dive_mcp_host.httpd.routers.models import (
+    AuthenticationRequiredContent,
     ChatInfoContent,
+    InteractiveContent,
     MessageInfoContent,
     StreamMessage,
     TokenUsage,
@@ -610,6 +615,9 @@ class ChatProcessor:
             )
         )
 
+    async def _stream_interactive_msg(self, content: InteractiveContent) -> None:
+        await self.stream.write(StreamMessage(type="interactive", content=content))
+
     async def _handle_response(  # noqa: C901, PLR0912
         self, response: AsyncIterator[dict[str, Any] | Any]
     ) -> tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage]]:
@@ -664,11 +672,23 @@ class ChatProcessor:
                             )
                             await self._stream_tool_calls_msg(msg)
             elif res_type == "custom":
+                logger.debug("res_content: %s", res_content)
                 if res_content[0] == ToolCallProgress.NAME:
                     await self.stream.write(
                         StreamMessage(
                             type="tool_call_progress",
                             content=res_content[1],
+                        )
+                    )
+                elif res_content[0] == ToolAuthenticationRequired.NAME:
+                    content = res_content[1]
+                    assert isinstance(content, ToolAuthenticationRequired)
+                    await self._stream_interactive_msg(
+                        InteractiveContent(
+                            type="authentication_required",
+                            content=AuthenticationRequiredContent(
+                                auth_url=content.auth_url
+                            ),
                         )
                     )
 

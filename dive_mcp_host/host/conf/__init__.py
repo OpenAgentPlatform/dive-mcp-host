@@ -79,6 +79,13 @@ class LogConfig(BaseModel):
     buffer_length: int = 1000
 
 
+class OAuthConfig(BaseModel):
+    """Config for OAuth."""
+
+    store_path: Path = Field(default_factory=lambda: Path.cwd() / "oauth_store.json")
+    redirect_uri: str = "http://localhost:61990/api/tools/login/oauth/callback"
+
+
 class EmbedConfig(BaseModel):
     """Config for embedding model."""
 
@@ -96,6 +103,7 @@ class HostConfig(BaseModel):
     checkpointer: CheckpointerConfig | None = None
     mcp_servers: dict[str, ServerConfig]
     log_config: LogConfig = Field(default_factory=LogConfig)
+    oauth_config: OAuthConfig = Field(default_factory=OAuthConfig)
 
 
 class AgentConfig(BaseModel):

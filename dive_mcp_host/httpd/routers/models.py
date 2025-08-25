@@ -101,6 +101,7 @@ class McpTool(BaseModel):
     enabled: bool
     icon: str
     url: str | None = None
+    status: str
     error: str | None = None
 
 
@@ -138,6 +139,19 @@ class MessageInfoContent(BaseModel):
     assistant_message_id: str = Field(alias="assistantMessageId")
 
 
+class AuthenticationRequiredContent(BaseModel):
+    """Authentication required content."""
+
+    auth_url: str
+
+
+class InteractiveContent(BaseModel):
+    """Interactive content."""
+
+    type: Literal["authentication_required"]
+    content: AuthenticationRequiredContent
+
+
 class StreamMessage(BaseModel):
     """Stream message."""
 
@@ -149,6 +163,7 @@ class StreamMessage(BaseModel):
         "error",
         "chat_info",
         "message_info",
+        "interactive",
     ]
     content: (
         str
@@ -156,6 +171,7 @@ class StreamMessage(BaseModel):
         | ToolResultContent
         | ChatInfoContent
         | MessageInfoContent
+        | InteractiveContent
         | ToolCallProgress
     )
 

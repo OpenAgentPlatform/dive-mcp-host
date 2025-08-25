@@ -20,6 +20,8 @@ from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
 from dive_mcp_host.host.tools.log import LogManager
+from dive_mcp_host.host.tools.mcp_server import McpServer
+from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.models import load_model
 
 if TYPE_CHECKING:
@@ -83,6 +85,7 @@ class DiveMcpHost(ContextProtocol):
         self._tool_manager: ToolManager = ToolManager(
             configs=self._config.mcp_servers,
             log_config=self.config.log_config,
+            oauth_config=self.config.oauth_config,
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None
@@ -310,3 +313,16 @@ class DiveMcpHost(ContextProtocol):
     def log_manager(self) -> LogManager:
         """Get the log manager."""
         return self._tool_manager.log_manager
+
+    @property
+    def oauth_manager(self) -> OAuthManager:
+        """Get the OAuth manager."""
+        return self._tool_manager.oauth_manager
+
+    def get_mcp_server(self, name: str) -> McpServer:
+        """Get MCP server."""
+        return self._tool_manager.mcp_servers[name]
+
+    async def restart_mcp_server(self, name: str) -> McpServerInfo:
+        """Restart MCP server."""
+        return await self._tool_manager.restart_mcp_server(name)

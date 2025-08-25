@@ -12,6 +12,7 @@ class ClientState(StrEnum):
     CLOSED = "closed"
     RESTARTING = "restarting"
     FAILED = "failed"
+    UNAUTHORIZED = "unauthorized"
 
 
 type ChatID = str

@@ -40,4 +40,11 @@ class ToolCallProgress(CustomEvent):
     tool_call_id: str | None
 
 
-__all__ = ["ToolCallProgress"]
+class ToolAuthenticationRequired(CustomEvent):
+    """The error of a tool authentication."""
+
+    NAME: ClassVar[str] = "tool_authentication_required"
+    auth_url: str
+
+
+__all__ = ["ToolAuthenticationRequired", "ToolCallProgress"]

@@ -1,4 +1,6 @@
+from asyncio import create_task, wait_for
 from logging import getLogger
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
@@ -28,6 +30,15 @@ class ToolsResult(ResultResponse):
     """Response model for listing available MCP tools."""
 
     tools: list[McpTool]
+
+
+class OAuthResult(ResultResponse):
+    """Response model for OAuth."""
+
+    stage: Literal["auth_url", "auth_success", "auth_failed", "code_set"] | None = None
+    server_name: str | None = None
+    auth_url: str | None = None
+    error: str | None = None
 
 
 @tools.get("/initialized")
@@ -76,6 +87,7 @@ async def list_tools(  # noqa: PLR0912, C901
             enabled=True,
             icon="",
             error=server_info.error_str,
+            status=server_info.client_status.value,
         )
     logger.debug("active mcp servers: %s", result.keys())
     # find missing servers
@@ -115,6 +127,7 @@ async def list_tools(  # noqa: PLR0912, C901
                     enabled=False,
                     icon="",
                     error=None,
+                    status="",
                 )
 
     # update local cache
@@ -171,3 +184,63 @@ async def stream_server_logs(
 
     stream.add_task(process)
     return response
+
+
+@tools.post("/login/oauth")
+async def login_oauth(
+    server_name: str,
+    app: DiveHostAPI = Depends(get_app),
+) -> OAuthResult:
+    """Login to an OAuth provider."""
+    try:
+        server = app.dive_host["default"].get_mcp_server(server_name)
+        url = await server.create_oauth_authorization()
+        return OAuthResult(
+            success=True,
+            server_name=server_name,
+            stage="auth_url",
+            auth_url=url,
+        )
+    except KeyError:
+        return OAuthResult(success=False, message="server not found")
+    except Exception:
+        logger.exception("cannot get oauth url")
+        return OAuthResult(success=False, message="cannot get oauth url")
+
+
+@tools.get("/login/oauth/callback")
+async def oauth_callback(
+    code: str,
+    state: str,
+    app: DiveHostAPI = Depends(get_app),
+) -> OAuthResult:
+    """OAuth callback."""
+    oauth_manager = app.dive_host["default"].oauth_manager
+    try:
+        server_name = await oauth_manager.set_oauth_code(code, state)
+        if server_name is None:
+            return OAuthResult(success=False, message="invalid state")
+        task = create_task(oauth_manager.wait_authorization(state))
+        result = await wait_for(task, timeout=10)
+        if result.type == "auth_success":
+            await app.dive_host["default"].restart_mcp_server(server_name)
+        return OAuthResult(
+            success=True,
+            server_name=server_name,
+            stage=result.type,
+        )
+    except Exception:
+        logger.exception("cannot set oauth code")
+        return OAuthResult(success=False, message="cannot set oauth code")
+
+
+@tools.post("/login/oauth/delete")
+async def delete_oauth(
+    server_name: str,
+    app: DiveHostAPI = Depends(get_app),
+) -> ResultResponse:
+    """Delete OAuth."""
+    oauth_manager = app.dive_host["default"].oauth_manager
+    oauth_manager.store.delete(server_name)
+    await app.dive_host["default"].restart_mcp_server(server_name)
+    return ResultResponse(success=True)

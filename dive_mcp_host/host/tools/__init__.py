@@ -8,10 +8,11 @@ from collections.abc import AsyncGenerator
 from itertools import chain
 from typing import TYPE_CHECKING, Self
 
-from dive_mcp_host.host.conf import LogConfig, ServerConfig
+from dive_mcp_host.host.conf import LogConfig, OAuthConfig, ServerConfig
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
+from dive_mcp_host.host.tools.oauth import OAuthManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
@@ -33,12 +34,17 @@ class ToolManager(ContextProtocol):
         self,
         configs: dict[str, ServerConfig],
         log_config: LogConfig = LogConfig(),
+        oauth_config: OAuthConfig = OAuthConfig(),
     ) -> None:
         """Initialize the ToolManager."""
         self._configs = configs
         self._log_config = log_config
         self._log_manager = LogManager(
             log_dir=log_config.log_dir, rotation_files=log_config.rotation_files
+        )
+        self._oauth_config = oauth_config
+        self._oauth_manager = OAuthManager(
+            oauth_config.store_path, oauth_config.redirect_uri
         )
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
@@ -50,6 +56,7 @@ class ToolManager(ContextProtocol):
                 name=name,
                 config=config,
                 log_buffer_length=log_config.buffer_length,
+                auth_manager=self._oauth_manager,
             )
             for name, config in self._configs.items()
         }
@@ -152,6 +159,7 @@ class ToolManager(ContextProtocol):
                 name=l_key,
                 config=new_configs[l_key],
                 log_buffer_length=self._log_config.buffer_length,
+                auth_manager=self._oauth_manager,
             )
             launch_servers[l_key] = new_server
             self._mcp_servers[l_key] = new_server
@@ -165,7 +173,8 @@ class ToolManager(ContextProtocol):
             name="init-launch-tools",
         )
         try:
-            yield self
+            async with self.oauth_manager:
+                yield self
         finally:
             await self._shutdown_tools(list(self._mcp_servers.keys()))
             launch_tools_task.cancel()
@@ -193,3 +202,21 @@ class ToolManager(ContextProtocol):
     def log_manager(self) -> LogManager:
         """Get the log manager."""
         return self._log_manager
+
+    @property
+    def oauth_manager(self) -> OAuthManager:
+        """Get the OAuth manager."""
+        return self._oauth_manager
+
+    @property
+    def mcp_servers(self) -> dict[str, McpServer]:
+        """Get the MCP servers."""
+        return dict(self._mcp_servers.items())
+
+    async def restart_mcp_server(self, name: str) -> McpServerInfo:
+        """Restart the MCP server."""
+        server = self._mcp_servers[name]
+        await self._shutdown_tools([name])
+        self._mcp_servers[name] = server
+        await self._launch_tools({name: server})
+        return server.server_info
