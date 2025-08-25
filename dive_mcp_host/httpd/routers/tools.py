@@ -6,13 +6,18 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ValidationError
 
+from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.model_types import ClientState
+from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
+    AuthenticationRequiredContent,
+    InteractiveContent,
     McpTool,
     ResultResponse,
     SimpleToolInfo,
+    StreamMessage,
     ToolsCache,
 )
 from dive_mcp_host.httpd.routers.utils import (
@@ -186,26 +191,69 @@ async def stream_server_logs(
     return response
 
 
+class OAuthProcessor:
+    """OAuth processor."""
+
+    def __init__(
+        self,
+        stream: EventStreamContextManager,
+        oauth_manager: OAuthManager,
+        server: McpServer,
+        server_name: str,
+    ) -> None:
+        """Initialize OAuth processor."""
+        self.stream = stream
+        self.server_name = server_name
+        self.server = server
+        self.oauth_manager = oauth_manager
+
+    async def execute(self) -> None:
+        """Execute OAuth."""
+        url = await self.server.create_oauth_authorization()
+        state = self.oauth_manager.get_state(url)
+        await self.stream.write(
+            OAuthResult(
+                success=True,
+                server_name=self.server_name,
+                stage="auth_url",
+                auth_url=url,
+            ).model_dump_json(by_alias=True)
+        )
+        assert state
+        await self.oauth_manager.wait_authorization(state)
+        await self.stream.write(
+            OAuthResult(
+                success=True,
+                server_name=self.server_name,
+                stage="auth_success",
+            ).model_dump_json(by_alias=True)
+        )
+
+
 @tools.post("/login/oauth")
 async def login_oauth(
     server_name: str,
     app: DiveHostAPI = Depends(get_app),
-) -> OAuthResult:
+) -> StreamingResponse:
     """Login to an OAuth provider."""
-    try:
-        server = app.dive_host["default"].get_mcp_server(server_name)
-        url = await server.create_oauth_authorization()
-        return OAuthResult(
-            success=True,
-            server_name=server_name,
-            stage="auth_url",
-            auth_url=url,
-        )
-    except KeyError:
-        return OAuthResult(success=False, message="server not found")
-    except Exception:
-        logger.exception("cannot get oauth url")
-        return OAuthResult(success=False, message="cannot get oauth url")
+    stream = EventStreamContextManager()
+    response = stream.get_response()
+
+    oauth_manager = app.dive_host["default"].oauth_manager
+    server = app.dive_host["default"].get_mcp_server(server_name)
+
+    async def process() -> None:
+        async with stream:
+            processor = OAuthProcessor(
+                stream=stream,
+                oauth_manager=oauth_manager,
+                server=server,
+                server_name=server_name,
+            )
+            await processor.execute()
+
+    stream.add_task(process)
+    return response
 
 
 @tools.get("/login/oauth/callback")
