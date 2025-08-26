@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections import defaultdict
+from collections.abc import AsyncGenerator, Awaitable, Callable, Hashable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from typing import Literal, Self
@@ -36,6 +37,59 @@ class AuthorizationProgress:
 
     type: Literal["auth_success", "auth_failed", "code_set"]
     error: str | None = None
+
+
+class StateStore[K: Hashable, V]:
+    """A state store that stores states for a given key."""
+
+    def __init__(self) -> None:
+        """Initialize the state store."""
+        # update lock
+        self._dict: dict[K, V] = {}
+        self._dict_cond: dict[K, asyncio.Condition] = defaultdict(asyncio.Condition)
+
+    async def pop(self, key: K) -> V | None:
+        """Pop the state for a given key."""
+        cond = self._dict_cond[key]
+        async with cond:
+            result = self._dict.pop(key, None)
+            cond.notify_all()
+            return result
+
+    async def update(self, key: K, value: V) -> None:
+        """Update the state for a given key."""
+        cond = self._dict_cond[key]
+        async with cond:
+            self._dict.update({key: value})
+            cond.notify_all()
+
+    async def wait_for(
+        self, key: K, func: Callable[[V | None], bool], timeout: float | None = None
+    ) -> V | None:
+        """Wait for the state for a given key."""
+        if func(self._dict.get(key)):
+            return self._dict.get(key)
+        cond = self._dict_cond[key]
+        is_timeout = False
+        tasks = set()
+        if timeout is not None:
+
+            async def time_out() -> None:
+                nonlocal is_timeout
+                await asyncio.sleep(timeout)
+                async with cond:
+                    is_timeout = True
+                    cond.notify_all()
+
+            task = asyncio.create_task(time_out())
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+        async with cond:
+            await cond.wait_for(lambda: is_timeout or func(self._dict.get(key)))
+            if is_timeout:
+                raise TimeoutError("wait_for timeout")
+            return self._dict.get(key)
 
 
 @dataclass
@@ -130,18 +184,16 @@ class OAuthManager(ContextProtocol):
 
         # temporary storage for oauth code
         # store tuple[code, state], state as key
-        self._oauth_code: dict[str, tuple[str, str]] = {}
-        self._oauth_code_cond = asyncio.Condition()
+        self._oauth_code = StateStore[str, tuple[str, str]]()
         # store name, state as key
         self._oauth_code_wait: dict[str, str] = {}
 
         # authorization tasks
         self._authorization_tasks: set[asyncio.Task] = set()
-        self._authorization_states: set[str] = set()
+        self._authorization_states: dict[str, str] = {}
 
         # oauth results, state as key
-        self._oauth_results: dict[str, AuthorizationProgress] = {}
-        self._oauth_results_cond = asyncio.Condition()
+        self._oauth_results: StateStore[str, AuthorizationProgress] = StateStore()
 
     @property
     def callback_url(self) -> str:
@@ -174,9 +226,9 @@ class OAuthManager(ContextProtocol):
             yield auth
         finally:
             # stop waiting for code
-            async with self._oauth_code_cond:
-                stopped.set()
-                self._oauth_code_cond.notify_all()
+            stopped.set()
+            for key in self._oauth_code_wait:
+                await self._oauth_code.update(key, ("", ""))
 
     async def _authorization_task(
         self,
@@ -194,7 +246,7 @@ class OAuthManager(ContextProtocol):
                 async def callback(auth_url: str) -> None:
                     state = self.get_state(auth_url)
                     assert state
-                    self._authorization_states.add(state)
+                    self._authorization_states.update({state: name})
                     await asyncio.gather(
                         url_queue.put(auth_url),
                         auth_callback(auth_url),
@@ -222,22 +274,21 @@ class OAuthManager(ContextProtocol):
                 assert url
                 state = self.get_state(url)
                 assert state
-                async with self._oauth_results_cond:
-                    self._oauth_results[state] = AuthorizationProgress(
-                        type="auth_success",
-                    )
-                    self._oauth_results_cond.notify_all()
+                await self._oauth_results.update(
+                    state, AuthorizationProgress(type="auth_success")
+                )
                 return
         except Exception as e:
             logger.exception("authorization task error")
             error = e
 
-        async with self._oauth_results_cond:
-            self._oauth_results[name] = AuthorizationProgress(
+        await self._oauth_results.update(
+            name,
+            AuthorizationProgress(
                 type="auth_failed",
                 error=str(error) if error else None,
-            )
-            self._oauth_results_cond.notify_all()
+            ),
+        )
 
     async def authorization_task(
         self,
@@ -263,18 +314,20 @@ class OAuthManager(ContextProtocol):
         task.add_done_callback(self._authorization_tasks.discard)
         return await url_queue.get()
 
-    async def wait_authorization(self, state: str) -> AuthorizationProgress:
+    async def wait_authorization(
+        self, state: str, timeout: float | None = None
+    ) -> AuthorizationProgress:
         """Wait for the authorization to complete."""
-        if state not in self._authorization_states:
+        name = self._authorization_states.get(state)
+        if name is None:
             return AuthorizationProgress(
                 type="code_set",
             )
-
-        async with self._oauth_results_cond:
-            await self._oauth_results_cond.wait_for(
-                lambda: self._oauth_results.get(state) is not None
-            )
-            return self._oauth_results[state]
+        result = await self._oauth_results.wait_for(
+            name, lambda x: x is not None, timeout
+        )
+        assert result
+        return result
 
     def get_provider(
         self,
@@ -303,36 +356,23 @@ class OAuthManager(ContextProtocol):
 
     async def set_oauth_code(self, code: str, state: str) -> str | None:
         """Set the OAuth code for a given name."""
-        async with self._oauth_code_cond:
-            name = self._oauth_code_wait.get(state)
-            self._oauth_code[state] = (code, state)
-            self._oauth_code_cond.notify_all()
-            logger.debug(
-                "OAuth code set: name=%s, code=%s, state=%s", name, code, state
-            )
-            return name
+        await self._oauth_code.update(state, (code, state))
+        return self._oauth_code_wait.get(state)
 
     async def _wait_oauth_code(
         self, name: str, wait_id: str, stopped: asyncio.Event
     ) -> tuple[str, str | None]:
         """Wait for the OAuth code for a given name."""
 
-        def wait() -> bool:
-            return (
-                self._terminated.is_set()
-                or stopped.is_set()
-                or wait_id in self._oauth_code
-            )
+        def wait(value: tuple[str, str] | None) -> bool:
+            return self._terminated.is_set() or stopped.is_set() or value is not None
 
-        async with self._oauth_code_cond:
-            self._oauth_code_wait[wait_id] = name
-            try:
-                await self._oauth_code_cond.wait_for(wait)
-            finally:
-                self._oauth_code_wait.pop(wait_id, None)
-            if wait_id in self._oauth_code:
-                return self._oauth_code.pop(wait_id)
+        self._oauth_code_wait[wait_id] = name
+        await self._oauth_code.wait_for(wait_id, wait)
+        result = await self._oauth_code.pop(wait_id)
+        if result is None:
             return "", None
+        return result
 
     def get_state(self, url: str) -> str | None:
         """Get the state from the URL."""
@@ -363,10 +403,11 @@ class OAuthManager(ContextProtocol):
         async def callback_handler() -> tuple[str, str | None]:
             """Callback handler."""
             # empty callback
-            if stopped is None:
+            if stopped is None or stopped.is_set():
                 return "", None
             wait_id = await callback_queue.get()
             code, state = await self._wait_oauth_code(name, wait_id, stopped)
+            stopped.set()
             return code, state
 
         return redirect_handler, callback_handler
@@ -377,5 +418,5 @@ class OAuthManager(ContextProtocol):
             yield self
         finally:
             self._terminated.set()
-            async with self._oauth_code_cond:
-                self._oauth_code_cond.notify_all()
+            for key in self._oauth_code_wait:
+                await self._oauth_code.update(key, ("", ""))

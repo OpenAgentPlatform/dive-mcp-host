@@ -12,12 +12,9 @@ from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
-    AuthenticationRequiredContent,
-    InteractiveContent,
     McpTool,
     ResultResponse,
     SimpleToolInfo,
-    StreamMessage,
     ToolsCache,
 )
 from dive_mcp_host.httpd.routers.utils import (
@@ -217,16 +214,17 @@ class OAuthProcessor:
                 server_name=self.server_name,
                 stage="auth_url",
                 auth_url=url,
-            ).model_dump_json(by_alias=True)
+            ).model_dump_json(by_alias=True, exclude_none=True)
         )
         assert state
-        await self.oauth_manager.wait_authorization(state)
+        result = await self.oauth_manager.wait_authorization(state)
         await self.stream.write(
             OAuthResult(
                 success=True,
                 server_name=self.server_name,
-                stage="auth_success",
-            ).model_dump_json(by_alias=True)
+                stage=result.type,
+                error=result.error,
+            ).model_dump_json(by_alias=True, exclude_none=True)
         )
 
 
