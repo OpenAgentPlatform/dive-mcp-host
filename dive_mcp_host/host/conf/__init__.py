@@ -83,7 +83,7 @@ class OAuthConfig(BaseModel):
     """Config for OAuth."""
 
     store_path: Path = Field(default_factory=lambda: Path.cwd() / "oauth_store.json")
-    redirect_uri: str = "http://localhost:61990/api/tools/login/oauth/callback"
+    redirect_uri: str = "dive://mcp.oauth.redirect"
 
 
 class EmbedConfig(BaseModel):
