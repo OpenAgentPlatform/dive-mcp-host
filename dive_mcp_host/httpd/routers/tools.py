@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.model_types import ClientState
-from dive_mcp_host.host.tools.oauth import OAuthManager
+from dive_mcp_host.host.tools.oauth import AuthorizationProgress, OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
@@ -37,7 +37,17 @@ class ToolsResult(ResultResponse):
 class OAuthResult(ResultResponse):
     """Response model for OAuth."""
 
-    stage: Literal["auth_url", "auth_success", "auth_failed", "code_set"] | None = None
+    stage: (
+        Literal[
+            "auth_success",
+            "auth_failed",
+            "no_auth_required",
+            "wait_code",
+            "code_set",
+            "canceled",
+        ]
+        | None
+    ) = None
     server_name: str | None = None
     auth_url: str | None = None
     error: str | None = None
@@ -206,26 +216,25 @@ class OAuthProcessor:
 
     async def execute(self) -> None:
         """Execute OAuth."""
-        url = await self.server.create_oauth_authorization()
-        state = self.oauth_manager.get_state(url)
+        progress = await self.server.create_oauth_authorization()
         await self.stream.write(
             OAuthResult(
                 success=True,
                 server_name=self.server_name,
-                stage="auth_url",
-                auth_url=url,
+                stage=progress.type,
+                auth_url=progress.auth_url,
             ).model_dump_json(by_alias=True, exclude_none=True)
         )
-        assert state
-        result = await self.oauth_manager.wait_authorization(state)
-        await self.stream.write(
-            OAuthResult(
-                success=True,
-                server_name=self.server_name,
-                stage=result.type,
-                error=result.error,
-            ).model_dump_json(by_alias=True, exclude_none=True)
-        )
+        if state := progress.state:
+            result = await self.oauth_manager.wait_authorization(state)
+            await self.stream.write(
+                OAuthResult(
+                    success=True,
+                    server_name=self.server_name,
+                    stage=result.type,
+                    error=result.error,
+                ).model_dump_json(by_alias=True, exclude_none=True)
+            )
 
 
 @tools.post("/login/oauth")

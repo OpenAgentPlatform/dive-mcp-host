@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from mcp.shared.session import RequestResponder
 
     from dive_mcp_host.host.conf import ServerConfig
-    from dive_mcp_host.host.tools.oauth import OAuthManager
+    from dive_mcp_host.host.tools.oauth import AuthorizationProgress, OAuthManager
 
     type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
     type WriteStreamType = MemoryObjectSendStream[SessionMessage]
@@ -304,7 +304,7 @@ class McpServer(ContextProtocol):
     def session(
         self,
         chat_id: str = "default",
-        auth_handler: Callable[[str], Awaitable[None]] | None = None,
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -678,7 +678,7 @@ class McpServer(ContextProtocol):
     def _stdio_session(
         self,
         chat_id: ChatID,
-        auth_handler: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,  # noqa: ARG002
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -828,7 +828,7 @@ class McpServer(ContextProtocol):
     def _http_session(
         self,
         chat_id: ChatID,
-        auth_handler: Callable[[str], Awaitable[None]] | None = None,
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -963,7 +963,7 @@ class McpServer(ContextProtocol):
     def _local_http_session(
         self,
         chat_id: str,
-        auth_handler: Callable[[str], Awaitable[None]] | None = None,  # noqa: ARG002
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,  # noqa: ARG002
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -1000,7 +1000,7 @@ class McpServer(ContextProtocol):
         """Get the auth manager."""
         return self._auth_manager
 
-    async def create_oauth_authorization(self) -> str:
+    async def create_oauth_authorization(self) -> AuthorizationProgress:
         """Authorize the OAuth client."""
         if self.config.transport != "streamable":
             raise RuntimeError("Only streamable transport is supported for oauth")
@@ -1085,15 +1085,16 @@ class McpTool(BaseTool):
             except Exception as e:
                 logger.exception("progress_callback error %s", e)
 
-        async def auth_callback(auth_url: str) -> None:
+        async def auth_callback(progress: AuthorizationProgress) -> None:
             """Auth callback."""
-            logger.info("auth_callback: %s", auth_url)
-            await custom_event_queue.put(
-                (
-                    ToolAuthenticationRequired.NAME,
-                    ToolAuthenticationRequired(auth_url=auth_url),
+            logger.info("auth_callback: %s", progress)
+            if progress.type == "wait_code" and progress.auth_url:
+                await custom_event_queue.put(
+                    (
+                        ToolAuthenticationRequired.NAME,
+                        ToolAuthenticationRequired(auth_url=progress.auth_url),
+                    )
                 )
-            )
 
         tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
         chat_id = config.get("configurable", {}).get(
