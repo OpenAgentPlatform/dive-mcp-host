@@ -6,6 +6,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from contextlib import AsyncExitStack, suppress
 from dataclasses import asdict, dataclass, field
+from hashlib import md5
 from itertools import batched
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
@@ -13,7 +14,6 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -33,7 +33,7 @@ from dive_mcp_host.host.agents.file_in_additional_kwargs import (
 from dive_mcp_host.host.agents.message_order import FAKE_TOOL_RESPONSE
 from dive_mcp_host.host.custom_events import ToolCallProgress
 from dive_mcp_host.host.errors import LogBufferNotFoundError
-from dive_mcp_host.host.store.base import FileType
+from dive_mcp_host.host.store.base import FileType, StoreManagerProtocol
 from dive_mcp_host.host.tools.log import LogEvent, LogManager, LogMsg
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.prompt import PromptKey
@@ -58,7 +58,6 @@ from dive_mcp_host.log import TRACE
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
-    from dive_mcp_host.host.store.base import StoreManagerProtocol
     from dive_mcp_host.httpd.middlewares.general import DiveUser
 
 title_prompt = """You are a title generator from the user input.
@@ -185,31 +184,52 @@ class ContentHandler:
 
     def __init__(
         self,
-        model: BaseChatModel,
-        str_output_parser: StrOutputParser,
+        store: StoreManagerProtocol,
     ) -> None:
-        """Initialize ContentHandler
+        """Initialize ContentHandler."""
+        self._store = store
+        self._str_output_parser = StrOutputParser()
+        # Cache that contains the md5 hash and file path / urls for the file.
+        # Prevents dupicate save / uploads.
+        self._cache: dict[str, list[str]] = {}
 
-        Args:
-            - model: To verify which model it is.
-            - str_output_parser: Used for extracting text content from AIMessage.
-        """
-        self._model = model
-        self._str_output_parser = str_output_parser
-
-    def invoke(self, msg: AIMessage) -> str:
-        """Extract content from AIMessage."""
+    async def invoke(self, msg: AIMessage) -> str:
+        """Extract various types of content."""
         result = self._text_content(msg)
+        model_name = msg.response_metadata.get("model_name")
 
-        if self._model.name in {"gemini-2.5-flash-image-preview"}:
-            result = f"{result} {self._gemini_25_image(msg)}"
+        if model_name in {"gemini-2.5-flash-image-preview"}:
+            result = f"{result} {await self._gemini_25_image(msg)}"
 
         return result
 
     def _text_content(self, msg: AIMessage) -> str:
         return self._str_output_parser.invoke(msg)
 
-    def _gemini_25_image(self, msg: AIMessage) -> str:
+    async def _save_with_cache(self, data: str) -> list[str]:
+        """Prevents duplicate save and uploads.
+
+        Returns:
+            Saved locations, 'local file path' or 'url'
+        """
+        md5_hash = md5(data.encode(), usedforsecurity=False).hexdigest()
+        locations = self._cache.get(md5_hash)
+        if not locations:
+            locations = await self._store.save_base64_image(data)
+            self._cache[md5_hash] = locations
+        return locations
+
+    def _retrive_optimal_location(self, locations: list[str]) -> str:
+        """Prioritize urls, prevents broken image in case we need to sync
+        user chat history some day.
+        """  # noqa: D205
+        url = locations[0]
+        for item in locations[1:]:
+            if self._store.is_url(item):
+                url = item
+        return url
+
+    async def _gemini_25_image(self, msg: AIMessage) -> str:
         """Gemini will return base64 image content.
 
         {
@@ -230,10 +250,14 @@ class ContentHandler:
             if (
                 isinstance(content, dict)
                 and (image_url := content.get("image_url"))
-                and (url := image_url.get("url"))
+                and (inline_base64 := image_url.get("url"))
             ):
-                markdown_image_tag = f"![image]({url})"
-                result = f"{result} {markdown_image_tag}"
+                base64_data: str = inline_base64.split(",")[-1]
+                assert isinstance(base64_data, str), "base64_data must be string"
+                locations = await self._save_with_cache(base64_data)
+                url = self._retrive_optimal_location(locations)
+                image_tag = f"![image]({url})"
+                result = f"{result} {image_tag}"
 
         return result
 
@@ -254,9 +278,7 @@ class ChatProcessor:
         self.store: StoreManagerProtocol = app.store
         self.dive_host: DiveMcpHost = app.dive_host["default"]
         self._str_output_parser = StrOutputParser()
-        self._content_handler = ContentHandler(
-            self.dive_host.model, self._str_output_parser
-        )
+        self._content_handler = ContentHandler(self.store)
         self.disable_dive_system_prompt = (
             app.model_config_manager.full_config.disable_dive_system_prompt
             if app.model_config_manager.full_config
@@ -395,7 +417,7 @@ class ChatProcessor:
                         total_run_time=duration,
                     )
                     result = (
-                        self._str_output_parser.invoke(message)
+                        await self._content_handler.invoke(message)
                         if message.content
                         else ""
                     )
@@ -550,7 +572,7 @@ class ChatProcessor:
         raise RuntimeError("Unreachable")
 
     async def _stream_text_msg(self, message: AIMessage) -> None:
-        content = self._content_handler.invoke(message)
+        content = await self._content_handler.invoke(message)
         if content:
             await self.stream.write(StreamMessage(type="text", content=content))
         if message.response_metadata.get("stop_reason") == "max_tokens":

@@ -56,6 +56,18 @@ class StoreProtocol(ContextProtocol, Protocol):
 class StoreManagerProtocol(ContextProtocol, Protocol):
     """Protocol for store manager operations."""
 
+    async def save_base64_image(self, data: str, extension: str = "png") -> list[str]:
+        """Save base64 image.
+
+        Args:
+            data: Image in base64
+            extension: File extension
+
+        Returns:
+            List of paths / urls
+        """
+        ...
+
     async def upload_files(
         self, files: list[UploadFile | str]
     ) -> tuple[list[str], list[str]]:
