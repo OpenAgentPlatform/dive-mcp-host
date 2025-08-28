@@ -188,6 +188,7 @@ class ContentHandler:
         model: BaseChatModel,
         str_output_parser: StrOutputParser,
     ) -> None:
+        """Initialize."""
         self._model = model
         self._str_output_parser = str_output_parser
 
