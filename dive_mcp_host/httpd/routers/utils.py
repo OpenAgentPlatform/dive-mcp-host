@@ -188,7 +188,12 @@ class ContentHandler:
         model: BaseChatModel,
         str_output_parser: StrOutputParser,
     ) -> None:
-        """Initialize."""
+        """Initialize ContentHandler
+
+        Args:
+            - model: To verify which model it is.
+            - str_output_parser: Used for extracting text content from AIMessage.
+        """
         self._model = model
         self._str_output_parser = str_output_parser
 
