@@ -372,16 +372,19 @@ class BaseMessageStore(AbstractMessageStore):
             chat_id: Unique identifier for the chat.
             message_id: Unique identifier for the message.
             user_id: User ID or fingerprint, depending on the prefix.
+                Should not be used in this current implementation.
 
         Returns:
             If the message exist and is locked, returns True, False otherwise.
         """
+        if user_id is not None:
+            raise ValueError("user_id should not be used.")
+
         query = (
             select(ORMMessage.message_id)
             .where(
                 ORMMessage.message_id == message_id,
                 ORMMessage.chat_id == chat_id,
-                ORMChat.user_id == user_id,
             )
             .with_for_update()
         )
@@ -400,10 +403,14 @@ class BaseMessageStore(AbstractMessageStore):
             message_id: Unique identifier for the message.
             data: New content for the message.
             user_id: User ID or fingerprint, depending on the prefix.
+                Should not be used in this current implementation.
 
         Returns:
             Updated Message object.
         """
+        if user_id is not None:
+            raise ValueError("user_id should not be used.")
+
         # Prepare files list
         files = []
         if data.images:
@@ -416,7 +423,6 @@ class BaseMessageStore(AbstractMessageStore):
             update(ORMMessage)
             .where(
                 ORMMessage.message_id == message_id,
-                ORMChat.user_id == user_id,
             )
             .values(
                 content=data.text or "",

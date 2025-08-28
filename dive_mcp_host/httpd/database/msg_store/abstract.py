@@ -122,7 +122,6 @@ class AbstractMessageStore(ABC):
             user_id: User ID or fingerprint, depending on the prefix.
         """
 
-    # NOTE: Might change, currently not used
     @abstractmethod
     async def update_message_content(
         self,
@@ -136,6 +135,7 @@ class AbstractMessageStore(ABC):
             message_id: Unique identifier for the message.
             data: New content for the message.
             user_id: User ID or fingerprint, depending on the prefix.
+                Should not be used in this current implementation.
 
         Returns:
             Updated Message object.
