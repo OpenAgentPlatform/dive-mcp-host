@@ -5,13 +5,14 @@ from typing import Any, cast
 import pytest
 import pytest_asyncio
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
 
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.conf.prompt import PromptKey
-from dive_mcp_host.httpd.routers.utils import ChatProcessor
+from dive_mcp_host.httpd.routers.utils import ChatProcessor, ContentHandler
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.models.fake import FakeMessageToolModel  # noqa: TC001
+from dive_mcp_host.models.fake import FakeMessageToolModel, load_model
 from tests.httpd.routers.conftest import config_files  # noqa: F401
 
 
@@ -110,3 +111,24 @@ async def test_generate_title(processor: ChatProcessor):
     assert r == "Simple Greeting"
     r = await processor._generate_title("Hello, how are you?")
     assert r == "Simple Greeting 2"
+
+
+def test_content_handler_gemini_image():
+    """Check if content handler can extract what is needed."""
+    model = load_model()
+    model.name = "gemini-2.5-flash-image-preview"
+    content_handler = ContentHandler(model, StrOutputParser())
+    message = AIMessage(
+        content=[
+            "Here is a cuddly cat wearing a hat! ",
+            {
+                "type": "image_url",
+                "image_url": {"url": "data:image/png;base64,XXXXXXXX"},
+            },
+        ]
+    )
+    content = content_handler.invoke(message)
+    assert (
+        content
+        == "Here is a cuddly cat wearing a hat!   ![image](data:image/png;base64,XXXXXXXX)"  # noqa: E501
+    )

@@ -187,6 +187,32 @@ async def test_host_google(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
 
 
 @pytest.mark.asyncio
+async def test_host_google_image_gen(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+) -> None:
+    """Test the host context initialization."""
+    if api_key := environ.get("GOOGLE_API_KEY"):
+        config = HostConfig(
+            llm=LLMConfig(
+                model="gemini-2.5-flash-image-preview",
+                model_provider="google-genai",
+                api_key=SecretStr(api_key),
+                configuration=LLMConfiguration(
+                    temperature=0.0,
+                    top_p=0,
+                ),
+                tools_in_prompt=True,
+                disable_streaming=True,
+            ),
+            mcp_servers=echo_tool_stdio_config,
+        )
+    else:
+        pytest.skip("need environment variable GOOGLE_API_KEY to run this test")
+
+    await _run_the_test(config)
+
+
+@pytest.mark.asyncio
 async def test_bedrock(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the host context initialization."""
     # claude-3-7-sonnet
