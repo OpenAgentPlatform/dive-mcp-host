@@ -8,7 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.model_types import ClientState
-from dive_mcp_host.host.tools.oauth import AuthorizationProgress, OAuthManager
+from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
@@ -32,6 +32,12 @@ class ToolsResult(ResultResponse):
     """Response model for listing available MCP tools."""
 
     tools: list[McpTool]
+
+
+class OAuthRequest(BaseModel):
+    """Request model for OAuth."""
+
+    server_name: str
 
 
 class OAuthResult(ResultResponse):
@@ -219,10 +225,11 @@ class OAuthProcessor:
         progress = await self.server.create_oauth_authorization()
         await self.stream.write(
             OAuthResult(
-                success=True,
+                success=progress.error is None,
                 server_name=self.server_name,
                 stage=progress.type,
                 auth_url=progress.auth_url,
+                error=progress.error,
             ).model_dump_json(by_alias=True, exclude_none=True)
         )
         if state := progress.state:
@@ -239,7 +246,7 @@ class OAuthProcessor:
 
 @tools.post("/login/oauth")
 async def login_oauth(
-    server_name: str,
+    oauth_request: OAuthRequest,
     app: DiveHostAPI = Depends(get_app),
 ) -> StreamingResponse:
     """Login to an OAuth provider."""
@@ -247,7 +254,7 @@ async def login_oauth(
     response = stream.get_response()
 
     oauth_manager = app.dive_host["default"].oauth_manager
-    server = app.dive_host["default"].get_mcp_server(server_name)
+    server = app.dive_host["default"].get_mcp_server(oauth_request.server_name)
 
     async def process() -> None:
         async with stream:
@@ -255,7 +262,7 @@ async def login_oauth(
                 stream=stream,
                 oauth_manager=oauth_manager,
                 server=server,
-                server_name=server_name,
+                server_name=oauth_request.server_name,
             )
             await processor.execute()
 

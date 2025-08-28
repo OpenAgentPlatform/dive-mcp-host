@@ -7,8 +7,9 @@ from typing import Literal, Self
 from urllib.parse import parse_qs, urlparse
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+import httpx
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.message import SessionMessage
 from pydantic import AnyUrl, Field, RootModel
@@ -50,7 +51,7 @@ class AuthorizationProgress:
 
     def is_result(self) -> bool:
         """Check if the authorization is a result."""
-        return self.type in ["auth_success", "auth_failed", "code_set", "canceled"]
+        return self.type in ["auth_success", "auth_failed", "canceled"]
 
     def has_code(self) -> bool:
         """Check if the authorization has a code."""
@@ -297,9 +298,12 @@ class OAuthManager(ContextProtocol):
                 await self._oauth_results.update(state or "", progress)
                 await auth_callback(progress)
                 return
-        except Exception as e:
-            logger.exception("authorization task error")
-            error = e
+        except* OAuthFlowError:
+            logger.exception("oauth flow error")
+            error = Exception("oauth flow error")
+        except* (httpx.ConnectError, httpx.TimeoutException):
+            logger.exception("network error")
+            error = Exception("network error")
 
         progress = await self._oauth_results.get(state or "")
         if progress:
@@ -312,7 +316,9 @@ class OAuthManager(ContextProtocol):
                 server_name=name,
                 error=str(error) if error else None,
             )
+        print(progress)
         await self._oauth_results.update(state or "", progress)
+        await auth_callback(progress)
 
     async def authorization_task(
         self,
@@ -349,7 +355,7 @@ class OAuthManager(ContextProtocol):
             return current
 
         def wait(value: AuthorizationProgress | None) -> bool:
-            return value is not None and value.is_result() and value.type != "code_set"
+            return value is not None and value.is_result()
 
         result = await self._oauth_results.wait_for(
             state,
@@ -406,9 +412,8 @@ class OAuthManager(ContextProtocol):
             )
 
         result = await self._oauth_results.wait_for(wait_id, wait)
-        if result:
-            return result.code or "", wait_id
-        return "", wait_id
+        assert result
+        return result.code or "", wait_id
 
     def get_state(self, url: str) -> str | None:
         """Get the state from the URL."""
