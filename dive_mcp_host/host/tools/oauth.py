@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Literal, Self
 from urllib.parse import parse_qs, urlparse
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 import httpx
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
@@ -237,17 +237,22 @@ class OAuthManager(ContextProtocol):
         wait_auth: bool = False,
     ) -> AsyncGenerator[OAuthClientProvider, None]:
         """With the MCP server."""
-        stopped = asyncio.Event()
+
+        async def callback(progress: AuthorizationProgress | None) -> None:
+            if progress:
+                if progress.state and not wait_auth:
+                    await self.cancel_authorization(progress.state)
+                if auth_callback:
+                    await auth_callback(progress)
+
         try:
             auth = self.get_provider(
                 name=name,
                 server_url=server_url,
-                auth_callback=auth_callback,
-                stopped=stopped if wait_auth else None,
+                auth_callback=callback,
             )
             yield auth
         finally:
-            # stop waiting for code
             pass
 
     async def _authorization_task(
@@ -304,6 +309,9 @@ class OAuthManager(ContextProtocol):
         except* (httpx.ConnectError, httpx.TimeoutException):
             logger.exception("network error")
             error = Exception("network error")
+        except* Exception:
+            logger.exception("unknown error")
+            error = Exception("unknown error")
 
         progress = await self._oauth_results.get(state or "")
         if progress:
@@ -316,7 +324,6 @@ class OAuthManager(ContextProtocol):
                 server_name=name,
                 error=str(error) if error else None,
             )
-        print(progress)
         await self._oauth_results.update(state or "", progress)
         await auth_callback(progress)
 
@@ -344,6 +351,12 @@ class OAuthManager(ContextProtocol):
         task.add_done_callback(self._authorization_tasks.discard)
         return await progress_queue.get()
 
+    async def cancel_authorization(self, state: str) -> None:
+        """Cancel the authorization for a given name."""
+        if progress := await self._oauth_results.get(state):
+            progress.type = "canceled"
+            await self._oauth_results.update(state, progress)
+
     async def wait_authorization(
         self,
         state: str,
@@ -369,13 +382,10 @@ class OAuthManager(ContextProtocol):
         self,
         name: str,
         server_url: str,
-        auth_callback: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
-        stopped: asyncio.Event | None = None,
+        auth_callback: Callable[[AuthorizationProgress], Awaitable[None]],
     ) -> OAuthClientProvider:
         """Get the OAuth provider for a given name."""
-        redirect_handler, callback_handler = self._generate_handler(
-            name, auth_callback, stopped
-        )
+        redirect_handler, callback_handler = self._generate_handler(name, auth_callback)
 
         return OAuthClientProvider(
             server_url=server_url,
@@ -400,20 +410,32 @@ class OAuthManager(ContextProtocol):
         return None
 
     async def _wait_oauth_code(
-        self, wait_id: str, stopped: asyncio.Event
+        self,
+        name: str,
+        auth_url: str,
+        auth_callback: Callable[[AuthorizationProgress], Awaitable[None]],
     ) -> tuple[str, str | None]:
         """Wait for the OAuth code for a given name."""
+        state = self.get_state(auth_url)
+        assert state
+
+        progress = AuthorizationProgress(
+            type="wait_code",
+            state=state,
+            server_name=name,
+            auth_url=auth_url,
+        )
+        await self._oauth_results.update(state, progress)
+        await auth_callback(progress)
 
         def wait(value: AuthorizationProgress | None) -> bool:
-            return (
-                self._terminated.is_set()
-                or stopped.is_set()
-                or (value is not None and (value.has_code() or value.is_result()))
+            return self._terminated.is_set() or (
+                value is not None and (value.has_code() or value.is_result())
             )
 
-        result = await self._oauth_results.wait_for(wait_id, wait)
+        result = await self._oauth_results.wait_for(state, wait)
         assert result
-        return result.code or "", wait_id
+        return result.code or "", state
 
     def get_state(self, url: str) -> str | None:
         """Get the state from the URL."""
@@ -424,40 +446,22 @@ class OAuthManager(ContextProtocol):
     def _generate_handler(
         self,
         name: str,
-        auth_callback: Callable[[AuthorizationProgress], Awaitable[None]] | None,
-        stopped: asyncio.Event | None,
+        auth_callback: Callable[[AuthorizationProgress], Awaitable[None]],
     ) -> tuple[
         Callable[[str], Awaitable[None]],
         Callable[[], Awaitable[tuple[str, str | None]]],
     ]:
         """Register a handler for a given name."""
-        state_queue = asyncio.Queue()
-
-        async def redirect_handler(auth_url: str) -> None:
-            """Redirect handler."""
-            if state := self.get_state(auth_url):
-                progress = AuthorizationProgress(
-                    type="wait_code",
-                    state=state,
-                    server_name=name,
-                    auth_url=auth_url,
-                )
-                await self._oauth_results.update(state, progress)
-                await state_queue.put(state)
-                if auth_callback:
-                    await auth_callback(progress)
+        url_queue = asyncio.Queue()
 
         async def callback_handler() -> tuple[str, str | None]:
             """Callback handler."""
             # empty callback
-            if stopped is None or stopped.is_set():
-                return "", None
-            wait_id = await state_queue.get()
-            code, state = await self._wait_oauth_code(wait_id, stopped)
-            stopped.set()
+            url = await url_queue.get()
+            code, state = await self._wait_oauth_code(name, url, auth_callback)
             return code, state
 
-        return redirect_handler, callback_handler
+        return url_queue.put, callback_handler
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         """Run the OAuth manager in a context."""

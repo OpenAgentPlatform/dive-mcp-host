@@ -298,11 +298,11 @@ async def oauth_callback(
 
 @tools.post("/login/oauth/delete")
 async def delete_oauth(
-    server_name: str,
+    oauth_request: OAuthRequest,
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
     """Delete OAuth."""
     oauth_manager = app.dive_host["default"].oauth_manager
-    oauth_manager.store.delete(server_name)
-    await app.dive_host["default"].restart_mcp_server(server_name)
+    oauth_manager.store.delete(oauth_request.server_name)
+    await app.dive_host["default"].restart_mcp_server(oauth_request.server_name)
     return ResultResponse(success=True)
