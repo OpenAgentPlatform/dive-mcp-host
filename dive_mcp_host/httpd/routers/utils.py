@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from fastapi.responses import StreamingResponse
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -176,6 +177,67 @@ class ImageAndDocuments:
     documents: list[str] = field(default_factory=list)
 
 
+class ContentHandler:
+    """Some models will return more then just pure text in content response.
+
+    We need to have a customized handler for those special models.
+    """
+
+    def __init__(
+        self,
+        model: BaseChatModel,
+        str_output_parser: StrOutputParser,
+    ) -> None:
+        """Initialize ContentHandler
+
+        Args:
+            - model: To verify which model it is.
+            - str_output_parser: Used for extracting text content from AIMessage.
+        """
+        self._model = model
+        self._str_output_parser = str_output_parser
+
+    def invoke(self, msg: AIMessage) -> str:
+        """Extract content from AIMessage."""
+        result = self._text_content(msg)
+
+        if self._model.name in {"gemini-2.5-flash-image-preview"}:
+            result = f"{result} {self._gemini_25_image(msg)}"
+
+        return result
+
+    def _text_content(self, msg: AIMessage) -> str:
+        return self._str_output_parser.invoke(msg)
+
+    def _gemini_25_image(self, msg: AIMessage) -> str:
+        """Gemini will return base64 image content.
+
+        {
+            "content": [
+                "Here is a cuddly cat wearing a hat! ",
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/png;base64,XXXXXXXX"
+                    }
+                }
+            ]
+        }
+
+        """
+        result = ""
+        for content in msg.content:
+            if (
+                isinstance(content, dict)
+                and (image_url := content.get("image_url"))
+                and (url := image_url.get("url"))
+            ):
+                markdown_image_tag = f"![image]({url})"
+                result = f"{result} {markdown_image_tag}"
+
+        return result
+
+
 class ChatProcessor:
     """Chat processor."""
 
@@ -192,6 +254,9 @@ class ChatProcessor:
         self.store: StoreManagerProtocol = app.store
         self.dive_host: DiveMcpHost = app.dive_host["default"]
         self._str_output_parser = StrOutputParser()
+        self._content_handler = ContentHandler(
+            self.dive_host.model, self._str_output_parser
+        )
         self.disable_dive_system_prompt = (
             app.model_config_manager.full_config.disable_dive_system_prompt
             if app.model_config_manager.full_config
@@ -485,7 +550,7 @@ class ChatProcessor:
         raise RuntimeError("Unreachable")
 
     async def _stream_text_msg(self, message: AIMessage) -> None:
-        content = self._str_output_parser.invoke(message)
+        content = self._content_handler.invoke(message)
         if content:
             await self.stream.write(StreamMessage(type="text", content=content))
         if message.response_metadata.get("stop_reason") == "max_tokens":
