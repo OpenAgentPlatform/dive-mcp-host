@@ -1061,13 +1061,13 @@ async def test_resend_after_abort(  # noqa: C901
 
 @pytest.mark.asyncio
 async def test_oauth_required_event(
-    weather_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig], Callable[[str], Awaitable[tuple[str, str]]]]
+    weather_tool_streamable_server: tuple[
+        int, dict[str, ServerConfig], Callable[[str], Awaitable[tuple[str, str]]]
     ],
 ) -> None:
     """Test the oauth required event during tool call."""
+    _, configs, get_auth_code = weather_tool_streamable_server
     async with (
-        weather_tool_streamable_server as (_, configs, get_auth_code),
         DiveMcpHost(
             HostConfig(
                 llm=LLMConfig(

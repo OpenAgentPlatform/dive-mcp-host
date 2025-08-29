@@ -213,7 +213,6 @@ async def pproxy_server(
 
 
 @pytest_asyncio.fixture
-@asynccontextmanager
 async def weather_tool_streamable_server(
     unused_tcp_port_factory: Callable[[], int],
 ) -> AsyncGenerator[

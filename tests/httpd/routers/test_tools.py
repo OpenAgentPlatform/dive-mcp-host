@@ -33,6 +33,7 @@ class MockServerInfo:
         self.tools = tools or []
         self.url = url
         self.error_str = error
+        self.client_status = ClientState.FAILED if error else ClientState.RUNNING
 
 
 def test_initialized(test_client):
@@ -151,6 +152,7 @@ def test_tools_result_serialization():
                 enabled=True,
                 icon="test",
                 error=None,
+                status=ClientState.RUNNING,
             ),
         ],
     )
@@ -198,6 +200,7 @@ async def test_list_tools_with_error(mock_list_tools, test_client):
                 enabled=True,
                 icon="",
                 error="Test error",
+                status=ClientState.FAILED,
             ),
         ],
     )

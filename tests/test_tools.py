@@ -5,6 +5,7 @@ import random
 import secrets
 from contextlib import AbstractAsyncContextManager
 from copy import deepcopy
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
 from uuid import UUID
@@ -20,6 +21,7 @@ from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import McpServer, McpServerInfo, ServerConfig, ToolManager
 from dive_mcp_host.host.tools.mcp_server import McpTool
 from dive_mcp_host.host.tools.model_types import ClientState
+from dive_mcp_host.host.tools.oauth import OAuthManager
 
 if TYPE_CHECKING:
     from dive_mcp_host.models.fake import FakeMessageToolModel
@@ -309,6 +311,9 @@ async def test_remote_http_mcp_tool_exception_handling(
             name="echo",
             config=configs["echo"],
             log_buffer_length=log_config.buffer_length,
+            auth_manager=OAuthManager(
+                Path("oauth_store.json"), "dive://mcp.oauth.redirect"
+            ),
         ) as server,
     ):
         server.RESTART_INTERVAL = 0.1
@@ -395,6 +400,9 @@ async def test_local_http_mcp_tool_exception_handling(
         name="echo",
         config=echo_tool_local_sse_config["echo"],
         log_buffer_length=log_config.buffer_length,
+        auth_manager=OAuthManager(
+            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
+        ),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -480,6 +488,9 @@ async def test_stdio_mcp_tool_exception_handling(
         name="echo",
         config=echo_tool_stdio_config["echo"],
         log_buffer_length=log_config.buffer_length,
+        auth_manager=OAuthManager(
+            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
+        ),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -750,6 +761,9 @@ def test_tool_missing_properties(log_config: LogConfig) -> None:
             command="dummy",
             transport="stdio",
         ),
+        auth_manager=OAuthManager(
+            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
+        ),
     )
     mcp_tool = McpTool.from_tool(tool, mcp_server)
 
@@ -900,10 +914,12 @@ async def test_custum_initalize_timeout(
 ):
     """Test if our customized timeout actually apply."""
     echo_tool_local_sse_config["echo"].initial_timeout = 0
+    auth_manager = OAuthManager(Path("oauth_store.json"), "dive://mcp.oauth.redirect")
     async with McpServer(
         name="echo",
         config=echo_tool_local_sse_config["echo"],
         log_buffer_length=log_config.buffer_length,
+        auth_manager=auth_manager,
     ) as server:
         assert server.server_info.client_status == ClientState.FAILED
 
@@ -912,6 +928,7 @@ async def test_custum_initalize_timeout(
         name="echo",
         config=echo_tool_stdio_config["echo"],
         log_buffer_length=log_config.buffer_length,
+        auth_manager=auth_manager,
     ) as server:
         assert server.server_info.client_status == ClientState.FAILED
 
@@ -921,6 +938,7 @@ async def test_custum_initalize_timeout(
             name="echo",
             config=config["echo"],
             log_buffer_length=log_config.buffer_length,
+            auth_manager=auth_manager,
         ) as server:
             assert server.server_info.client_status == ClientState.FAILED
 
@@ -930,5 +948,6 @@ async def test_custum_initalize_timeout(
             name="echo",
             config=config["echo"],
             log_buffer_length=log_config.buffer_length,
+            auth_manager=auth_manager,
         ) as server:
             assert server.server_info.client_status == ClientState.FAILED
