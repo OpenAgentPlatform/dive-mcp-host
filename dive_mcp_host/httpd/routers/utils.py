@@ -227,6 +227,8 @@ class ContentHandler:
         for item in locations[1:]:
             if self._store.is_url(item):
                 url = item
+        if self._store.is_local_file(url):
+            url = f"file://{url}"
         return url
 
     async def _gemini_25_image(self, msg: AIMessage) -> str:
