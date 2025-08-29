@@ -72,7 +72,7 @@ class ServiceConfig(BaseModel):
             }
         },
         "root": {"level": "INFO", "handlers": ["default"]},
-        "loggers": {"dive_mcp_host": {"level": "DEBUG"}},
+        "loggers": {"dive_mcp_host": {"level": "INFO"}},
     }
 
 
