@@ -102,8 +102,8 @@ class Arguments(BaseModel):
         description="Directory to write log files.",
     )
 
-    log_level: str = Field(
-        default="INFO",
+    log_level: str | None = Field(
+        default=None,
         description="Log level to use.",
     )
 
