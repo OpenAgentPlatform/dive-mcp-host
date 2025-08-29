@@ -210,10 +210,10 @@ class OAuthManager(ContextProtocol):
         """Initialize the OAuth manager."""
         self._store = UnionTokenStore(path)
         self._callback_url = callback_url
-        self._terminated = asyncio.Event()
 
         # authorization tasks
         self._authorization_tasks: set[asyncio.Task] = set()
+        self._authorization_states: set[str] = set()
 
         # oauth results, state as key
         self._oauth_results: StateStore[str, AuthorizationProgress] = StateStore()
@@ -270,7 +270,9 @@ class OAuthManager(ContextProtocol):
 
                 async def callback(progress: AuthorizationProgress) -> None:
                     nonlocal state
-                    state = progress.state
+                    if progress.state:
+                        state = progress.state
+                        self._authorization_states.add(state)
                     await auth_callback(progress)
 
                 auth = await stack.enter_async_context(
@@ -370,6 +372,11 @@ class OAuthManager(ContextProtocol):
         def wait(value: AuthorizationProgress | None) -> bool:
             return value is not None and value.is_result()
 
+        if state not in self._authorization_states and (
+            result := await self._oauth_results.get(state)
+        ):
+            return result
+
         result = await self._oauth_results.wait_for(
             state,
             wait,
@@ -429,9 +436,7 @@ class OAuthManager(ContextProtocol):
         await auth_callback(progress)
 
         def wait(value: AuthorizationProgress | None) -> bool:
-            return self._terminated.is_set() or (
-                value is not None and (value.has_code() or value.is_result())
-            )
+            return value is not None and (value.has_code() or value.is_result())
 
         result = await self._oauth_results.wait_for(state, wait)
         assert result
@@ -468,5 +473,7 @@ class OAuthManager(ContextProtocol):
         try:
             yield self
         finally:
-            self._terminated.set()
-            # TODO: calcel all
+            for task in self._authorization_tasks:
+                task.cancel()
+            self._authorization_tasks.clear()
+            self._authorization_states.clear()

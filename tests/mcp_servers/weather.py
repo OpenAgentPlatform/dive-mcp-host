@@ -21,6 +21,21 @@ EXIPRE = 3600
 logger = getLogger(__name__)
 
 
+host = "127.0.0.1"
+port = 8000
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", type=str, default=host)
+    parser.add_argument("--port", type=int, default=port)
+    args = parser.parse_args()
+
+    host = args.host
+    port = args.port
+
+
 class SimpleTokenVerifier(TokenVerifier):
     """Simple token verifier for demonstration."""
 
@@ -45,8 +60,8 @@ mcp = FastMCP(
     # Auth settings for RFC 9728 Protected Resource Metadata
     auth=AuthSettings(
         # Authorization Server URL
-        issuer_url=AnyHttpUrl("https://localhost:8000"),
-        resource_server_url=AnyHttpUrl("http://localhost:8000"),  # This server's URL
+        issuer_url=AnyHttpUrl(f"http://{host}:{port}"),
+        resource_server_url=AnyHttpUrl(f"http://{host}:{port}"),  # This server's URL
         required_scopes=["user"],
     ),
     stateless_http=True,
@@ -339,13 +354,6 @@ async def oauth_token(token_request: Annotated[TokenRequest, Form()]) -> JSONRes
 
 
 if __name__ == "__main__":
-    import argparse
-
     import uvicorn
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--host", type=str, default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
-    args = parser.parse_args()
 
     uvicorn.run(app, host=args.host, port=args.port)

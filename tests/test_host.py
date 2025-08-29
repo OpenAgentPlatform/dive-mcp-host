@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from unittest import mock
@@ -23,7 +24,10 @@ from pydantic import AnyUrl, SecretStr
 from dive_mcp_host.host.chat import Chat
 from dive_mcp_host.host.conf import CheckpointerConfig, HostConfig
 from dive_mcp_host.host.conf.llm import LLMConfig
-from dive_mcp_host.host.custom_events import ToolCallProgress
+from dive_mcp_host.host.custom_events import (
+    ToolAuthenticationRequired,
+    ToolCallProgress,
+)
 from dive_mcp_host.host.errors import ThreadNotFoundError, ThreadQueryError
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import ServerConfig
@@ -1053,3 +1057,82 @@ async def test_resend_after_abort(  # noqa: C901
                             assert m.id == "H1"
                         elif isinstance(m, AIMessage):
                             assert m.id.startswith("phase2-")
+
+
+@pytest.mark.asyncio
+async def test_oauth_required_event(
+    weather_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig], Callable[[str], Awaitable[tuple[str, str]]]]
+    ],
+) -> None:
+    """Test the oauth required event during tool call."""
+    async with (
+        weather_tool_streamable_server as (_, configs, get_auth_code),
+        DiveMcpHost(
+            HostConfig(
+                llm=LLMConfig(
+                    model="fake",
+                    model_provider="dive",
+                ),
+                mcp_servers=configs,
+            )
+        ) as mcp_host,
+    ):
+        await mcp_host.tools_initialized_event.wait()
+        mcp_server = mcp_host.get_mcp_server("weather")
+        progress = await mcp_server.create_oauth_authorization()
+
+        assert progress.auth_url
+
+        code, state = await get_auth_code(progress.auth_url)
+
+        await mcp_host.oauth_manager.set_oauth_code(
+            code=code,
+            state=state,
+        )
+
+        await mcp_host.oauth_manager.wait_authorization(
+            state=progress.state,  # type: ignore
+            timeout=10,
+        )
+
+        await mcp_host.restart_mcp_server("weather")
+        mcp_host.oauth_manager.store.delete("weather")
+
+        chat = mcp_host.chat()
+        model = cast("FakeMessageToolModel", mcp_host.model)
+        model.responses = [
+            AIMessage(
+                content="",
+                tool_calls=[
+                    ToolCall(
+                        name="get_weather",
+                        args={"city": "Tokyo"},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(
+                content="Bye",
+            ),
+        ]
+        async with chat:
+            async for i in chat.query(
+                "Hello, world!", stream_mode=["messages", "custom"]
+            ):
+                i = cast(tuple[str, Any], i)
+                if i[0] == "custom" and i[1][0] == "tool_authentication_required":
+                    assert isinstance(i[1], tuple)
+                    assert i[1][0] == "tool_authentication_required"
+                    assert isinstance(i[1][1], ToolAuthenticationRequired)
+                    has_auth_required = True
+                    code, state = await get_auth_code(i[1][1].auth_url)
+                    await mcp_host.oauth_manager.set_oauth_code(
+                        code=code,
+                        state=state,
+                    )
+                if i[0] == "messages" and isinstance(i[1][0], ToolMessage):
+                    completed_tool_call = True
+        assert has_auth_required
+        assert completed_tool_call
