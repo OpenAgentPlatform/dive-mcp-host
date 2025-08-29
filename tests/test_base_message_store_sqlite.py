@@ -632,7 +632,6 @@ async def test_update_message_content(
     updated_message = await message_store.update_message_content(
         message_id=user_message.message_id,
         data=update_data,
-        user_id=sample_chat.user_id,
     )
 
     # Verify the returned message
@@ -673,36 +672,6 @@ async def test_update_message_content_not_found(
         await message_store.update_message_content(
             message_id="non_existent_message",
             data=update_data,
-            user_id=sample_chat.user_id,
-        )
-
-
-@pytest.mark.asyncio
-async def test_update_message_content_wrong_user(
-    message_store: BaseMessageStore,
-    sample_chat: ORMChat,
-    sample_messages: dict[str, ORMMessage],
-):
-    """Test updating a message with wrong user ID."""
-    # Get the user message to update
-    user_message = sample_messages["user_message"]
-
-    # Create update data
-    update_data = QueryInput(
-        text="Updated message content",
-        images=["image1.jpg"],
-        documents=["doc1.pdf"],
-    )
-
-    # Try to update the message with wrong user ID
-    with pytest.raises(
-        ValueError,
-        match=f"Message {user_message.message_id} not found",
-    ):
-        await message_store.update_message_content(
-            message_id=user_message.message_id,
-            data=update_data,
-            user_id="wrong_user_id",
         )
 
 
@@ -724,7 +693,6 @@ async def test_update_message_content_empty_data(
     updated_message = await message_store.update_message_content(
         message_id=user_message.message_id,
         data=update_data,
-        user_id=sample_chat.user_id,
     )
 
     # Verify the returned message
