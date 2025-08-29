@@ -22,6 +22,26 @@ class LocalStore(StoreProtocol):
         upload_dir.mkdir(parents=True, exist_ok=True)
         self.upload_dir = upload_dir
 
+    def save_base64_image(self, base64_str: str, extension: str = "png") -> str:
+        """Save base64 image to file.
+
+        Args:
+            base64_str: Image in base64
+            extension: File extension
+
+        Returns:
+            File path to image file
+        """
+        base64_bytes = BytesIO(base64.b64decode(base64_str))
+        pil_image = Image.open(base64_bytes)
+        file_name = f"{self._gen_rand_str()}.{extension}"
+        file_path = self.upload_dir / file_name
+        pil_image.save(file_path)
+        return str(file_path)
+
+    def _gen_rand_str(self) -> str:
+        return f"{int(time.time() * 1000)}-{randint(0, int(1e9))}"  # noqa: S311
+
     async def save_file(
         self,
         file: UploadFile | str,
@@ -35,7 +55,7 @@ class LocalStore(StoreProtocol):
 
         ext = Path(file.filename).suffix
 
-        tmp_name = f"{int(time.time() * 1000)}-{randint(0, int(1e9))}{ext}"  # noqa: S311
+        tmp_name = f"{self._gen_rand_str()}{ext}"
         tmp_file = self.upload_dir.joinpath(tmp_name)
 
         hash_md5 = md5(usedforsecurity=False)

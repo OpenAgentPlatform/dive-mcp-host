@@ -76,8 +76,30 @@ class StoreManager(StoreManagerProtocol):
                 self._storages.append(store)
             yield self
 
+    async def save_base64_image(self, data: str, extension: str = "png") -> list[str]:
+        """Save base64 image.
+
+        Args:
+            data: Image in base64
+            extension: File extension
+
+        Returns:
+            List of paths / urls
+        """
+        path = self._local_store.save_base64_image(data, extension)
+        additional_paths = await self._run_storage_callbacks(path)
+        return [path, *additional_paths]
+
+    async def _run_storage_callbacks(self, file: UploadFile | str) -> list[str]:
+        tasks: list[asyncio.Task] = []
+        async with asyncio.TaskGroup() as tg:
+            for store in self._storages:
+                tasks.append(tg.create_task(store.save_file(file)))
+        return [i.result() for i in tasks if i.result()]
+
     async def save_files(
-        self, files: list[UploadFile | str]
+        self,
+        files: list[UploadFile | str],
     ) -> list[tuple[FileType, list[str]]]:
         """Save files to the stores.
 
@@ -95,11 +117,7 @@ class StoreManager(StoreManagerProtocol):
                 continue
             paths = [path]
             if self._storage_callbacks:
-                tasks: list[asyncio.Task] = []
-                async with asyncio.TaskGroup() as tg:
-                    for store in self._storages:
-                        tasks.append(tg.create_task(store.save_file(file)))
-                additional_paths = [i.result() for i in tasks if i.result()]
+                additional_paths = await self._run_storage_callbacks(file)
                 paths.extend(additional_paths)
             all_paths.append((FileType.from_file_path(path), paths))
         return all_paths

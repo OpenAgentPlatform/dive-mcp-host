@@ -1,19 +1,24 @@
+import tempfile
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Any, cast
+from hashlib import md5
+from typing import TYPE_CHECKING, Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.output_parsers import StrOutputParser
 
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, ContentHandler
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.models.fake import FakeMessageToolModel, load_model
+from dive_mcp_host.httpd.store.manager import StoreManager
 from tests.httpd.routers.conftest import config_files  # noqa: F401
+
+if TYPE_CHECKING:
+    from dive_mcp_host.models.fake import FakeMessageToolModel
 
 
 @pytest_asyncio.fixture
@@ -113,11 +118,14 @@ async def test_generate_title(processor: ChatProcessor):
     assert r == "Simple Greeting 2"
 
 
-def test_content_handler_gemini_image():
+@pytest.mark.asyncio
+async def test_content_handler_gemini_image_with_url():
     """Check if content handler can extract what is needed."""
-    model = load_model()
-    model.name = "gemini-2.5-flash-image-preview"
-    content_handler = ContentHandler(model, StrOutputParser())
+    store = StoreManager()
+    store.save_base64_image = AsyncMock(
+        return_value=["/some/path", "http://someurl.com"]
+    )
+    content_handler = ContentHandler(store)
     message = AIMessage(
         content=[
             "Here is a cuddly cat wearing a hat! ",
@@ -125,10 +133,44 @@ def test_content_handler_gemini_image():
                 "type": "image_url",
                 "image_url": {"url": "data:image/png;base64,XXXXXXXX"},
             },
-        ]
+        ],
+        response_metadata={"model_name": "gemini-2.5-flash-image-preview"},
     )
-    content = content_handler.invoke(message)
+    content = await content_handler.invoke(message)
     assert (
-        content
-        == "Here is a cuddly cat wearing a hat!   ![image](data:image/png;base64,XXXXXXXX)"  # noqa: E501
+        content == "Here is a cuddly cat wearing a hat!   ![image](http://someurl.com)"
     )
+
+    # Cache should exist
+    md5_hash = md5(b"XXXXXXXX", usedforsecurity=False).hexdigest()
+    assert md5_hash in content_handler._cache
+    assert content_handler._cache[md5_hash] == ["/some/path", "http://someurl.com"]
+
+
+@pytest.mark.asyncio
+async def test_content_handler_gemini_image_with_local_file():
+    """Make sure local file also works."""
+    with tempfile.NamedTemporaryFile(prefix="dummyfile-") as f:
+        store = StoreManager()
+        store.save_base64_image = AsyncMock(return_value=[f.name])
+        content_handler = ContentHandler(store)
+        message = AIMessage(
+            content=[
+                "Here is a cuddly cat wearing a hat! ",
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,XXXXXXXX"},
+                },
+            ],
+            response_metadata={"model_name": "gemini-2.5-flash-image-preview"},
+        )
+        content = await content_handler.invoke(message)
+        assert (
+            content
+            == f"Here is a cuddly cat wearing a hat!   ![image](file://{f.name})"
+        )
+
+        # Cache should exist
+        md5_hash = md5(b"XXXXXXXX", usedforsecurity=False).hexdigest()
+        assert md5_hash in content_handler._cache
+        assert content_handler._cache[md5_hash] == [f.name]
