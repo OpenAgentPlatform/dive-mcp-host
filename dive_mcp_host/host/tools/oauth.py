@@ -438,9 +438,22 @@ class OAuthManager(ContextProtocol):
         def wait(value: AuthorizationProgress | None) -> bool:
             return value is not None and (value.has_code() or value.is_result())
 
-        result = await self._oauth_results.wait_for(state, wait)
-        assert result
-        return result.code or "", state
+        try:
+            if result := await self._oauth_results.wait_for(state, wait, timeout=300):
+                return result.code or "", state
+        except TimeoutError:
+            logger.warning("timeout to wait for oauth code")
+            progress = await self._oauth_results.get(state)
+            if not progress:
+                progress = AuthorizationProgress(
+                    type="auth_failed",
+                    state=state,
+                    server_name=name,
+                )
+            progress.type = "auth_failed"
+            progress.error = "timeout to wait for oauth code"
+            await self._oauth_results.update(state, progress)
+        return "", state
 
     def get_state(self, url: str) -> str | None:
         """Get the state from the URL."""
