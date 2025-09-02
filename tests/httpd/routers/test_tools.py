@@ -29,8 +29,9 @@ class MockTool:
 class MockServerInfo:
     """Mock server info class."""
 
-    def __init__(self, tools=None, error=None):
+    def __init__(self, tools=None, error=None, url: str | None = None):
         self.tools = tools or []
+        self.url = url
         self.error_str = error
 
 
@@ -89,11 +90,12 @@ def test_list_tools_mock_cache(
     (client, _) = test_client
     mock_mcp_server_info.return_value = {
         "test_tool": MockServerInfo(
+            url="http://localhost:8080/mcp",
             tools=[
                 MockTool(
                     name="test_tool", description="Test tool description", enable=True
                 )
-            ]
+            ],
         )
     }
     mocked_cache = MagicMock()
@@ -116,6 +118,7 @@ def test_list_tools_mock_cache(
                     "enabled": False,
                     "icon": "",
                     "tools": [],
+                    "url": None,
                     "error": None,
                 },
                 {
@@ -125,6 +128,7 @@ def test_list_tools_mock_cache(
                     ],
                     "description": "",
                     "enabled": True,
+                    "url": "http://localhost:8080/mcp",
                     "icon": "",
                     "error": None,
                 },
