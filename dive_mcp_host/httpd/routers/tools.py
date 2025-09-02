@@ -71,6 +71,7 @@ async def list_tools(  # noqa: PLR0912, C901
                 )
                 for tool in server_info.tools
             ],
+            url=server_info.url,
             description="",
             enabled=True,
             icon="",
