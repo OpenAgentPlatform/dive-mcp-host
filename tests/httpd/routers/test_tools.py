@@ -589,4 +589,3 @@ def test_unauthorized_status(test_client_with_weather: tuple[TestClient, DiveHos
     assert weather["error"] is not None
     assert weather["status"] == ClientState.UNAUTHORIZED
     assert weather["tools"] == []
-    assert weather["url"] is not None

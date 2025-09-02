@@ -103,7 +103,6 @@ class McpTool(BaseModel):
     url: str | None = None
     status: str
     error: str | None = None
-    url: str | None = None
 
 
 class ToolsCache(RootModel[dict[str, McpTool]]):
