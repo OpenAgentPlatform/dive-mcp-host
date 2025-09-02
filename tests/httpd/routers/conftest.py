@@ -1,8 +1,11 @@
+import asyncio
+import signal
 import tempfile
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 from dataclasses import dataclass
 from pathlib import Path
 
+import httpx
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
@@ -147,3 +150,54 @@ async def test_client(
         )
 
         yield client, app
+
+
+@pytest_asyncio.fixture
+async def test_client_with_weather(
+    unused_tcp_port_factory: Callable[[], int],
+    config_files: ConfigFileNames,
+) -> AsyncGenerator[tuple[TestClient, DiveHostAPI], None]:
+    """Create a test client with weather tool."""
+    port = unused_tcp_port_factory()
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        "-m",
+        "tests.mcp_servers.weather",
+        "--host=localhost",
+        f"--port={port}",
+    )
+    while True:
+        try:
+            _ = await httpx.AsyncClient().get(f"http://localhost:{port}/")
+            break
+        except httpx.HTTPStatusError:
+            break
+        except:  # noqa: E722
+            await asyncio.sleep(0.1)
+
+    # overwrite the mcp server config
+    new_mcp_servers = Config(
+        mcpServers={
+            "weather": MCPServerConfig(
+                transport="streamable",
+                url=f"http://localhost:{port}/weather/mcp",
+            ),
+        },
+    )
+
+    Path(config_files.mcp_server_config_file).write_bytes(
+        new_mcp_servers.model_dump_json(by_alias=True).encode("utf-8")
+    )
+
+    try:
+        service_manager = ServiceManager(config_files.service_config_file)
+        service_manager.initialize()
+        app = create_app(service_manager)
+        app.set_status_report_info(listen="127.0.0.1")
+        app.set_listen_port(61990)
+        with TestClient(app, raise_server_exceptions=False) as client:
+            client.get("/api/tools/initialized")
+            yield client, app
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        await proc.wait()

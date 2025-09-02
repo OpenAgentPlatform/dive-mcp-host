@@ -572,3 +572,20 @@ def test_stream_multiple_logs(test_client: tuple[TestClient, DiveHostAPI]):
         assert len(servers_reached_running) >= 2, (
             "At least 2 different servers should reach RUNNING state"
         )
+
+
+def test_unauthorized_status(test_client_with_weather: tuple[TestClient, DiveHostAPI]):
+    """Test unauthorized status."""
+    client, _ = test_client_with_weather
+    response = client.get("/api/tools")
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["success"] is True
+    weather = next(
+        (tool for tool in response_data["tools"] if tool["name"] == "weather"), None
+    )
+    assert weather is not None
+    assert weather["enabled"] is True
+    assert weather["error"] is not None
+    assert weather["status"] == ClientState.UNAUTHORIZED
+    assert weather["tools"] == []
