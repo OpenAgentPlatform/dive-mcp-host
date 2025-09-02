@@ -90,6 +90,9 @@ class McpServerInfo(BaseModel):
     initialize_result.instructions: Server instructions.
     """
 
+    url: str | None = None
+    """URL for streamable http / sse."""
+
     error: BaseException | BaseExceptionGroup | None
     """The error that occurred of the MCP server."""
 
@@ -268,6 +271,7 @@ class McpServer(ContextProtocol):
             initialize_result=self._initialize_result,
             tools=tools,
             client_status=self._client_status,
+            url=self.config.url,
             error=self._exception,
         )
 

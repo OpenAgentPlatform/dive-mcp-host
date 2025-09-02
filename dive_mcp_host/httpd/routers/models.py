@@ -100,6 +100,7 @@ class McpTool(BaseModel):
     description: str
     enabled: bool
     icon: str
+    url: str | None = None
     error: str | None = None
 
 
