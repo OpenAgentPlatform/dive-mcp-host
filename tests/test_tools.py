@@ -311,9 +311,7 @@ async def test_remote_http_mcp_tool_exception_handling(
             name="echo",
             config=configs["echo"],
             log_buffer_length=log_config.buffer_length,
-            auth_manager=OAuthManager(
-                Path("oauth_store.json"), "dive://mcp.oauth.redirect"
-            ),
+            auth_manager=OAuthManager(),
         ) as server,
     ):
         server.RESTART_INTERVAL = 0.1
@@ -400,9 +398,7 @@ async def test_local_http_mcp_tool_exception_handling(
         name="echo",
         config=echo_tool_local_sse_config["echo"],
         log_buffer_length=log_config.buffer_length,
-        auth_manager=OAuthManager(
-            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
-        ),
+        auth_manager=OAuthManager(),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -488,9 +484,7 @@ async def test_stdio_mcp_tool_exception_handling(
         name="echo",
         config=echo_tool_stdio_config["echo"],
         log_buffer_length=log_config.buffer_length,
-        auth_manager=OAuthManager(
-            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
-        ),
+        auth_manager=OAuthManager(),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -761,9 +755,7 @@ def test_tool_missing_properties(log_config: LogConfig) -> None:
             command="dummy",
             transport="stdio",
         ),
-        auth_manager=OAuthManager(
-            Path("oauth_store.json"), "dive://mcp.oauth.redirect"
-        ),
+        auth_manager=OAuthManager(),
     )
     mcp_tool = McpTool.from_tool(tool, mcp_server)
 
@@ -914,7 +906,7 @@ async def test_custum_initalize_timeout(
 ):
     """Test if our customized timeout actually apply."""
     echo_tool_local_sse_config["echo"].initial_timeout = 0
-    auth_manager = OAuthManager(Path("oauth_store.json"), "dive://mcp.oauth.redirect")
+    auth_manager = OAuthManager()
     async with McpServer(
         name="echo",
         config=echo_tool_local_sse_config["echo"],

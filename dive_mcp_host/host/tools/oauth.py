@@ -224,7 +224,9 @@ class OAuthManager(ContextProtocol):
     """A manager for OAuth providers."""
 
     def __init__(
-        self, callback_url: str, store: AbstractUnionTokenStore | None = None
+        self,
+        callback_url: str = "http://localhost:61990/api/tools/login/oauth/callback",
+        store: AbstractUnionTokenStore | None = None,
     ) -> None:
         """Initialize the OAuth manager."""
         self._store = store or LocalTokenStore()

@@ -33,10 +33,9 @@ class ToolManager(ContextProtocol):
 
     def __init__(
         self,
-        *,
-        oauth_manager: OAuthManager,
         configs: dict[str, ServerConfig],
         log_config: LogConfig = LogConfig(),
+        oauth_manager: OAuthManager = OAuthManager(),
     ) -> None:
         """Initialize the ToolManager."""
         self._configs = configs
