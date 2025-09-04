@@ -21,7 +21,7 @@ from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer
-from dive_mcp_host.host.tools.oauth import OAuthManager
+from dive_mcp_host.host.tools.oauth import AbstractUnionTokenStore, OAuthManager
 from dive_mcp_host.models import load_model
 
 if TYPE_CHECKING:
@@ -72,12 +72,14 @@ class DiveMcpHost(ContextProtocol):
         self,
         config: HostConfig,
         store_manager: StoreManagerProtocol | None = None,
+        oauth_store: AbstractUnionTokenStore | None = None,
     ) -> None:
         """Initialize the host.
 
         Args:
             config: The host configuration.
             store_manager: The store manager.
+            oauth_store: The OAuth store.
         """
         self._config = config
         self._model: BaseChatModel | None = None
@@ -85,7 +87,9 @@ class DiveMcpHost(ContextProtocol):
         self._tool_manager: ToolManager = ToolManager(
             configs=self._config.mcp_servers,
             log_config=self.config.log_config,
-            oauth_config=self.config.oauth_config,
+            oauth_manager=OAuthManager(
+                self.config.oauth_config.redirect_uri, oauth_store
+            ),
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None

@@ -8,14 +8,15 @@ from collections.abc import AsyncGenerator
 from itertools import chain
 from typing import TYPE_CHECKING, Self
 
-from dive_mcp_host.host.conf import LogConfig, OAuthConfig, ServerConfig
+from dive_mcp_host.host.conf import LogConfig, ServerConfig
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
-from dive_mcp_host.host.tools.oauth import OAuthManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
+
+    from dive_mcp_host.host.tools.oauth import OAuthManager
 
 
 logger = logging.getLogger(__name__)
@@ -32,9 +33,10 @@ class ToolManager(ContextProtocol):
 
     def __init__(
         self,
+        *,
+        oauth_manager: OAuthManager,
         configs: dict[str, ServerConfig],
         log_config: LogConfig = LogConfig(),
-        oauth_config: OAuthConfig = OAuthConfig(),
     ) -> None:
         """Initialize the ToolManager."""
         self._configs = configs
@@ -42,10 +44,7 @@ class ToolManager(ContextProtocol):
         self._log_manager = LogManager(
             log_dir=log_config.log_dir, rotation_files=log_config.rotation_files
         )
-        self._oauth_config = oauth_config
-        self._oauth_manager = OAuthManager(
-            oauth_config.store_path, oauth_config.redirect_uri
-        )
+        self._oauth_manager = oauth_manager
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
         self._lock = asyncio.Lock()

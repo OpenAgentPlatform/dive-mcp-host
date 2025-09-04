@@ -10,6 +10,7 @@ from sqlalchemy import (
     Index,
     Integer,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB as PGJSONB
 from sqlalchemy.dialects.sqlite import JSON as SQLiteJSON  # noqa: N811
@@ -182,4 +183,45 @@ class ResourceUsage(Base):
         foreign_keys=message_id,
         back_populates="resource_usage",
         passive_deletes=True,
+    )
+
+
+class OAuth(Base):
+    """Oauth Credentials model.
+
+    Attributes:
+        id: primary key.
+        user_id: User ID.
+        name: mcp server name.
+        access_token: Access token.
+        refresh_token: Refresh token.
+        expire: Expire time.
+        scope: Scope.
+        client_id: Client ID.
+        client_secret: Client secret.
+        client_info: Client info.
+    """
+
+    __tablename__ = "oauth_credentials"
+    __table_args__ = (
+        Index("idx_oauth_user_id", "user_id", postgresql_using="hash"),
+        UniqueConstraint("user_id", "name", name="uq_oauth_user_id_name"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer(), "sqlite"),
+        primary_key=True,
+        autoincrement=True,
+    )
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    # name unique constraint with user_id
+    name: Mapped[str] = mapped_column(Text())
+    access_token: Mapped[str | None] = mapped_column(Text())
+    refresh_token: Mapped[str | None] = mapped_column(Text())
+    expire: Mapped[datetime | None] = mapped_column(DateTime())
+    scope: Mapped[str | None] = mapped_column(Text())
+    client_id: Mapped[str | None] = mapped_column(Text())
+    client_secret: Mapped[str | None] = mapped_column(Text())
+    client_info: Mapped[dict | None] = mapped_column(
+        PGJSONB().with_variant(SQLiteJSON(), "sqlite")
     )

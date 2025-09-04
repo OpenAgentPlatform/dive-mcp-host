@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable, Hashable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -9,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, OAuthFlowError
+from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.message import SessionMessage
 from pydantic import AnyUrl, Field, RootModel
@@ -128,7 +129,9 @@ class TokenStore:
 
     tokens: OAuthToken | None = None
     client_info: OAuthClientInformationFull | None = None
-    update_method: Callable[[Self], None] = Field(default=lambda _: None, exclude=True)
+    update_method: Callable[[Self], Awaitable[None]] | None = Field(
+        default=None, exclude=True
+    )
 
     async def get_tokens(self) -> OAuthToken | None:
         """Get the tokens for the client."""
@@ -137,7 +140,8 @@ class TokenStore:
     async def set_tokens(self, tokens: OAuthToken) -> None:
         """Set the tokens for the client."""
         self.tokens = tokens
-        self.update_method(self)
+        if self.update_method:
+            await self.update_method(self)
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         """Get the client information for the client."""
@@ -146,7 +150,20 @@ class TokenStore:
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         """Set the client information for the client."""
         self.client_info = client_info
-        self.update_method(self)
+        if self.update_method:
+            await self.update_method(self)
+
+
+class AbstractUnionTokenStore(ABC):
+    """Abstract UnionTokenStore."""
+
+    @abstractmethod
+    async def get(self, name: str) -> TokenStore:
+        """Get the token store for a given name."""
+
+    @abstractmethod
+    async def delete(self, name: str) -> None:
+        """Delete the token store for a given name."""
 
 
 class RootTokenStore(RootModel):
@@ -155,14 +172,14 @@ class RootTokenStore(RootModel):
     root: dict[str, TokenStore] = {}
 
 
-class UnionTokenStore:
+class LocalTokenStore(AbstractUnionTokenStore):
     """A union token store that stores tokens for multiple clients."""
 
     _root_store: RootTokenStore
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path | None = None) -> None:
         """Initialize the union token store."""
-        self._path = path
+        self._path = path or Path.cwd() / "oauth_store.json"
         self._load()
 
     def _load(self) -> None:
@@ -186,18 +203,18 @@ class UnionTokenStore:
         except:
             raise
 
-    def _update(self, name: str, store: TokenStore) -> None:
+    async def _update(self, name: str, store: TokenStore) -> None:
         """Update the token store for a given name."""
         self._root_store.root[name] = store
         self.save()
 
-    def get(self, name: str) -> TokenStore:
+    async def get(self, name: str) -> TokenStore:
         """Get the token store for a given name."""
         store = self._root_store.root.get(name, TokenStore())
         store.update_method = lambda s: self._update(name, s)
         return store
 
-    def delete(self, name: str) -> None:
+    async def delete(self, name: str) -> None:
         """Delete the token store for a given name."""
         self._root_store.root.pop(name, None)
         self.save()
@@ -206,9 +223,11 @@ class UnionTokenStore:
 class OAuthManager(ContextProtocol):
     """A manager for OAuth providers."""
 
-    def __init__(self, path: Path, callback_url: str) -> None:
+    def __init__(
+        self, callback_url: str, store: AbstractUnionTokenStore | None = None
+    ) -> None:
         """Initialize the OAuth manager."""
-        self._store = UnionTokenStore(path)
+        self._store = store or LocalTokenStore()
         self._callback_url = callback_url
 
         # authorization tasks
@@ -224,7 +243,7 @@ class OAuthManager(ContextProtocol):
         return self._callback_url
 
     @property
-    def store(self) -> UnionTokenStore:
+    def store(self) -> AbstractUnionTokenStore:
         """Get the store."""
         return self._store
 
@@ -249,6 +268,7 @@ class OAuthManager(ContextProtocol):
             auth = self.get_provider(
                 name=name,
                 server_url=server_url,
+                storage=await self.store.get(name),
                 auth_callback=callback,
             )
             yield auth
@@ -337,7 +357,7 @@ class OAuthManager(ContextProtocol):
         server_url: str,
     ) -> AuthorizationProgress:
         """Authorization task."""
-        self.store.delete(name)
+        await self.store.delete(name)
         progress_queue = asyncio.Queue()
 
         task = asyncio.create_task(
@@ -389,6 +409,7 @@ class OAuthManager(ContextProtocol):
         self,
         name: str,
         server_url: str,
+        storage: TokenStorage,
         auth_callback: Callable[[AuthorizationProgress], Awaitable[None]],
     ) -> OAuthClientProvider:
         """Get the OAuth provider for a given name."""
@@ -402,7 +423,7 @@ class OAuthManager(ContextProtocol):
                 grant_types=["authorization_code", "refresh_token"],
                 response_types=["code"],
             ),
-            storage=self._store.get(name),
+            storage=storage,
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
         )

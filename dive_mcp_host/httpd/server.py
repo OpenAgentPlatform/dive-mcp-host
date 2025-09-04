@@ -30,6 +30,7 @@ from dive_mcp_host.httpd.conf.prompt import PromptManager
 from dive_mcp_host.httpd.database.migrate import db_migration
 from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.msg_store.sqlite import SQLiteMessageStore
+from dive_mcp_host.httpd.database.oauth_store.base import BaseOAuthtokenStore
 from dive_mcp_host.httpd.middlewares.plugins import PluginMiddlewaresManager
 from dive_mcp_host.httpd.routers.plugins import RouterPlugin
 from dive_mcp_host.httpd.store.cache import LocalFileCache
@@ -167,6 +168,7 @@ class DiveHostAPI(FastAPI):
         )
         self._db_sessionmaker = async_sessionmaker(self._engine, class_=AsyncSession)
         self._msg_store = SQLiteMessageStore
+        self._oauth_store = BaseOAuthtokenStore(self._db_sessionmaker)
 
         # ================================================
         # Store
@@ -186,7 +188,7 @@ class DiveHostAPI(FastAPI):
         async with AsyncExitStack() as stack:
             await stack.enter_async_context(self._plugin_manager)
             await stack.enter_async_context(self._store)
-            default_host = DiveMcpHost(config, self._store)
+            default_host = DiveMcpHost(config, self._store, self._oauth_store)
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
 
