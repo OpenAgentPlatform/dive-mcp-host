@@ -12,11 +12,10 @@ from dive_mcp_host.host.conf import LogConfig, ServerConfig
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
+from dive_mcp_host.host.tools.oauth import OAuthManager
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
-
-    from dive_mcp_host.host.tools.oauth import OAuthManager
 
 
 logger = logging.getLogger(__name__)
