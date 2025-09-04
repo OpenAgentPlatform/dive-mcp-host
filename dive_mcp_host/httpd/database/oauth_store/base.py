@@ -4,11 +4,11 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from dive_mcp_host.host.tools.oauth import AbstractUnionTokenStore, TokenStore
+from dive_mcp_host.host.tools.oauth import BaseTokenStore, TokenStore
 from dive_mcp_host.httpd.database.orm_models import OAuth
 
 
-class BaseOAuthtokenStore(AbstractUnionTokenStore):
+class BaseOAuthtokenStore(BaseTokenStore):
     """Base OAuth token store."""
 
     def __init__(

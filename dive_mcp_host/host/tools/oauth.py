@@ -1,10 +1,9 @@
 import asyncio
 import logging
-from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Awaitable, Callable, Hashable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
-from typing import Literal, Self
+from typing import Literal, Protocol, Self
 from urllib.parse import parse_qs, urlparse
 
 import httpx
@@ -154,28 +153,28 @@ class TokenStore:
             await self.update_method(self)
 
 
-class AbstractUnionTokenStore(ABC):
+class BaseTokenStore(Protocol):
     """Abstract UnionTokenStore."""
 
-    @abstractmethod
     async def get(self, name: str) -> TokenStore:
         """Get the token store for a given name."""
+        ...
 
-    @abstractmethod
     async def delete(self, name: str) -> None:
         """Delete the token store for a given name."""
+        ...
 
 
-class RootTokenStore(RootModel):
+class DictTokenStore(RootModel):
     """A root token store that stores token stores for multiple clients."""
 
     root: dict[str, TokenStore] = {}
 
 
-class LocalTokenStore(AbstractUnionTokenStore):
+class LocalTokenStore(BaseTokenStore):
     """A union token store that stores tokens for multiple clients."""
 
-    _root_store: RootTokenStore
+    _root_store: DictTokenStore
 
     def __init__(self, path: Path | None = None) -> None:
         """Initialize the union token store."""
@@ -185,9 +184,9 @@ class LocalTokenStore(AbstractUnionTokenStore):
     def _load(self) -> None:
         try:
             with self._path.open() as file:
-                root_store = RootTokenStore.model_validate_json(file.read())
+                root_store = DictTokenStore.model_validate_json(file.read())
         except FileNotFoundError:
-            root_store = RootTokenStore()
+            root_store = DictTokenStore()
 
         self._root_store = root_store
 
@@ -226,7 +225,7 @@ class OAuthManager(ContextProtocol):
     def __init__(
         self,
         callback_url: str = "http://localhost:61990/api/tools/login/oauth/callback",
-        store: AbstractUnionTokenStore | None = None,
+        store: BaseTokenStore | None = None,
     ) -> None:
         """Initialize the OAuth manager."""
         self._store = store or LocalTokenStore()
@@ -245,7 +244,7 @@ class OAuthManager(ContextProtocol):
         return self._callback_url
 
     @property
-    def store(self) -> AbstractUnionTokenStore:
+    def store(self) -> BaseTokenStore:
         """Get the store."""
         return self._store
 

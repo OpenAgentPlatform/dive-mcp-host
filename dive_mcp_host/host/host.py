@@ -21,7 +21,7 @@ from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer
-from dive_mcp_host.host.tools.oauth import AbstractUnionTokenStore, OAuthManager
+from dive_mcp_host.host.tools.oauth import BaseTokenStore, OAuthManager
 from dive_mcp_host.models import load_model
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ class DiveMcpHost(ContextProtocol):
         self,
         config: HostConfig,
         store_manager: StoreManagerProtocol | None = None,
-        oauth_store: AbstractUnionTokenStore | None = None,
+        oauth_store: BaseTokenStore | None = None,
     ) -> None:
         """Initialize the host.
 
