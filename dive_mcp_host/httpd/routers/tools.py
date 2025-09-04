@@ -303,6 +303,6 @@ async def delete_oauth(
 ) -> ResultResponse:
     """Delete OAuth."""
     oauth_manager = app.dive_host["default"].oauth_manager
-    oauth_manager.store.delete(oauth_request.server_name)
+    await oauth_manager.store.delete(oauth_request.server_name)
     await app.dive_host["default"].restart_mcp_server(oauth_request.server_name)
     return ResultResponse(success=True)

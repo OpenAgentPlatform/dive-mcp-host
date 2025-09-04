@@ -1097,7 +1097,7 @@ async def test_oauth_required_event(
         )
 
         await mcp_host.restart_mcp_server("weather")
-        mcp_host.oauth_manager.store.delete("weather")
+        await mcp_host.oauth_manager.store.delete("weather")
 
         chat = mcp_host.chat()
         model = cast("FakeMessageToolModel", mcp_host.model)
