@@ -1126,6 +1126,7 @@ async def test_oauth_required_event(
                     assert isinstance(i[1], tuple)
                     assert i[1][0] == "tool_authentication_required"
                     assert isinstance(i[1][1], ToolAuthenticationRequired)
+                    assert i[1][1].server_name == "weather"
                     has_auth_required = True
                     code, state = await get_auth_code(i[1][1].auth_url)
                     await mcp_host.oauth_manager.set_oauth_code(

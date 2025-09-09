@@ -44,6 +44,7 @@ class ToolAuthenticationRequired(CustomEvent):
     """The error of a tool authentication."""
 
     NAME: ClassVar[str] = "tool_authentication_required"
+    server_name: str
     auth_url: str
 
 

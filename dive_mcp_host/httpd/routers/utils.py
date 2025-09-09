@@ -687,7 +687,8 @@ class ChatProcessor:
                         InteractiveContent(
                             type="authentication_required",
                             content=AuthenticationRequiredContent(
-                                auth_url=content.auth_url
+                                server_name=content.server_name,
+                                auth_url=content.auth_url,
                             ),
                         )
                     )

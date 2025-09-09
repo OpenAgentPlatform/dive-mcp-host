@@ -1092,7 +1092,9 @@ class McpTool(BaseTool):
                 await custom_event_queue.put(
                     (
                         ToolAuthenticationRequired.NAME,
-                        ToolAuthenticationRequired(auth_url=progress.auth_url),
+                        ToolAuthenticationRequired(
+                            server_name=self.mcp_server.name, auth_url=progress.auth_url
+                        ),
                     )
                 )
 

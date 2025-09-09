@@ -142,6 +142,7 @@ class MessageInfoContent(BaseModel):
 class AuthenticationRequiredContent(BaseModel):
     """Authentication required content."""
 
+    server_name: str
     auth_url: str
 
 
