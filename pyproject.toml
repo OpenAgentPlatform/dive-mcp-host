@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dive-mcp-host"
-version = "0.4.3"
+version = "0.5.0"
 description = "A MCP host for Dive"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -31,7 +31,7 @@ dependencies = [
     "langgraph>=0.6.6",
     "fastapi>=0.116.1",
     "httpx[brotli,http2,socks,zstd]",
-    "mcp>=1.13",
+    "mcp>=1.14",
     "anyio>=4.10.0",
     "pydantic>=2.11.7",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
