@@ -111,7 +111,12 @@ class MCPServerManagerPlugin:
                 response.status_code,
             )
         except ValidationError:
-            logger.exception("Failed to validate response: %s", response.text)
+            logger.exception(
+                "Failed to validate response: %s, url: %s, method: %s",
+                response.text,
+                url,
+                method,
+            )
             return None, response.status_code
 
     async def revoke_device_token(self) -> None:
