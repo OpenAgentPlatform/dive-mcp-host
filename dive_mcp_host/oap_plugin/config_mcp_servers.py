@@ -17,7 +17,7 @@ from dive_mcp_host.httpd.conf.mcp_servers import (
 from dive_mcp_host.oap_plugin.models import BaseResponse, OAPConfig, UserMcpConfig
 
 CONFIG_FILE = Path(DIVE_CONFIG_DIR, "oap_config.json")
-logger = logging.getLogger("OAP_PLUGIN")
+logger = logging.getLogger(__name__)
 
 MIN_REFRESH_INTERVAL = 60
 
@@ -32,7 +32,7 @@ class MCPServerManagerPlugin:
         self._refresh_ts: float = 0
         self._http_client = httpx.AsyncClient(
             base_url=oap_root_url,
-            headers={"Authorization": f"bearer {self.device_token}"}
+            headers={"Authorization": f"Bearer {self.device_token}"}
             if self.device_token
             else None,
         )
@@ -42,7 +42,7 @@ class MCPServerManagerPlugin:
     ) -> None:
         """Update the device token and refresh the configs."""
         self.device_token = device_token
-        self._http_client.headers = {"Authorization": f"bearer {self.device_token}"}
+        self._http_client.headers = {"Authorization": f"Bearer {self.device_token}"}
         update_oap_token(self.device_token)
         await self.refresh(mcp_server_manager)
 
