@@ -1,6 +1,6 @@
 import asyncio
 import time
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from logging import getLogger
@@ -9,6 +9,7 @@ from typing import Any
 from dive_mcp_host.host.errors import McpSessionNotRunningError
 from dive_mcp_host.host.tools.hack import ClientSession
 from dive_mcp_host.host.tools.model_types import ChatID
+from dive_mcp_host.host.tools.oauth import AuthorizationProgress
 
 logger = getLogger(__name__)
 
@@ -60,11 +61,14 @@ class _SessionStoreItem:
 class ServerSessionStore:
     """Session Store for a running MCP server."""
 
-    __slots__ = ("_map", "_mcp_server_name")
+    __slots__ = ("_auth_handlers", "_map", "_mcp_server_name")
 
     def __init__(self, mcp_server_name: str) -> None:
         """Initialize the session store."""
         self._map: dict[ChatID, _SessionStoreItem] = {}
+        self._auth_handlers: set[Callable[[AuthorizationProgress], Awaitable[None]]] = (
+            set()
+        )
         self._mcp_server_name = mcp_server_name
 
     def __len__(self) -> int:
@@ -80,7 +84,7 @@ class ServerSessionStore:
     ) -> None:
         stored_session = self._map[chat_id]
         try:
-            async with session_ctx() as session:
+            async with session_ctx(auth_handler=self._auth_handler) as session:
                 stored_session.session = session
                 stored_session.initialized.set()
                 stored_session.active_ts = time.time()
@@ -98,6 +102,11 @@ class ServerSessionStore:
         finally:
             stored_session.session = None
             self._error_cleanup(stored_session.task, stored_session, None)
+
+    async def _auth_handler(self, progress: AuthorizationProgress) -> None:
+        """Handle the authorization progress."""
+        for handler in self._auth_handlers:
+            await handler(progress)
 
     def _error_cleanup(
         self,
@@ -125,6 +134,7 @@ class ServerSessionStore:
         self,
         chat_id: str,
         session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Create a new session or return the existing one.
 
@@ -143,6 +153,7 @@ class ServerSessionStore:
         If the same chat_id is used again, a new session will be recreated.
         """
         stored_session = self._map.get(chat_id)
+        self._auth_handlers.add(auth_handler)
 
         if not stored_session:
             stored_session = _SessionStoreItem(chat_id=chat_id)
@@ -187,6 +198,7 @@ class ServerSessionStore:
             raise
         finally:
             stored_session.client_tasks.remove(current_task)
+            self._auth_handlers.discard(auth_handler)
 
     async def cleanup(self) -> None:
         """Cleanup the session store."""

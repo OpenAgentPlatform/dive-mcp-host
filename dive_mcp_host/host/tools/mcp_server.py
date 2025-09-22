@@ -386,6 +386,7 @@ class McpServer(ContextProtocol):
         chat_id: str,
         session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
         restart_client: Callable[[Exception], bool] = lambda _: False,
+        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Get the session ctx mgr from the session store, and handle session errors.
 
@@ -395,6 +396,7 @@ class McpServer(ContextProtocol):
             restart_client: The function to determine if the client should be restarted.
                 If the exception is not restartable, return False.
                 If the exception is restartable, return True.
+            auth_handler: The function to handle the authorization progress.
 
         This wrapper get the session from the session store, and handle the session
         errors.
@@ -406,6 +408,7 @@ class McpServer(ContextProtocol):
             async with self._session_store.get_session_ctx_mgr(
                 chat_id,
                 session_creator,
+                auth_handler,
             ) as session:
                 yield session
         except (ToolException, McpError) as e:
@@ -689,7 +692,7 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def _create() -> AsyncGenerator[ClientSession, None]:
+        async def _create(**_kwargs: Any) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 session = await self._stdio_wait_for_session()
@@ -839,7 +842,11 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def _create() -> AsyncGenerator[ClientSession, None]:
+        async def _create(
+            auth_handler: Callable[[AuthorizationProgress], Awaitable[None]]
+            | None = None,
+            **_kwargs: Any,
+        ) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 async with AsyncExitStack() as stack:
@@ -867,7 +874,9 @@ class McpServer(ContextProtocol):
                 logger.exception("http session error, chat_id: %s", chat_id)
                 raise
 
-        return self._session_ctx_mgr_wrapper(chat_id, _create)
+        return self._session_ctx_mgr_wrapper(
+            chat_id, _create, auth_handler=auth_handler
+        )
 
     async def _local_http_process_watcher(self) -> None:
         """Watcher the local http server process."""
@@ -974,7 +983,7 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def _create() -> AsyncGenerator[ClientSession, None]:
+        async def _create(**_kwargs: Any) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 async with (
