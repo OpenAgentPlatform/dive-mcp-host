@@ -54,10 +54,8 @@ class SaveModelSettingsRequest(BaseModel):
     enable_tools: bool = Field(alias="enableTools")
 
 
-@config.get("/mcpserver")
-async def get_mcp_server(
-    app: DiveHostAPI = Depends(get_app),
-) -> ConfigResult[McpServers]:
+@config.get("/mcpserver", responses={200: {"model": ConfigResult[McpServers]}})
+async def get_mcp_server(app: DiveHostAPI = Depends(get_app)):  # noqa: ANN201
     """Get MCP server configurations.
 
     Returns:
@@ -71,11 +69,13 @@ async def get_mcp_server(
             config=McpServers(),
         )
 
-    config = McpServers.model_validate(config.model_dump(by_alias=True))
-    return ConfigResult(
-        success=True,
-        config=config,
+    # Remove unset config fields
+    config = McpServers.model_validate(
+        config.model_dump(by_alias=True, exclude_unset=True)
     )
+    result = ConfigResult(success=True, config=None).model_dump(exclude={"config"})
+    result["config"] = config.model_dump(exclude_unset=True)
+    return result
 
 
 # Frontend prefers to use this API for all MCP server config interactions.

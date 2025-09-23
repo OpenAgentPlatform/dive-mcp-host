@@ -191,7 +191,7 @@ class MCPServerManager:
 
         write_then_replace(
             Path(self._config_path),
-            new_config.model_dump_json(by_alias=True),
+            new_config.model_dump_json(by_alias=True, exclude_unset=True),
         )
 
         self._current_config = new_config
