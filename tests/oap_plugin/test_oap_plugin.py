@@ -179,3 +179,23 @@ def test_oap_plugin(  # noqa: C901, PLR0915
         if value["extraData"] and value["extraData"].get("oap"):
             assert key == config.name
             assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
+
+    config.auth_type = "oauth2"
+    # refresh mcp server
+    response = client.post(
+        "/api/plugins/oap-platform/config/refresh",
+    )
+    assert response.status_code == 200
+
+    # get mcp server
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+
+    servers = response.json()["config"]["mcpServers"]
+    assert len(servers) > 1
+
+    for key in servers:
+        value = servers[key]
+        if value["extraData"] and value["extraData"].get("oap"):
+            assert key == config.name
+            assert value["headers"] is None
