@@ -36,7 +36,7 @@ class DBConfig(BaseModel):
         else:
             raise ValueError(f"Unsupported database: {url.get_backend_name()}")
 
-        return str(url)
+        return url.render_as_string(hide_password=False)
 
 
 class ConfigLocation(BaseModel):
