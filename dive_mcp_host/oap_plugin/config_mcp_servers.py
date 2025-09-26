@@ -79,14 +79,14 @@ class MCPServerManagerPlugin:
             return config
 
         for server in mcp_servers:
+            headers = server.headers.copy()
+            if server.auth_type == "header":
+                headers.update({"Authorization": f"Bearer {self.device_token}"})
             config.mcp_servers[server.name] = MCPServerConfig(
                 enabled=mcp_enabled.get(server.id, True),
                 url=server.url,
                 transport=server.transport,
-                headers={
-                    "Authorization": f"Bearer {self.device_token}",
-                    **server.headers,
-                },  # type: ignore
+                headers=headers,  # type: ignore
                 extraData={
                     "oap": {
                         "id": server.id,

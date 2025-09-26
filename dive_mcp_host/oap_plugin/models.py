@@ -20,6 +20,7 @@ class UserMcpConfig(BaseModel):
     name: str
     description: str
     transport: Literal["sse", "streamable"]
+    auth_type: Literal["header", "oauth2"] = "header"
     url: str
     headers: dict[str, str]
 
