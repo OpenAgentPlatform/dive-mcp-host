@@ -69,8 +69,8 @@ IMPORTANT:
 - NO thinking, reasoning, explanations, quotes, or extra text
 - NO punctuation at the end
 - If the input is URL only, output the description of the URL, for example, "the URL of xxx website"
-- If the input contains Traditional Chinese characters, use Traditional Chinese for the title.
-- For all other languages, generate the title in the same language as the input."""  # noqa: E501
+- Generate the title in the primary language of the input (the language used for the majority of the text)
+- Preserve proper nouns and technical terms in their original language"""  # noqa: E501
 
 
 logger = logging.getLogger(__name__)
