@@ -21,7 +21,7 @@ type GetStoreCallback = Callable[[], Coroutine[Any, Any, StoreProtocol]]
 
 StoreHookName = "dive_mcp_host.httpd.store"
 
-IMAGE_MAX_SIZE = 800
+IMAGE_MAX_SIZE = 256
 
 logger = getLogger(__name__)
 
@@ -159,8 +159,22 @@ class StoreManager(StoreManagerProtocol):
             Image.open(BytesIO(await self.get_file(file_path))) as image,
             BytesIO() as buffer,
         ):
-            if image.width > IMAGE_MAX_SIZE or image.height > IMAGE_MAX_SIZE:
-                resized = image.resize((IMAGE_MAX_SIZE, IMAGE_MAX_SIZE))
+            if image.width * image.height > IMAGE_MAX_SIZE * IMAGE_MAX_SIZE:
+                # Compress and preserve aspect ratio
+                if image.width > image.height:
+                    new_size = (
+                        IMAGE_MAX_SIZE,
+                        int(image.height * IMAGE_MAX_SIZE / image.width),
+                    )
+                else:
+                    new_size = (
+                        int(image.width * IMAGE_MAX_SIZE / image.height),
+                        IMAGE_MAX_SIZE,
+                    )
+                resized = image.resize(
+                    new_size,
+                    Image.Resampling.LANCZOS,
+                )
             else:
                 resized = image
             if image.mode in ["P", "RGBA"]:
