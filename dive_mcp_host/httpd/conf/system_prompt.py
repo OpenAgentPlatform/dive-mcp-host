@@ -71,6 +71,13 @@ def system_prompt(custom_rules: str) -> str:
       - Otherwise use provided base64 image directly
     </Image_Handling>
 
+    <MCP_Generated_Image_Handling>
+      - When MCP tools return image URLs (e.g., from image generation tools), ALWAYS display them using Markdown syntax: ![description](url)
+      - Do NOT just mention the URL or say "here is the image" without displaying it
+      - Display the image immediately after receiving the tool result
+      - Example: If tool returns "https://example.com/image.png", respond with "![Generated Image](https://example.com/image.png)"
+    </MCP_Generated_Image_Handling>
+
     <Local_File_Handling>
       - Display local file paths using Markdown syntax
       - Note: local images supported, but not video playback
