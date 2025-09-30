@@ -744,56 +744,34 @@ class McpServer(ContextProtocol):
 
     async def _http_setup(self) -> None:
         """Setup the http client."""
-        self._retries = 0
-        start_time = time.time()
-        while (
-            self._retries == 0
-            or (time.time() - start_time) < self.config.initial_timeout
-        ):
-            should_break = False
-            try:
-                await self._http_init_client()
-                async with self._cond:
-                    await self.__change_state(ClientState.RUNNING, None, None)
-                return
-            except* (
-                httpx.ConnectError,
-                httpx.TooManyRedirects,
-                httpx.ConnectTimeout,
-            ) as eg:
-                logger.error("http setup error %s", eg.exceptions)
-                self._exception = McpSessionGroupError(
-                    f"Client connection error for {self.name}: {eg.exceptions}",
-                    eg.exceptions,
-                )
-            except* (
-                McpError,
-                httpx.InvalidURL,
-                Exception,
-                ValidationError,
-            ) as eg:
-                err_msg = (
-                    f"Client initialization error for {self.name}: {eg.exceptions}"
-                )
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(err_msg, eg.exceptions)
-                should_break = True
-            except* httpx.HTTPStatusError as eg:
-                err_msg = f"Client http error for {self.name}: {eg.exceptions}"
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(err_msg, eg.exceptions)
-                for e in eg.exceptions:
-                    logger.error("http setup error %s", e)
-                    if (
-                        isinstance(e, httpx.HTTPStatusError)
-                        and e.response.status_code < 500  # noqa: PLR2004
-                        and e.response.status_code != 429  # noqa: PLR2004
-                    ):
-                        should_break = True
-            if should_break:
-                break
-            self._retries += 1
-            await asyncio.sleep(self.RESTART_INTERVAL)
+        try:
+            await self._http_init_client()
+            async with self._cond:
+                await self.__change_state(ClientState.RUNNING, None, None)
+            return
+
+        except* (
+            httpx.ConnectError,
+            httpx.TooManyRedirects,
+            httpx.ConnectTimeout,
+            httpx.HTTPStatusError,
+        ) as eg:
+            logger.error("http setup error %s", eg.exceptions)
+            self._exception = McpSessionGroupError(
+                f"Client connection error for {self.name}: {eg.exceptions}",
+                eg.exceptions,
+            )
+
+        except* (
+            McpError,
+            httpx.InvalidURL,
+            Exception,
+            ValidationError,
+        ) as eg:
+            err_msg = f"Client initialization error for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(err_msg, eg.exceptions)
+
         async with self._cond:
             logger.error("http setup failed %s", self._exception)
             await self.__change_state(ClientState.FAILED, None, self._exception)
