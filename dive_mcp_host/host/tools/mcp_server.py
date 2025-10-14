@@ -1020,12 +1020,14 @@ class McpTool(BaseTool):
             self._execute(chat_id, custom_event_queue, kwargs, progress_callback)
         )
 
+        tasks = {tool_task}
         abort_task = None
         if abort_signal:
             abort_task = asyncio.create_task(abort_signal.wait())
+            tasks.add(abort_task)
 
         done, pending = await asyncio.wait(
-            {tool_task, abort_task},
+            tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
 
