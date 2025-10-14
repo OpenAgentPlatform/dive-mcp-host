@@ -206,6 +206,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
             config = self._agent_factory.create_config(
                 user_id=self._user_id,
                 thread_id=self._chat_id,
+                abort_signal=signal,
             )
             try:
                 async for response in self.active_agent.astream(
@@ -213,8 +214,6 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                     stream_mode=stream_mode,
                     config=config,
                 ):
-                    if signal.is_set():
-                        break
                     yield response
             except Exception as e:
                 raise ThreadQueryError(

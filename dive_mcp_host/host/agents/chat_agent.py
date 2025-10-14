@@ -3,12 +3,21 @@
 It uses langgraph.prebuilt.create_react_agent to create the agent.
 """
 
-from collections.abc import Sequence
-from typing import Literal, cast
+import asyncio
+import contextlib
+from asyncio import Event
+from collections.abc import AsyncIterator, Iterator, Sequence
+from typing import Any, Literal, cast
+from uuid import uuid4
 
+from langchain_core.callbacks import (
+    AsyncCallbackManagerForLLMRun,
+    CallbackManagerForLLMRun,
+)
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage,
     RemoveMessage,
@@ -17,9 +26,14 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.messages.utils import count_tokens_approximately, trim_messages
+from langchain_core.outputs import ChatGenerationChunk
 from langchain_core.prompt_values import ChatPromptValue
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import Runnable, RunnableConfig, RunnablePassthrough
+from langchain_core.runnables import (
+    Runnable,
+    RunnableConfig,
+    RunnablePassthrough,
+)
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver, V
 from langgraph.graph import END, StateGraph
@@ -31,7 +45,11 @@ from langgraph.store.base import BaseStore
 from langgraph.utils.runnable import RunnableCallable  # type: ignore
 from pydantic import BaseModel
 
-from dive_mcp_host.host.agents.agent_factory import AgentFactory, initial_messages
+from dive_mcp_host.host.agents.agent_factory import (
+    AgentFactory,
+    ConfigurableKey,
+    initial_messages,
+)
 from dive_mcp_host.host.agents.file_in_additional_kwargs import FileMsgConverter
 from dive_mcp_host.host.agents.message_order import tool_call_order
 from dive_mcp_host.host.agents.tools_in_prompt import (
@@ -95,6 +113,30 @@ def get_prompt_runnable(prompt: PromptType | ChatPromptTemplate | None) -> Runna
     return prompt_runnable
 
 
+# from langgraph.prebuilt.chat_agent_executor
+def complete_tool_calls(
+    messages: Sequence[BaseMessage],
+) -> Sequence[BaseMessage]:
+    """Insert ToolMessage if not exists."""
+    tool_calls: list[tuple[int, ToolCall]] = []
+    tool_messages: set[str] = set()
+    for idx, message in enumerate(messages):
+        if isinstance(message, AIMessage):
+            for tool_call in message.tool_calls:
+                tool_calls.append((idx, tool_call))
+        elif isinstance(message, ToolMessage):
+            tool_messages.add(message.tool_call_id)
+
+    tool_calls.reverse()
+    messages = list(messages)
+    for idx, tool_call in tool_calls:
+        if tool_call["id"] not in tool_messages:
+            messages.insert(
+                idx + 1, ToolMessage(content="canceled", tool_call_id=tool_call["id"])
+            )
+    return messages
+
+
 class HackedToolNode(ToolNode):
     """hacked tool node to inject tool_call_id into the config.
 
@@ -128,6 +170,131 @@ class HackedToolNode(ToolNode):
                 "tool_call_id": call["id"],
             }
         return super()._run_one(call, input_type, config)
+
+
+class InterruptableModel(BaseChatModel):
+    """A model wrapper that supports abort signal."""
+
+    model: BaseChatModel
+    abort_signal: Event | None = None
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Generate response."""
+        return self.model._generate(messages, stop, run_manager, **kwargs)  # noqa: SLF001
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        """Stream response with abort support (sync version)."""
+        cid = str(uuid4())
+        for chunk in self.model._stream(messages, stop, run_manager, **kwargs):  # noqa: SLF001
+            if self.abort_signal and self.abort_signal.is_set():
+                # Yield abort marker when aborted
+                yield ChatGenerationChunk(
+                    message=AIMessageChunk(
+                        content="<user_aborted>",
+                        id=cid,
+                    )
+                )
+                break
+            cid = chunk.message.id
+            yield chunk
+
+    async def _astream(  # noqa: C901
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[ChatGenerationChunk]:
+        """Stream response with abort support (async version).
+
+        This implementation can immediately respond to abort signals,
+        even if the underlying model is slow to produce the next chunk.
+        """
+        if not self.abort_signal:
+            # No abort signal, just pass through
+            stream = self.model._astream(messages, stop, run_manager, **kwargs)  # noqa: SLF001
+            try:
+                async for chunk in stream:
+                    yield chunk
+            finally:
+                # Close stream if it has aclose method (async generators do)
+                if hasattr(stream, "aclose"):
+                    await stream.aclose()
+
+        # Create an async iterator from the model's stream
+        stream = self.model._astream(messages, stop, run_manager, **kwargs)  # noqa: SLF001
+
+        cid = str(uuid4())  # chunk id, before the stream starts
+        try:
+            while True:
+                # Create a task for getting the next chunk
+                chunk_task = asyncio.create_task(stream.__anext__())
+                # Create a task for waiting on abort signal
+                abort_task = asyncio.create_task(self.abort_signal.wait())
+
+                # Wait for either the next chunk or abort signal
+                done, pending = await asyncio.wait(
+                    {chunk_task, abort_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+                # Check if abort was triggered
+                if abort_task in done:
+                    # Abort signal was set, yield abort marker and stop
+                    abort_chunk = ChatGenerationChunk(
+                        message=AIMessageChunk(
+                            content="<user_aborted>",
+                            id=cid,
+                        )
+                    )
+                    yield abort_chunk
+                    # Cancel the chunk task if it's still running
+                    if chunk_task in pending or not chunk_task.done():
+                        chunk_task.cancel()
+                    break
+
+                # Otherwise, we got a chunk
+                if chunk_task in done:
+                    chunk = await chunk_task
+                    cid = chunk.message.id
+                    yield chunk
+
+        except StopAsyncIteration:
+            # Stream ended naturally
+            pass
+        finally:
+            # Always close the stream to release resources
+            # Close stream if it has aclose method (async generators do)
+            if hasattr(stream, "aclose"):
+                await stream.aclose()
+
+    @property
+    def _llm_type(self) -> str:
+        """Return the LLM type."""
+        return self.model._llm_type  # noqa: SLF001
+
+    def bind_tools(self, *args: Any, **kwargs: Any) -> Runnable:
+        """Bind tools to the underlying model."""
+        runnable = self.model.bind_tools(*args, **kwargs)
+        return self.bind(tools=runnable.kwargs["tools"], **kwargs)
 
 
 class ChatAgentFactory(AgentFactory[AgentState]):
@@ -208,11 +375,24 @@ class ChatAgentFactory(AgentFactory[AgentState]):
     async def _call_model(
         self, state: AgentState, config: RunnableConfig
     ) -> AgentState:
-        # TODO: _validate_chat_history
+        state["messages"] = complete_tool_calls(state["messages"])
+        # Get abort signal from config
+        abort_signal: Event | None = config.get("configurable", {}).get(
+            ConfigurableKey.ABORT_SIGNAL
+        )
         if not self._tools_in_prompt:
-            model = self._model
+            # Wrap the model with abort functionality first
+            wrapped_model = InterruptableModel(
+                model=self._model,
+                abort_signal=abort_signal,
+                disable_streaming=self._model.disable_streaming,
+            )
+            # Then bind tools if needed - this will use the default bind_tools
+            # which creates a RunnableBind, but since we're wrapping the base model,
+            # the _stream method will still be called with abort support
+            model = wrapped_model
             if self._tool_classes:
-                model = self._model.bind_tools(self._tool_classes)
+                model = wrapped_model.bind_tools(self._tool_classes)
             model_runnable = (
                 self._prompt | self._file_msg_converter | drop_empty_messages | model
             )
@@ -223,7 +403,11 @@ class ChatAgentFactory(AgentFactory[AgentState]):
                 | convert_messages
                 | self._file_msg_converter
                 | drop_empty_messages
-                | self._model
+                | InterruptableModel(
+                    model=self._model,
+                    abort_signal=abort_signal,
+                    disable_streaming=self._model.disable_streaming,
+                )
             )
 
         response = await model_runnable.ainvoke(state, config)
@@ -234,7 +418,10 @@ class ChatAgentFactory(AgentFactory[AgentState]):
                 id=response.id,
                 content="Sorry, need more steps to process this request.",
             )
-        return cast(AgentState, {"messages": [response]})
+        responses = [response]
+        if abort_signal and abort_signal.is_set():
+            responses = complete_tool_calls(responses)
+        return cast(AgentState, {"messages": responses})
 
     def _generate_structured_response(
         self, state: AgentState, config: RunnableConfig
