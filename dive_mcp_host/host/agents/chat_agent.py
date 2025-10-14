@@ -210,7 +210,7 @@ class InterruptableModel(BaseChatModel):
             cid = chunk.message.id
             yield chunk
 
-    async def _astream(  # noqa: C901
+    async def _astream(
         self,
         messages: list[BaseMessage],
         stop: list[str] | None = None,
@@ -222,19 +222,12 @@ class InterruptableModel(BaseChatModel):
         This implementation can immediately respond to abort signals,
         even if the underlying model is slow to produce the next chunk.
         """
-        if not self.abort_signal:
-            # No abort signal, just pass through
-            stream = self.model._astream(messages, stop, run_manager, **kwargs)  # noqa: SLF001
-            try:
-                async for chunk in stream:
-                    yield chunk
-            finally:
-                # Close stream if it has aclose method (async generators do)
-                if hasattr(stream, "aclose"):
-                    await stream.aclose()
-
         # Create an async iterator from the model's stream
         stream = self.model._astream(messages, stop, run_manager, **kwargs)  # noqa: SLF001
+        if not self.abort_signal:
+            for chunk in stream:
+                yield chunk
+            return
 
         cid = str(uuid4())  # chunk id, before the stream starts
         try:
