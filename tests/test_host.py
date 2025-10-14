@@ -613,6 +613,58 @@ async def test_abort_chat_with_tools(
 
 
 @pytest.mark.asyncio
+async def test_abort_tool_call(
+    sqlite_uri, echo_tool_stdio_config: dict[str, ServerConfig]
+) -> None:
+    """Test the get_messages."""
+    config = HostConfig(
+        llm=LLMConfig(
+            model="fake",
+            model_provider="dive",
+        ),
+        mcp_servers=echo_tool_stdio_config,
+    )
+
+    async with DiveMcpHost(config) as mcp_host:
+        fake_responses = [
+            AIMessage(
+                content="Call echo tool",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 5000},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(content="Bye"),
+        ]
+        cast("FakeMessageToolModel", mcp_host.model).responses = fake_responses
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat()
+        async with chat:
+
+            async def _query() -> list[dict[str, Any]]:
+                return [
+                    i
+                    async for i in chat.query("Hello, world!", stream_mode=["messages"])
+                ]
+
+            query_task = asyncio.create_task(_query())
+            await asyncio.sleep(0.5)
+            chat.abort()
+            await query_task
+            assert query_task.exception() is None
+            responses = query_task.result()
+            assert len(responses) == 2
+
+            tool_message = responses[-1][1][0]
+            assert isinstance(tool_message, ToolMessage)
+            assert tool_message.content == "<user_aborted>"
+
+
+@pytest.mark.asyncio
 async def test_resend_message(sqlite_uri: str) -> None:
     """Test the resend_message method."""
     config = HostConfig(

@@ -373,6 +373,8 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         abort_signal: Event | None = config.get("configurable", {}).get(
             ConfigurableKey.ABORT_SIGNAL
         )
+        if abort_signal and abort_signal.is_set():
+            return cast(AgentState, {"messages": []})
         if not self._tools_in_prompt:
             # Wrap the model with abort functionality first
             wrapped_model = InterruptableModel(
