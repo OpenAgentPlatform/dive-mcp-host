@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
     from mcp.shared.message import SessionMessage
-    from mcp.shared.session import ProgressFnT, RequestResponder
+    from mcp.shared.session import RequestResponder
 
     from dive_mcp_host.host.conf import ServerConfig
 
@@ -1016,30 +1016,40 @@ class McpTool(BaseTool):
             "Executing tool %s.%s with args: %s", self.toolkit_name, self.name, kwargs
         )
 
-        tool_task = asyncio.create_task(
-            self._execute(chat_id, custom_event_queue, kwargs, progress_callback)
-        )
+        async def _abort_task(tool_task: asyncio.Task) -> None:
+            assert abort_signal
+            await abort_signal.wait()
+            tool_task.cancel()
 
-        tasks = {tool_task}
         abort_task = None
-        if abort_signal:
-            abort_task = asyncio.create_task(abort_signal.wait())
-            tasks.add(abort_task)
 
-        done, pending = await asyncio.wait(
-            tasks,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        for task in pending:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
-
-        if abort_task in done:
-            return "<user_aborted>"
-
-        result = await tool_task
+        async with self.mcp_server.session(chat_id) as session:
+            stream_writer_task = asyncio.create_task(
+                _stream_writer_bridge(custom_event_queue),
+                name=f"stream_writer-{self.name}",
+            )
+            try:
+                tool_task = asyncio.create_task(
+                    session.call_tool(
+                        self.name,
+                        arguments=kwargs,
+                        progress_callback=progress_callback,
+                    )
+                )
+                if abort_signal:
+                    abort_task = asyncio.create_task(_abort_task(tool_task))
+                result = await tool_task
+            except asyncio.CancelledError as canceld:
+                logger.warning("tool call cancelled %s", canceld)
+                result = types.CallToolResult(
+                    content=[types.TextContent(type="text", text="<user_aborted>")],
+                )
+            finally:
+                with suppress(Exception):
+                    custom_event_queue.put_nowait(None)
+                await stream_writer_task
+                if abort_task:
+                    abort_task.cancel()
         content = to_json(result.content).decode()
         if result.isError:
             logger.error(
@@ -1050,30 +1060,6 @@ class McpTool(BaseTool):
             )
         logger.debug("Tool %s.%s executed successfully", self.toolkit_name, self.name)
         return content
-
-    async def _execute(
-        self,
-        chat_id: str,
-        event_queue: asyncio.Queue,
-        arguments: dict[str, Any],
-        progress_callback: ProgressFnT | None,
-    ) -> types.CallToolResult:
-        async with self.mcp_server.session(chat_id) as session:
-            stream_writer_task = asyncio.create_task(
-                _stream_writer_bridge(event_queue),
-                name=f"stream_writer-{self.name}",
-            )
-            try:
-                result = await session.call_tool(
-                    self.name,
-                    arguments=arguments,
-                    progress_callback=progress_callback,
-                )
-            finally:
-                with suppress(Exception):
-                    event_queue.put_nowait(None)
-                await stream_writer_task
-        return result
 
     @classmethod
     def from_tool(cls, tool: types.Tool, mcp_server: McpServer) -> Self:

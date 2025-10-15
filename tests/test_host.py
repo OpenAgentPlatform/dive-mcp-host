@@ -613,9 +613,7 @@ async def test_abort_chat_with_tools(
 
 
 @pytest.mark.asyncio
-async def test_abort_tool_call(
-    sqlite_uri, echo_tool_stdio_config: dict[str, ServerConfig]
-) -> None:
+async def test_abort_tool_call(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     """Test the get_messages."""
     config = HostConfig(
         llm=LLMConfig(
@@ -661,7 +659,7 @@ async def test_abort_tool_call(
 
             tool_message = responses[-1][1][0]
             assert isinstance(tool_message, ToolMessage)
-            assert tool_message.content == "<user_aborted>"
+            assert "<user_aborted>" in tool_message.content
 
 
 @pytest.mark.asyncio
