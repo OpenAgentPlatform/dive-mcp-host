@@ -1,3 +1,4 @@
+from asyncio import Event
 from enum import StrEnum
 from typing import Literal, Protocol
 
@@ -20,6 +21,7 @@ class ConfigurableKey(StrEnum):
     USER_ID = "user_id"
     MAX_INPUT_TOKENS = "max_input_tokens"
     OVERSIZE_POLICY = "oversize_policy"
+    ABORT_SIGNAL = "abort_signal"
 
 
 # XXX is there any better way to do this?
@@ -58,6 +60,7 @@ class AgentFactory[T: MessagesState](Protocol):
         thread_id: str,
         max_input_tokens: int | None = None,
         oversize_policy: Literal["window"] | None = None,
+        abort_signal: Event | None = None,
     ) -> RunnableConfig | None:
         """Create a config for the agent.
 
@@ -77,6 +80,7 @@ class AgentFactory[T: MessagesState](Protocol):
                 ConfigurableKey.USER_ID: user_id,
                 ConfigurableKey.MAX_INPUT_TOKENS: max_input_tokens,
                 ConfigurableKey.OVERSIZE_POLICY: oversize_policy,
+                ConfigurableKey.ABORT_SIGNAL: abort_signal,
             },
             "recursion_limit": 102,
         }

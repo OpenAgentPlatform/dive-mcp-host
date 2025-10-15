@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     BaseMessage,
     HumanMessage,
     SystemMessage,
@@ -257,6 +258,7 @@ async def test_abort_chat() -> None:
 
     async with DiveMcpHost(config) as mcp_host:
         model = cast("FakeMessageToolModel", mcp_host.model)
+        model.disable_streaming = False  # enable streaming
         model.responses = fake_responses
         model.sleep = 2.0  # 2 seconds sleep to simulate long running query
 
@@ -284,15 +286,9 @@ async def test_abort_chat() -> None:
             responses = query_task.result()
 
             # Verify that we got fewer responses than expected and no AIMessages
-            assert len(responses) == 0, (
-                "Query should have been aborted before completion"
-            )
-            # Check that there are no AIMessages in the responses
-            for response in responses:
-                messages = response.get("agent", {}).get("messages", [])
-                assert not any(isinstance(msg, AIMessage) for msg in messages), (
-                    "Should not have any AIMessages after abort"
-                )
+            assert len(responses) == 2
+            assert responses[0][1][0].content == "This"
+            assert responses[1][1][0].content == "<user_aborted>"
 
             # Verify the abort signal was cleared
             model.sleep = 0
@@ -303,12 +299,13 @@ async def test_abort_chat() -> None:
                     "This is a long running query", stream_mode=["messages"]
                 )
             ]
-            assert len(responses) == 1
-            # Verify that we have AIMessages in the responses
-            _, (message) = cast(tuple[str, tuple[AIMessage]], responses[0])
+            assert len(responses) == len(fake_responses[0].content.split(" "))
             assert (
-                message[0].content
-                == "This is a long running response that should be aborted"
+                sum(
+                    [chunk[1][0] for chunk in responses],
+                    start=AIMessageChunk(content=""),
+                ).content
+                == fake_responses[0].content
             )
 
             # abort a non-running chat
@@ -319,7 +316,350 @@ async def test_abort_chat() -> None:
                     "This is a long running query", stream_mode=["messages"]
                 )
             ]
-            assert len(responses) == 1
+            assert len(responses) == len(fake_responses[0].content.split(" "))
+
+
+@pytest.mark.asyncio
+async def test_abort_chat_with_tools(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+) -> None:
+    """Test that the chat can be aborted during a long-running query with tools."""
+    config = HostConfig(
+        llm=LLMConfig(
+            model="fake",
+            model_provider="dive",
+        ),
+        mcp_servers=echo_tool_stdio_config,
+    )
+
+    # Create a fake model with a long sleep time to simulate a long-running query
+    fake_responses = [
+        [
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": "call_KHVa8wD16tglUbtgEkM8XdqC",
+                            "function": {"arguments": "", "name": "echo"},
+                            "type": "function",
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                tool_calls=[
+                    {
+                        "name": "echo",
+                        "args": {},
+                        "id": "call_KHVa8wD16tglUbtgEkM8XdqC",
+                        "type": "tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": "echo",
+                        "args": "",
+                        "id": "call_KHVa8wD16tglUbtgEkM8XdqC",
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": '{"', "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                tool_calls=[{"name": "", "args": {}, "id": None, "type": "tool_call"}],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": '{"',
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": "message", "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                invalid_tool_calls=[
+                    {
+                        "name": None,
+                        "args": "message",
+                        "id": None,
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": "message",
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": '":"', "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                invalid_tool_calls=[
+                    {
+                        "name": None,
+                        "args": '":"',
+                        "id": None,
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": '":"',
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": "hello", "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                invalid_tool_calls=[
+                    {
+                        "name": None,
+                        "args": "hello",
+                        "id": None,
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": "hello",
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": " world", "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                invalid_tool_calls=[
+                    {
+                        "name": None,
+                        "args": " world",
+                        "id": None,
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": " world",
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={
+                    "tool_calls": [
+                        {
+                            "index": 0,
+                            "id": None,
+                            "function": {"arguments": '"}', "name": None},
+                            "type": None,
+                        }
+                    ]
+                },
+                response_metadata={},
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+                invalid_tool_calls=[
+                    {
+                        "name": None,
+                        "args": '"}',
+                        "id": None,
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+                tool_call_chunks=[
+                    {
+                        "name": None,
+                        "args": '"}',
+                        "id": None,
+                        "index": 0,
+                        "type": "tool_call_chunk",
+                    }
+                ],
+            ),
+            AIMessageChunk(
+                content="",
+                additional_kwargs={},
+                response_metadata={
+                    "finish_reason": "tool_calls",
+                    "model_name": "gpt-4o-mini-2024-07-18",
+                    "system_fingerprint": "fp_560af6e559",
+                    "service_tier": "default",
+                },
+                id="run--5a261755-5ae5-4a9d-91e7-9ec4909a6652",
+            ),
+        ],
+        [
+            AIMessageChunk(content="tool"),
+            AIMessageChunk(content=" call"),
+            AIMessageChunk(content=" completed"),
+        ],
+    ]
+
+    async with DiveMcpHost(config) as mcp_host:
+        await mcp_host.tools_initialized_event.wait()
+        model = cast("FakeMessageToolModel", mcp_host.model)
+        model.disable_streaming = False  # enable streaming
+        model.responses = fake_responses
+        model.sleep = 0.2
+
+        chat = mcp_host.chat()
+        async with chat:
+            # Start the query in a separate task
+            async def _query() -> list[dict[str, Any]]:
+                return [
+                    i
+                    async for i in chat.query(
+                        "call echo tool",
+                        stream_mode=["messages"],
+                    )
+                ]
+
+            query_task = asyncio.create_task(_query())
+
+            # Wait a bit and then abort
+            await asyncio.sleep(0.5)
+            chat.abort()
+
+            # Wait for the query task to complete
+            async with asyncio.timeout(5):
+                await query_task
+            assert query_task.exception() is None
+            responses = query_task.result()
+
+            # Verify that we got fewer responses than expected and no AIMessages
+            assert len(responses) == 5
+            assert responses[-1][1][0].content == "canceled"
+
+
+@pytest.mark.asyncio
+async def test_abort_tool_call(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
+    """Test the get_messages."""
+    config = HostConfig(
+        llm=LLMConfig(
+            model="fake",
+            model_provider="dive",
+        ),
+        mcp_servers=echo_tool_stdio_config,
+    )
+
+    async with DiveMcpHost(config) as mcp_host:
+        fake_responses = [
+            AIMessage(
+                content="Call echo tool",
+                tool_calls=[
+                    ToolCall(
+                        name="echo",
+                        args={"message": "Hello, world!", "delay_ms": 5000},
+                        id="123",
+                        type="tool_call",
+                    ),
+                ],
+            ),
+            AIMessage(content="Bye"),
+        ]
+        cast("FakeMessageToolModel", mcp_host.model).responses = fake_responses
+        await mcp_host.tools_initialized_event.wait()
+        chat = mcp_host.chat()
+        async with chat:
+
+            async def _query() -> list[dict[str, Any]]:
+                return [
+                    i
+                    async for i in chat.query("Hello, world!", stream_mode=["messages"])
+                ]
+
+            query_task = asyncio.create_task(_query())
+            await asyncio.sleep(0.5)
+            chat.abort()
+            await query_task
+            assert query_task.exception() is None
+            responses = query_task.result()
+            assert len(responses) == 2
+
+            tool_message = responses[-1][1][0]
+            assert isinstance(tool_message, ToolMessage)
+            assert "<user_aborted>" in tool_message.content
 
 
 @pytest.mark.asyncio
