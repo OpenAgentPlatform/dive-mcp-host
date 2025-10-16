@@ -1095,9 +1095,11 @@ async def test_oauth_required_event(
             state=progress.state,  # type: ignore
             timeout=10,
         )
+        assert await mcp_host.oauth_manager.store.list() == ["weather"]
 
         await mcp_host.restart_mcp_server("weather")
         await mcp_host.oauth_manager.store.delete("weather")
+        assert await mcp_host.oauth_manager.store.list() == []
 
         chat = mcp_host.chat()
         model = cast("FakeMessageToolModel", mcp_host.model)
@@ -1137,3 +1139,4 @@ async def test_oauth_required_event(
                     completed_tool_call = True
         assert has_auth_required
         assert completed_tool_call
+        assert await mcp_host.oauth_manager.store.list() == ["weather"]

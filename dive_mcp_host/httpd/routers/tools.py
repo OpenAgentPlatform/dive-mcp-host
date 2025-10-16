@@ -34,6 +34,12 @@ class ToolsResult(ResultResponse):
     tools: list[McpTool]
 
 
+class OAuthList(ResultResponse):
+    """Response model for listing OAuth."""
+
+    servers: list[str]
+
+
 class OAuthRequest(BaseModel):
     """Request model for OAuth."""
 
@@ -306,3 +312,12 @@ async def delete_oauth(
     await oauth_manager.store.delete(oauth_request.server_name)
     await app.dive_host["default"].restart_mcp_server(oauth_request.server_name)
     return ResultResponse(success=True)
+
+
+@tools.get("/login/oauth/list")
+async def list_oauth(
+    app: DiveHostAPI = Depends(get_app),
+) -> OAuthList:
+    """List OAuth."""
+    oauth_manager = app.dive_host["default"].oauth_manager
+    return OAuthList(success=True, servers=await oauth_manager.store.list())

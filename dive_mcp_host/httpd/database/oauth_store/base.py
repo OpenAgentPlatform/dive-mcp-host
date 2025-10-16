@@ -89,3 +89,10 @@ class BaseOAuthtokenStore(BaseTokenStore):
             )
             await session.execute(query)
             await session.commit()
+
+    async def list(self) -> list[str]:
+        """List the OAuth token stores."""
+        async with self._session_maker() as session:
+            query = select(OAuth.name).where(OAuth.user_id == self._user_id)
+            result = await session.scalars(query)
+            return result.all()

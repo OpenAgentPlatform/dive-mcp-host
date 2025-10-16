@@ -164,6 +164,10 @@ class BaseTokenStore(Protocol):
         """Delete the token store for a given name."""
         ...
 
+    async def list(self) -> list[str]:
+        """List the token stores."""
+        ...
+
 
 class DictTokenStore(RootModel):
     """A root token store that stores token stores for multiple clients."""
@@ -217,6 +221,10 @@ class LocalTokenStore(BaseTokenStore):
         """Delete the token store for a given name."""
         self._root_store.root.pop(name, None)
         self.save()
+
+    async def list(self) -> list[str]:
+        """List the token stores."""
+        return list(self._root_store.root.keys())
 
 
 class OAuthManager(ContextProtocol):
