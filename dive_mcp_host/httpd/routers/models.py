@@ -107,6 +107,7 @@ class McpTool(BaseModel):
     status: str
     error: str | None = None
     icons: list[Icon] | None = None
+    has_credential: bool = False
 
 
 class ToolsCache(RootModel[dict[str, McpTool]]):

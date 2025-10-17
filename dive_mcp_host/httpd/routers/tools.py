@@ -94,6 +94,8 @@ async def list_tools(  # noqa: PLR0912, C901
     else:
         all_server_configs = Config()
 
+    has_credentials = await app.dive_host["default"].oauth_manager.store.list()
+
     # get tools from dive host
     for server_name, server_info in app.dive_host["default"].mcp_server_info.items():
         icons = (
@@ -118,6 +120,7 @@ async def list_tools(  # noqa: PLR0912, C901
             error=server_info.error_str,
             status=server_info.client_status.value,
             icons=icons,
+            has_credential=server_name in has_credentials,
         )
     logger.debug("active mcp servers: %s", result.keys())
     # find missing servers
@@ -317,12 +320,3 @@ async def delete_oauth(
     await oauth_manager.store.delete(oauth_request.server_name)
     await app.dive_host["default"].restart_mcp_server(oauth_request.server_name)
     return ResultResponse(success=True)
-
-
-@tools.get("/login/oauth/list")
-async def list_oauth(
-    app: DiveHostAPI = Depends(get_app),
-) -> OAuthList:
-    """List OAuth."""
-    oauth_manager = app.dive_host["default"].oauth_manager
-    return OAuthList(success=True, servers=await oauth_manager.store.list())
