@@ -2,14 +2,22 @@
 
 import asyncio
 from argparse import ArgumentParser
+from base64 import standard_b64encode
+from pathlib import Path
 from typing import Annotated
 
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import Context, FastMCP, Icon
 from pydantic import Field
 
 Instructions = """Echo a message."""
 
-mcp = FastMCP(name="echo", instructions=Instructions)
+icon_path = Path(__file__).parent / "mcp.png"
+icon_data = standard_b64encode(icon_path.read_bytes()).decode()
+icon = Icon(
+    src=f"data:image/png;base64,{icon_data}", mimeType="image/png", sizes=["64x64"]
+)
+
+mcp = FastMCP(name="echo", instructions=Instructions, icons=[icon])
 
 ECHO_DESCRIPTION = """A simple echo tool to verify if the MCP server is working properly.
 It returns a characteristic response containing the input message."""  # noqa: E501
@@ -19,10 +27,7 @@ IGNORE_DESCRIPTION = """Do nothing."""
 SLEEP_INTERVAL_MS = 100
 
 
-@mcp.tool(
-    name="echo",
-    description=ECHO_DESCRIPTION,
-)
+@mcp.tool(name="echo", description=ECHO_DESCRIPTION, icons=[icon])
 async def echo(
     message: Annotated[str, Field(description="Message to be echoed back")],
     ctx: Context,

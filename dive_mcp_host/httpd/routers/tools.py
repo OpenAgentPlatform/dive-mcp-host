@@ -103,15 +103,16 @@ async def list_tools(  # noqa: PLR0912, C901
                     name=tool.name,
                     description=tool.description or "",
                     enabled=tool.enable,
+                    icons=tool.icons,
                 )
                 for tool in server_info.tools
             ],
             url=server_info.url,
             description="",
             enabled=True,
-            icon="",
             error=server_info.error_str,
             status=server_info.client_status.value,
+            icons=server_info.initialize_result.serverInfo.icons,
         )
     logger.debug("active mcp servers: %s", result.keys())
     # find missing servers
@@ -149,7 +150,6 @@ async def list_tools(  # noqa: PLR0912, C901
                     tools=[],
                     description="",
                     enabled=False,
-                    icon="",
                     error=None,
                     status="",
                 )

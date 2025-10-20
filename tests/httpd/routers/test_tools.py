@@ -60,7 +60,6 @@ def test_list_tools_no_mock(test_client):
                     "name": "echo",
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                     "tools": [
                         {
@@ -76,6 +75,10 @@ def test_list_tools_no_mock(test_client):
             ],
         },
     )
+    assert len(response_data.get("tools", [])) == 1
+    tools = {tool["name"]: tool for tool in response_data.get("tools", [])}
+    assert len(tools.get("echo", {}).get("icons", [])) == 1
+    assert len(tools.get("ignore", {}).get("icons", [])) == 0
 
 
 @patch(
@@ -117,7 +120,6 @@ def test_list_tools_mock_cache(
                     "name": "echo",
                     "description": "",
                     "enabled": False,
-                    "icon": "",
                     "tools": [],
                     "url": None,
                     "error": None,
@@ -130,7 +132,6 @@ def test_list_tools_mock_cache(
                     "description": "",
                     "enabled": True,
                     "url": "http://localhost:8080/mcp",
-                    "icon": "",
                     "error": None,
                 },
             ],
@@ -150,7 +151,6 @@ def test_tools_result_serialization():
                 tools=[SimpleToolInfo(name="test", description="Test function")],
                 description="Test tool description",
                 enabled=True,
-                icon="test",
                 error=None,
                 status=ClientState.RUNNING,
             ),
@@ -168,7 +168,6 @@ def test_tools_result_serialization():
                     "name": "test_tool",
                     "description": "Test tool description",
                     "enabled": True,
-                    "icon": "test",
                     "error": None,
                     "tools": [
                         {
@@ -198,7 +197,6 @@ async def test_list_tools_with_error(mock_list_tools, test_client):
                 tools=[],
                 description="",
                 enabled=True,
-                icon="",
                 error="Test error",
                 status=ClientState.FAILED,
             ),
@@ -218,7 +216,6 @@ async def test_list_tools_with_error(mock_list_tools, test_client):
                     "tools": [],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": "Test error",
                 },
             ],
@@ -278,7 +275,6 @@ async def test_list_tools_with_missing_server_not_in_cache(
                     "name": "echo",
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                     "tools": [
                         {
@@ -296,7 +292,6 @@ async def test_list_tools_with_missing_server_not_in_cache(
                     "tools": [],
                     "description": "",
                     "enabled": False,
-                    "icon": "",
                     "error": None,
                 },
             ],

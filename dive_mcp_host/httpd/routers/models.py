@@ -1,6 +1,7 @@
 from enum import StrEnum
 from typing import Any, Literal, Self, TypeVar
 
+from mcp.types import Icon
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -90,6 +91,7 @@ class SimpleToolInfo(BaseModel):
     name: str
     description: str
     enabled: bool = True
+    icons: list[Icon] | None = None
 
 
 class McpTool(BaseModel):
@@ -100,9 +102,11 @@ class McpTool(BaseModel):
     description: str
     enabled: bool
     icon: str
+    status: str
     url: str | None = None
     status: str
     error: str | None = None
+    icons: list[Icon] | None = None
 
 
 class ToolsCache(RootModel[dict[str, McpTool]]):

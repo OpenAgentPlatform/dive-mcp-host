@@ -749,7 +749,6 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     ],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -830,7 +829,6 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     ],
                     "description": "",
                     "enabled": False,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -866,7 +864,6 @@ def test_exclude_tools(test_client):
                     ],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -922,7 +919,6 @@ def test_exclude_tools(test_client):
                     ],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -978,7 +974,6 @@ def test_exclude_tools(test_client):
                     ],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -1014,7 +1009,6 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                     ],
                     "description": "",
                     "enabled": True,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -1070,7 +1064,6 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                     ],
                     "description": "",
                     "enabled": False,
-                    "icon": "",
                     "error": None,
                 }
             ],
@@ -1126,7 +1119,6 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                     ],
                     "description": "",
                     "enabled": False,
-                    "icon": "",
                     "error": None,
                 }
             ],
