@@ -96,6 +96,11 @@ async def list_tools(  # noqa: PLR0912, C901
 
     # get tools from dive host
     for server_name, server_info in app.dive_host["default"].mcp_server_info.items():
+        icons = (
+            server_info.initialize_result.serverInfo.icons
+            if server_info.initialize_result is not None
+            else None
+        )
         result[server_name] = McpTool(
             name=server_name,
             tools=[
@@ -112,7 +117,7 @@ async def list_tools(  # noqa: PLR0912, C901
             enabled=True,
             error=server_info.error_str,
             status=server_info.client_status.value,
-            icons=server_info.initialize_result.serverInfo.icons,
+            icons=icons,
         )
     logger.debug("active mcp servers: %s", result.keys())
     # find missing servers

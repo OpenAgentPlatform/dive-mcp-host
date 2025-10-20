@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
+from mcp.types import Icon, InitializeResult
 
 from dive_mcp_host.host.tools.echo import ECHO_DESCRIPTION, IGNORE_DESCRIPTION
 from dive_mcp_host.host.tools.log import LogEvent, LogMsg
@@ -20,20 +21,34 @@ from tests import helper
 class MockTool:
     """Mock Tool class."""
 
-    def __init__(self, name: str, description: str | None = None, enable: bool = True):
+    def __init__(
+        self,
+        name: str,
+        description: str | None = None,
+        enable: bool = True,
+        icons: list[Icon] | None = None,
+    ):
         self.name = name
         self.description = description
         self.enable = enable
+        self.icons = icons
 
 
 class MockServerInfo:
     """Mock server info class."""
 
-    def __init__(self, tools=None, error=None, url: str | None = None):
+    def __init__(
+        self,
+        tools=None,
+        error=None,
+        url: str | None = None,
+        initialize_result: InitializeResult | None = None,
+    ):
         self.tools = tools or []
         self.url = url
         self.error_str = error
         self.client_status = ClientState.FAILED if error else ClientState.RUNNING
+        self.initialize_result = initialize_result
 
 
 def test_initialized(test_client):
