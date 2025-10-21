@@ -814,7 +814,7 @@ class ChatProcessor:
 class LogStreamHandler:
     """Handles streaming of logs."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         stream: EventStreamContextManager,
         log_manager: LogManager,
