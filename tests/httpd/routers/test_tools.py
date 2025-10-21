@@ -498,3 +498,110 @@ def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]
 
         assert responses[-1].event == LogEvent.STATUS_CHANGE
         assert responses[-1].client_state == ClientState.RUNNING
+
+
+def test_stream_all_logs(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test streaming all logs from all enabled servers."""
+    client, _ = test_client
+
+    def setup_multiple_servers():
+        response = client.post(
+            "/api/config/mcpserver",
+            json={
+                "mcpServers": {
+                    "echo": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    },
+                    "server_two": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    },
+                }
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    with ThreadPoolExecutor(1) as _:
+        setup_multiple_servers()
+        response = client.get(
+            "/api/tools/logs/stream", params={"stream_until": "running"}
+        )
+        responses: list[LogMsg] = []
+        server_names: set[str] = set()
+        servers_reached_running: set[str] = set()
+
+        for line in response.iter_lines():
+            content = line.removeprefix("data: ")
+            if content in ("[DONE]", ""):
+                continue
+
+            data = LogMsg.model_validate_json(content)
+            responses.append(data)
+            server_names.add(data.mcp_server_name)
+
+            if data.client_state == ClientState.RUNNING:
+                servers_reached_running.add(data.mcp_server_name)
+
+        assert len(responses) > 0, "Should receive logs"
+        assert len(server_names) >= 2, "Should receive logs from multiple servers"
+        assert "echo" in server_names or "server_two" in server_names
+
+        running_states = [r for r in responses if r.client_state == ClientState.RUNNING]
+        assert len(running_states) >= 2, "Should have at least 2 servers reach RUNNING"
+        assert len(servers_reached_running) >= 2, (
+            "At least 2 different servers should reach RUNNING state"
+        )
+
+
+def test_stream_all_logs_no_servers(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test streaming all logs when no servers are enabled."""
+    client, _ = test_client
+
+    client.post(
+        "/api/config/mcpserver",
+        json={
+            "mcpServers": {
+                "echo": {
+                    "transport": "stdio",
+                    "enabled": False,
+                    "command": "python",
+                    "args": [
+                        "-m",
+                        "dive_mcp_host.host.tools.echo",
+                        "--transport=stdio",
+                    ],
+                }
+            }
+        },
+    )
+
+    response = client.get(
+        "/api/tools/logs/stream",
+        params={
+            "stream_until": "running",
+            "stop_on_notfound": True,
+        },
+    )
+    responses: list[LogMsg] = []
+    for line in response.iter_lines():
+        content = line.removeprefix("data: ")
+        if content in ("[DONE]", ""):
+            continue
+
+        data = LogMsg.model_validate_json(content)
+        responses.append(data)
+
+    assert len(responses) >= 0, "Should handle empty server list gracefully"

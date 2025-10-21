@@ -127,17 +127,20 @@ async def list_tools(  # noqa: PLR0912, C901
 
 @tools.get("/logs/stream")
 async def stream_server_logs(
-    server_name: str,
+    server_name: str | None = None,
     stream_until: ClientState | None = None,
     stop_on_notfound: bool = True,
     max_retries: int = 10,
     app: DiveHostAPI = Depends(get_app),
 ) -> StreamingResponse:
-    """Stream logs from a specific MCP server.
+    """Stream logs from MCP servers.
 
     Args:
-        server_name (str): The name of the MCP server to stream logs from.
+        server_name (str | None): The name of the MCP server to stream logs from.
+            If None, streams all logs from all enabled servers.
         stream_until (ClientState | None): stream until client state is reached.
+            When streaming all logs, stops only when all enabled servers
+            reach the target state.
         stop_on_notfound (bool): If True, stop streaming if the server is not found.
         max_retries (int): The maximum number of retries to stream logs.
         app (DiveHostAPI): The DiveHostAPI instance.
@@ -150,6 +153,11 @@ async def stream_server_logs(
     stream = EventStreamContextManager()
     response = stream.get_response()
 
+    if server_name:
+        target_servers = [server_name]
+    else:
+        target_servers = list(app.dive_host["default"].mcp_server_info.keys())
+
     async def process() -> None:
         async with stream:
             processor = LogStreamHandler(
@@ -158,8 +166,9 @@ async def stream_server_logs(
                 stream_until=stream_until,
                 stop_on_notfound=stop_on_notfound,
                 max_retries=max_retries,
+                server_names=target_servers,
             )
-            await processor.stream_logs(server_name)
+            await processor.stream_logs()
 
     stream.add_task(process)
     return response
