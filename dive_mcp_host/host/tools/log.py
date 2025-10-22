@@ -402,10 +402,19 @@ class LogManager:
             raise LogBufferNotFoundError("no name provided")
 
         async with AsyncExitStack() as stack:
+            found_buffer: list[LogBuffer] = []
+            not_found: list[str] = []
+
             for name in names:
-                buffer = self._buffers.get(name)
-                if buffer is None:
-                    raise LogBufferNotFoundError(name)
+                if buffer := self._buffers.get(name):
+                    found_buffer.append(self._buffers[name])
+                else:
+                    not_found.append(name)
+
+            if not_found:
+                raise LogBufferNotFoundError(",".join(not_found))
+
+            for buffer in found_buffer:
                 await stack.enter_async_context(buffer.add_listener(listener))
 
             try:

@@ -820,7 +820,7 @@ class LogStreamHandler:
         log_manager: LogManager,
         stream_until: ClientState | None = None,
         stop_on_notfound: bool = True,
-        max_retries: int = 5,
+        max_retries: int = 10,
         server_names: list[str] | None = None,
     ) -> None:
         """Initialize the log processor."""
@@ -844,9 +844,7 @@ class LogStreamHandler:
         await self._stream.write(msg.model_dump_json())
         if msg.client_state in self._stream_until:
             self._servers_reached_target.add(msg.mcp_server_name)
-            if self._server_names and self._server_names.issubset(
-                self._servers_reached_target
-            ):
+            if self._server_names == self._servers_reached_target:
                 self._end_event.set()
 
     async def stream_logs(self) -> None:
@@ -862,6 +860,7 @@ class LogStreamHandler:
         """
         while self._max_retries > 0:
             self._max_retries -= 1
+            self._servers_reached_target = set()
 
             try:
                 async with self._log_manager.listen_log(
@@ -888,7 +887,7 @@ class LogStreamHandler:
                 if self._stop_on_notfound or self._max_retries == 0:
                     break
 
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
 
             except Exception as e:
                 logger.exception(
