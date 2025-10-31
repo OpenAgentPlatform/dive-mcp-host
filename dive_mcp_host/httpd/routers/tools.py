@@ -2,7 +2,7 @@ from logging import getLogger
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.mcp_servers import Config
@@ -125,21 +125,28 @@ async def list_tools(  # noqa: PLR0912, C901
     return ToolsResult(success=True, message=None, tools=list(result.values()))
 
 
-@tools.get("/logs/stream")
+class LogsStreamBody(BaseModel):
+    """Body for logs stream API."""
+
+    names: list[str]
+    stream_until: ClientState | None = None
+    stop_on_notfound: bool = True
+    max_retries: int = 10
+
+
+@tools.post("/logs/stream")
 async def stream_server_logs(
-    server_name: str,
-    stream_until: ClientState | None = None,
-    stop_on_notfound: bool = True,
-    max_retries: int = 10,
+    body: LogsStreamBody,
     app: DiveHostAPI = Depends(get_app),
 ) -> StreamingResponse:
-    """Stream logs from a specific MCP server.
+    """Stream logs from MCP servers.
 
     Args:
-        server_name (str): The name of the MCP server to stream logs from.
-        stream_until (ClientState | None): stream until client state is reached.
-        stop_on_notfound (bool): If True, stop streaming if the server is not found.
-        max_retries (int): The maximum number of retries to stream logs.
+        body (LogsStreamBody):
+            - names: MCP servers to listen for logs
+            - stream_until: Stream until mcp server state matches the provided state
+            - stop_on_notfound: Stop streaming if mcp server is not found
+            - max_retries: Retry N times to listen for logs
         app (DiveHostAPI): The DiveHostAPI instance.
 
     Returns:
@@ -155,11 +162,12 @@ async def stream_server_logs(
             processor = LogStreamHandler(
                 stream=stream,
                 log_manager=log_manager,
-                stream_until=stream_until,
-                stop_on_notfound=stop_on_notfound,
-                max_retries=max_retries,
+                stream_until=body.stream_until,
+                stop_on_notfound=body.stop_on_notfound,
+                max_retries=body.max_retries,
+                server_names=body.names,
             )
-            await processor.stream_logs(server_name)
+            await processor.stream_logs()
 
     stream.add_task(process)
     return response

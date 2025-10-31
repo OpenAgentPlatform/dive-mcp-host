@@ -42,7 +42,7 @@ provides a `listen_log` method that users can listen to log updates.
 import asyncio
 import sys
 from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import UTC, datetime
 from enum import StrEnum
 from logging import INFO, getLogger
@@ -373,17 +373,20 @@ class LogManager:
     @asynccontextmanager
     async def listen_log(
         self,
-        name: str,
+        names: list[str],
         listener: Callable[[LogMsg], Coroutine[None, None, None]],
     ) -> AsyncGenerator[None, None]:
-        """Listen to log updates from a specific MCP server.
+        """Listen to log updates from MCP servers.
 
         The listener is a context manager,
         user can decide how long it will listen to the buffer.
 
-        Only buffers that are registered to the log manager
-        can be listened to. If the buffer is not registered,
-        `LogBufferNotFoundError` will be raised.
+        Args:
+            names: The names of the MCP servers to listen to.
+            listener: The callback function to call when a log is received.
+
+        Raises:
+            LogBufferNotFoundError: If a specific name is provided but not found.
 
         Example:
             ```python
@@ -391,12 +394,32 @@ class LogManager:
                 print(log)
 
 
-            async with log_manager.listen_log(buffer.name, listener):
+            async with log_manager.listen_log(["mcp_server"], listener):
                 await asyncio.sleep(10)
             ```
         """
-        buffer = self._buffers.get(name)
-        if buffer is None:
-            raise LogBufferNotFoundError(name)
-        async with buffer.add_listener(listener):
-            yield
+        if not names:
+            raise LogBufferNotFoundError("no name provided")
+
+        async with AsyncExitStack() as stack:
+            found_buffer: list[LogBuffer] = []
+            not_found: list[str] = []
+
+            for name in names:
+                if buffer := self._buffers.get(name):
+                    found_buffer.append(self._buffers[name])
+                else:
+                    not_found.append(name)
+
+            if not_found:
+                raise LogBufferNotFoundError(",".join(not_found))
+
+            for buffer in found_buffer:
+                await stack.enter_async_context(buffer.add_listener(listener))
+
+            try:
+                yield
+            except Exception:
+                raise
+            finally:
+                pass

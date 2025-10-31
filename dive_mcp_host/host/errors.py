@@ -115,4 +115,5 @@ class LogBufferNotFoundError(MCPHostError):
 
     def __init__(self, name: str) -> None:
         """Initialize the error."""
+        self.mcp_name = name
         super().__init__(f"Log buffer {name} not found")

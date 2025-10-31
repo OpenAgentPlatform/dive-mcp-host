@@ -814,13 +814,14 @@ class ChatProcessor:
 class LogStreamHandler:
     """Handles streaming of logs."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         stream: EventStreamContextManager,
         log_manager: LogManager,
         stream_until: ClientState | None = None,
         stop_on_notfound: bool = True,
         max_retries: int = 10,
+        server_names: list[str] | None = None,
     ) -> None:
         """Initialize the log processor."""
         self._stream = stream
@@ -836,26 +837,34 @@ class LogStreamHandler:
         if stream_until:
             self._stream_until.add(stream_until)
 
+        self._servers_reached_target: set[str] = set()
+        self._server_names: set[str] = set(server_names) if server_names else set()
+
     async def _log_listener(self, msg: LogMsg) -> None:
         await self._stream.write(msg.model_dump_json())
         if msg.client_state in self._stream_until:
-            self._end_event.set()
+            self._servers_reached_target.add(msg.mcp_server_name)
+            if self._server_names == self._servers_reached_target:
+                self._end_event.set()
 
-    async def stream_logs(self, server_name: str) -> None:
-        """Stream logs from specific MCP server.
+    async def stream_logs(self) -> None:
+        """Stream logs from MCP servers.
 
         Keep the connection open until client disconnects or
         client state is reached.
+
+        Streams logs from the given server names.
 
         If self._stop_on_notfound is False, it will keep retrying until
         the log buffer is found or max retries is reached.
         """
         while self._max_retries > 0:
             self._max_retries -= 1
+            self._servers_reached_target = set()
 
             try:
                 async with self._log_manager.listen_log(
-                    name=server_name,
+                    names=list(self._server_names),
                     listener=self._log_listener,
                 ):
                     with suppress(asyncio.CancelledError):
@@ -864,28 +873,30 @@ class LogStreamHandler:
             except LogBufferNotFoundError as e:
                 logger.warning(
                     "Log buffer not found for server %s, retries left: %d",
-                    server_name,
+                    e.mcp_name,
                     self._max_retries,
                 )
 
                 msg = LogMsg(
                     event=LogEvent.STREAMING_ERROR,
                     body=f"Error streaming logs: {e}",
-                    mcp_server_name=server_name,
+                    mcp_server_name=e.mcp_name,
                 )
                 await self._stream.write(msg.model_dump_json())
 
                 if self._stop_on_notfound or self._max_retries == 0:
                     break
 
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
 
             except Exception as e:
-                logger.exception("Error in log streaming for server %s", server_name)
+                logger.exception(
+                    "Error in log streaming for servers %s", self._server_names
+                )
                 msg = LogMsg(
                     event=LogEvent.STREAMING_ERROR,
                     body=f"Error streaming logs: {e}",
-                    mcp_server_name=server_name,
+                    mcp_server_name="unknown",
                 )
                 await self._stream.write(msg.model_dump_json())
                 break

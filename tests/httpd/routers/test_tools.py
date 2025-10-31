@@ -377,9 +377,7 @@ def test_tools_cache_after_update(test_client):
 def test_stream_logs_notfound(test_client: tuple[TestClient, DiveHostAPI]):
     """Test stream_logs function with not found server."""
     client, _ = test_client
-    response = client.get(
-        "/api/tools/logs/stream", params={"server_name": "missing_server"}
-    )
+    response = client.post("/api/tools/logs/stream", json={"names": ["missing_server"]})
     for line in response.iter_lines():
         content = line.removeprefix("data: ")
         if content in ("[DONE]", ""):
@@ -397,7 +395,7 @@ def test_stream_logs_notfound_wait(test_client: tuple[TestClient, DiveHostAPI]):
 
     def update_tools():
         time.sleep(2)
-        _ = client.post(
+        response = client.post(
             "/api/config/mcpserver",
             json={
                 "mcpServers": {
@@ -418,12 +416,12 @@ def test_stream_logs_notfound_wait(test_client: tuple[TestClient, DiveHostAPI]):
 
     with ThreadPoolExecutor(1) as executor:
         executor.submit(update_tools)
-        response = client.get(
+        response = client.post(
             "/api/tools/logs/stream",
-            params={
-                "server_name": "missing_server",
+            json={
+                "names": ["missing_server"],
                 "stop_on_notfound": False,
-                "max_retries": 5,
+                "max_retries": 10,
                 "stream_until": "running",
             },
         )
@@ -451,7 +449,7 @@ def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]
     client, _ = test_client
 
     def update_tools():
-        _ = client.post(
+        response = client.post(
             "/api/config/mcpserver",
             json={
                 "mcpServers": {
@@ -472,10 +470,10 @@ def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]
 
     with ThreadPoolExecutor(1) as executor:
         executor.submit(update_tools)
-        response = client.get(
+        response = client.post(
             "/api/tools/logs/stream",
-            params={
-                "server_name": "name/with/slash",
+            json={
+                "names": ["name/with/slash"],
                 "stop_on_notfound": False,
                 "max_retries": 5,
                 "stream_until": "running",
@@ -498,3 +496,76 @@ def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]
 
         assert responses[-1].event == LogEvent.STATUS_CHANGE
         assert responses[-1].client_state == ClientState.RUNNING
+
+
+def test_stream_multiple_logs(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test streaming multiple server logs."""
+    client, _ = test_client
+
+    def setup_multiple_servers():
+        time.sleep(1)
+        response = client.post(
+            "/api/config/mcpserver",
+            json={
+                "mcpServers": {
+                    "echo": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    },
+                    "server_two": {
+                        "transport": "stdio",
+                        "enabled": True,
+                        "command": "python",
+                        "args": [
+                            "-m",
+                            "dive_mcp_host.host.tools.echo",
+                            "--transport=stdio",
+                        ],
+                    },
+                }
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+    with ThreadPoolExecutor(1) as executer:
+        executer.submit(setup_multiple_servers)
+        response = client.post(
+            "/api/tools/logs/stream",
+            json={
+                "names": ["echo", "server_two"],
+                "stream_until": "running",
+                "stop_on_notfound": False,
+                "max_retries": 5,
+            },
+        )
+        responses: list[LogMsg] = []
+        server_names: set[str] = set()
+        servers_reached_running: set[str] = set()
+
+        for line in response.iter_lines():
+            content = line.removeprefix("data: ")
+            if content in ("[DONE]", ""):
+                continue
+
+            data = LogMsg.model_validate_json(content)
+            responses.append(data)
+            server_names.add(data.mcp_server_name)
+
+            if data.client_state == ClientState.RUNNING:
+                servers_reached_running.add(data.mcp_server_name)
+
+        assert len(responses) > 0, "Should receive logs"
+        assert len(server_names) >= 2, "Should receive logs from multiple servers"
+        assert "echo" in server_names or "server_two" in server_names
+
+        running_states = [r for r in responses if r.client_state == ClientState.RUNNING]
+        assert len(running_states) >= 2, "Should have at least 2 servers reach RUNNING"
+        assert len(servers_reached_running) >= 2, (
+            "At least 2 different servers should reach RUNNING state"
+        )

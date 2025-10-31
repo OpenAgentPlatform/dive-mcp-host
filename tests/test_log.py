@@ -205,7 +205,7 @@ async def test_log_manager_listen_log(log_config: LogConfig) -> None:
             await log_buffer.push_log(test_log)
 
             # Listen to logs
-            async with log_manager.listen_log("test_listen", test_listener):
+            async with log_manager.listen_log(["test_listen"], test_listener):
                 # Should receive the existing log
                 assert len(captured_logs) == 1
                 assert captured_logs[0].body == "before listener"
@@ -240,7 +240,7 @@ async def test_log_manager_buffer_not_found(log_config: LogConfig) -> None:
 
         # Try to listen to a buffer that doesn't exist
         with pytest.raises(LogBufferNotFoundError):
-            async with log_manager.listen_log("nonexistent", test_listener):
+            async with log_manager.listen_log(["nonexistent"], test_listener):
                 pass
     finally:
         import shutil
