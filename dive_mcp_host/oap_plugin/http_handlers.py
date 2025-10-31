@@ -1,10 +1,17 @@
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 from .config_mcp_servers import MCPServerManagerPlugin
 from .store import OAPStore
+
+
+class AuthBody(BaseModel):
+    """Auth request body."""
+
+    token: str
 
 
 class OAPHttpHandlers:
@@ -24,13 +31,13 @@ class OAPHttpHandlers:
         self._router.post("/config/refresh")(self.refresh_config_handler)
 
     async def auth_handler(
-        self, token: str, app: DiveHostAPI = Depends(get_app)
+        self, body: AuthBody, app: DiveHostAPI = Depends(get_app)
     ) -> None:
         """Update the device token."""
         await self._mcp_server_manager.update_device_token(
-            token, app.mcp_server_config_manager
+            body.token, app.mcp_server_config_manager
         )
-        self._oap_store.update_token(token)
+        self._oap_store.update_token(body.token)
 
     async def logout_handler(
         self, no_revoke: bool = False, app: DiveHostAPI = Depends(get_app)
