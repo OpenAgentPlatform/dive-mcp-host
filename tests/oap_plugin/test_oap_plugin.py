@@ -81,9 +81,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
     assert len(servers) == 1
 
     # load mcp token
-    response = client.post(
-        f"/api/plugins/oap-platform/auth?token={oap_token}",
-    )
+    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
     assert response.status_code == 200
 
     # get mcp server
@@ -152,9 +150,7 @@ def test_oap_plugin(  # noqa: C901, PLR0915
     assert len(servers) == 1
 
     # login again
-    response = client.post(
-        f"/api/plugins/oap-platform/auth?token={oap_token}",
-    )
+    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
     assert response.status_code == 200
 
     # get mcp server
