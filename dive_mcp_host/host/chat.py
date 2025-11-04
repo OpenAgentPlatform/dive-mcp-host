@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class Chat[STATE_TYPE: MessagesState](ContextProtocol):
     """A chat with a language model."""
 
-    def __init__(  # noqa: PLR0913, too many arguments
+    def __init__(
         self,
         model: BaseChatModel,
         agent_factory: AgentFactory[STATE_TYPE],

@@ -167,7 +167,7 @@ class ModelVerifyService:
         finally:
             task.cancel()
 
-    async def _report_progress(  # noqa: PLR0913
+    async def _report_progress(
         self,
         step: int,
         model_name: str,

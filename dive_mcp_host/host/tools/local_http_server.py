@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def local_http_server(  # noqa: C901, PLR0913, PLR0915
+async def local_http_server(
     config: ServerConfig,
     stderrlog: LogProxy,
     stdoutlog: LogProxy,

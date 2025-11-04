@@ -448,7 +448,7 @@ def test_edit_chat_missing_params(test_client):
     assert "Chat ID and Message ID are required" in body["message"]  # type: ignore
 
 
-def test_retry_chat(test_client):  # noqa: C901, PLR0915
+def test_retry_chat(test_client):
     """Test the /api/chat/retry endpoint."""
     client, app = test_client
 
@@ -768,7 +768,7 @@ def test_patch_chat_nonexistent(test_client):
     assert response.status_code == BAD_REQUEST_CODE
 
 
-def test_chat_with_tool_calls(test_client, monkeypatch):  # noqa: C901, PLR0912, PLR0915
+def test_chat_with_tool_calls(test_client, monkeypatch):
     """Test the chat endpoint with tool calls."""
     client, app = test_client
 

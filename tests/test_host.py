@@ -964,7 +964,7 @@ async def test_custom_event(
 
 
 @pytest.mark.asyncio
-async def test_resend_after_abort(  # noqa: C901
+async def test_resend_after_abort(
     echo_tool_stdio_config: dict[str, ServerConfig],
 ) -> None:
     """Test that resend after abort works."""

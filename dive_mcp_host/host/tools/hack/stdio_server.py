@@ -50,7 +50,7 @@ PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
 @asynccontextmanager
-async def stdio_client(  # noqa: C901, PLR0915
+async def stdio_client(
     server: StdioServerParameters,
     errlog: LogProxy,
 ) -> AsyncGenerator[

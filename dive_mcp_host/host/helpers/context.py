@@ -40,7 +40,7 @@ class ContextProtocol(Protocol):
         self.__gen = self._run_in_context()
         return await anext(self.__gen)
 
-    async def __aexit__(  # noqa: C901, PLR0912 A copy of asynccontextmanager.__aexit__.
+    async def __aexit__(  # A copy of asynccontextmanager.__aexit__.
         self,
         typ: type[BaseException] | None,
         value: BaseException | None,

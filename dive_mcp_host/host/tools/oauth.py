@@ -172,7 +172,7 @@ class BaseTokenStore(Protocol):
 class DictTokenStore(RootModel):
     """A root token store that stores token stores for multiple clients."""
 
-    root: dict[str, TokenStore] = {}
+    root: dict[str, TokenStore] = Field(default_factory=dict)
 
 
 class LocalTokenStore(BaseTokenStore):

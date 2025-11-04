@@ -71,7 +71,7 @@ async def list_chat(
 
 
 @chat.post("")
-async def create_chat(  # noqa: PLR0913
+async def create_chat(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
     chat_id: Annotated[str | None, Form(alias="chatId")] = None,
@@ -147,7 +147,7 @@ ERROR_MSG_ID = "0"
 
 
 @chat.post("/edit")
-async def edit_chat(  # noqa: PLR0913
+async def edit_chat(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
     chat_id: Annotated[str | None, Form(alias="chatId")] = None,

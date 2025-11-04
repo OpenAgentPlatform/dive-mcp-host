@@ -292,7 +292,7 @@ class ChatProcessor:
             else False
         )
 
-    async def handle_chat(  # noqa: C901, PLR0912, PLR0915
+    async def handle_chat(
         self,
         chat_id: str | None,
         query_input: QueryInput | None,
@@ -618,7 +618,7 @@ class ChatProcessor:
     async def _stream_interactive_msg(self, content: InteractiveContent) -> None:
         await self.stream.write(StreamMessage(type="interactive", content=content))
 
-    async def _handle_response(  # noqa: C901, PLR0912
+    async def _handle_response(
         self, response: AsyncIterator[dict[str, Any] | Any]
     ) -> tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage]]:
         """Handle response.
@@ -835,7 +835,7 @@ class ChatProcessor:
 class LogStreamHandler:
     """Handles streaming of logs."""
 
-    def __init__(  # noqa: PLR0913
+    def __init__(
         self,
         stream: EventStreamContextManager,
         log_manager: LogManager,

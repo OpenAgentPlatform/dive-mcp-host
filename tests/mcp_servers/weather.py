@@ -282,7 +282,7 @@ class TokenRequest(BaseModel):
 
 # RFC 6749
 @app.post("/token")
-async def oauth_token(token_request: Annotated[TokenRequest, Form()]) -> JSONResponse:  # noqa: C901, PLR0912
+async def oauth_token(token_request: Annotated[TokenRequest, Form()]) -> JSONResponse:
     """OAuth token endpoint."""
     logger.debug("token_request: %s", token_request)
     app = apps.get(token_request.client_id)

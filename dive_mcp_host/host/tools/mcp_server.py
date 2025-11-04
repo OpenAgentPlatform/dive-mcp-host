@@ -453,7 +453,7 @@ class McpServer(ContextProtocol):
             async with self._cond:
                 self._cond.notify_all()
 
-    async def _stdio_client_watcher(self) -> None:  # noqa: C901, PLR0915, PLR0912
+    async def _stdio_client_watcher(self) -> None:
         """Client watcher task.
 
         Restart the client if need.
@@ -799,9 +799,11 @@ class McpServer(ContextProtocol):
             self._exception = McpSessionGroupError(err_msg, eg.exceptions)
             for e in eg.exceptions:
                 logger.error("http setup error %s", e)
-                if isinstance(e, httpx.HTTPStatusError):
-                    if e.response.status_code == httpx.codes.UNAUTHORIZED:
-                        unauthenticated = True
+                if (
+                    isinstance(e, httpx.HTTPStatusError)
+                    and e.response.status_code == httpx.codes.UNAUTHORIZED
+                ):
+                    unauthenticated = True
 
         except* (
             McpError,

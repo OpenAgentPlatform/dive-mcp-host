@@ -118,7 +118,7 @@ class DiveMcpHost(ContextProtocol):
         )
         self._model = model
 
-    def chat[T: MessagesState](  # noqa: PLR0913 Is there a better way to do this?
+    def chat[T: MessagesState](
         self,
         *,
         chat_id: str | None = None,
