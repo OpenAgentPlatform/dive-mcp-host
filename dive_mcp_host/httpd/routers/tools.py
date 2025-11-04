@@ -119,6 +119,7 @@ async def list_tools(  # noqa: PLR0912, C901
             enabled=True,
             error=server_info.error_str,
             status=server_info.client_status.value,
+            icon="",
             icons=icons,
             has_credential=server_name in has_credentials,
         )
@@ -159,6 +160,7 @@ async def list_tools(  # noqa: PLR0912, C901
                     description="",
                     enabled=False,
                     error=None,
+                    icon="",
                     status="",
                 )
 
