@@ -69,11 +69,13 @@ class MCPServerManagerPlugin:
                 mcp_enabled[oap["id"]] = server.enabled
 
         # remove oap mcp servers
+        # preserve old config, might be used to construct final output
+        old_oap: dict[str, MCPServerConfig] = {}
         if mcp_servers is None or len(mcp_servers) > 0:
             for key in config.mcp_servers.copy():
                 value = config.mcp_servers[key]
                 if value.extra_data and value.extra_data.get("oap"):
-                    config.mcp_servers.pop(key)
+                    old_oap[key] = config.mcp_servers.pop(key)
 
         if mcp_servers is None:
             return config
@@ -82,11 +84,13 @@ class MCPServerManagerPlugin:
             headers = server.headers.copy()
             if server.auth_type == "header":
                 headers.update({"Authorization": f"Bearer {self.device_token}"})
+            old_config = old_oap.get(server.name)
             config.mcp_servers[server.name] = MCPServerConfig(
                 enabled=mcp_enabled.get(server.id, True),
                 url=server.url,
                 transport=server.transport,
                 headers=headers,  # type: ignore
+                exclude_tools=old_config.exclude_tools if old_config else [],
                 extraData={
                     "oap": {
                         "id": server.id,
