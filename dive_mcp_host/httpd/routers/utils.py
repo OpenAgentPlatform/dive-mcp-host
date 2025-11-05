@@ -312,22 +312,6 @@ class ChatProcessor:
         title_await = None
         result = ""
 
-        if isinstance(query_input, QueryInput) and query_input.text:
-            async with self.app.db_sessionmaker() as session:
-                db = self.app.msg_store(session)
-                if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
-                    title_await = asyncio.create_task(
-                        self._generate_title(query_input.text)
-                    )
-
-        await self.stream.write(
-            StreamMessage(
-                type="chat_info",
-                content=ChatInfoContent(id=chat_id, title=title),
-            )
-        )
-
-        start = time.time()
         if regenerate_message_id:
             if query_input:
                 query_message = await self._query_input_to_message(
@@ -343,6 +327,39 @@ class ChatProcessor:
             )
         else:
             query_message = None
+
+        if isinstance(query_input, QueryInput) and query_input.text:
+            async with self.app.db_sessionmaker() as session:
+                db = self.app.msg_store(session)
+                if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
+                    await db.create_chat(
+                        chat_id, title, dive_user["user_id"], dive_user["user_type"]
+                    )
+                    await db.create_message(
+                        NewMessage(
+                            chatId=chat_id,
+                            role=Role.USER,
+                            messageId=query_message.id,
+                            content=query_input.text or "",  # type: ignore
+                            files=(
+                                (query_input.images or [])
+                                + (query_input.documents or [])
+                            ),
+                        ),
+                    )
+                    title_await = asyncio.create_task(
+                        self._generate_title(query_input.text)
+                    )
+                    await session.commit()
+
+        await self.stream.write(
+            StreamMessage(
+                type="chat_info",
+                content=ChatInfoContent(id=chat_id, title=title),
+            )
+        )
+
+        start = time.time()
         user_message, ai_message, current_messages = await self._process_chat(
             chat_id,
             query_message,
@@ -361,10 +378,6 @@ class ChatProcessor:
 
         async with self.app.db_sessionmaker() as session:
             db = self.app.msg_store(session)
-            if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
-                await db.create_chat(
-                    chat_id, title, dive_user["user_id"], dive_user["user_type"]
-                )
 
             original_msg_exist: bool = False
             if regenerate_message_id and query_message:
