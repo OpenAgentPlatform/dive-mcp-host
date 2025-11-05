@@ -400,24 +400,7 @@ class ChatProcessor:
 
             for message in current_messages:
                 assert message.id
-                if isinstance(message, HumanMessage):
-                    if not query_input or (
-                        regenerate_message_id and original_msg_exist
-                    ):
-                        continue
-                    await db.create_message(
-                        NewMessage(
-                            chatId=chat_id,
-                            role=Role.USER,
-                            messageId=message.id,
-                            content=query_input.text or "",  # type: ignore
-                            files=(
-                                (query_input.images or [])
-                                + (query_input.documents or [])
-                            ),
-                        ),
-                    )
-                elif isinstance(message, AIMessage):
+                if isinstance(message, AIMessage):
                     if (
                         message.usage_metadata is None
                         or (duration := message.usage_metadata.get("total_duration"))
