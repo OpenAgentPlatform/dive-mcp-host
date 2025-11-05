@@ -328,7 +328,7 @@ class ChatProcessor:
         else:
             query_message = None
 
-        if isinstance(query_input, QueryInput) and query_input.text:
+        if isinstance(query_input, QueryInput):
             async with self.app.db_sessionmaker() as session:
                 db = self.app.msg_store(session)
                 if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
@@ -347,10 +347,11 @@ class ChatProcessor:
                             ),
                         ),
                     )
+                    await session.commit()
+
                     title_await = asyncio.create_task(
                         self._generate_title(query_input.text)
                     )
-                    await session.commit()
 
         await self.stream.write(
             StreamMessage(
@@ -378,6 +379,9 @@ class ChatProcessor:
 
         async with self.app.db_sessionmaker() as session:
             db = self.app.msg_store(session)
+
+            if title_await:
+                await db.patch_chat(chat_id, user_id=dive_user["user_id"], title=title)
 
             original_msg_exist: bool = False
             if regenerate_message_id and query_message:
