@@ -20,6 +20,32 @@ CHECKPOINTER_PATH = CLI_DATA_DIR / "checkpoints.db"
 # Loading animation characters
 LOADING_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
+# ASCII art logo
+LOGO = """
+    ╭────────────────────────────────────╮
+    │                                    │
+    │         ████████████████           │
+    │      ████              ████        │
+    │    ████    ████  ████    ████      │
+    │   ███     ██  ████  ██     ███     │
+    │  ███      ██        ██      ███    │
+    │  ███      ██  OwwO  ██      ███    │
+    │  ███      ██        ██      ███    │
+    │   ███     ██  ████  ██     ███     │
+    │    ████    ████  ████    ████      │
+    │      ████              ████        │
+    │         ████████████████           │
+    │   ╱                                │
+    │  ╱                                 │
+    │ ╱   Dive MCP Host CLI              │
+    ╰────────────────────────────────────╯
+"""
+
+
+def print_logo() -> None:
+    """Print the CLI logo."""
+    print(LOGO)
+
 
 def parse_query(args: type[CLIArgs]) -> HumanMessage:
     """Parse the query from the command line arguments."""
@@ -140,6 +166,9 @@ def load_merged_config(mcp_config_path: str, model_config_path: str) -> HostConf
 
 async def run() -> None:
     """dive_mcp_host CLI entrypoint."""
+    # Print logo
+    print_logo()
+
     args = setup_argument_parser()
 
     # Get initial query if provided
