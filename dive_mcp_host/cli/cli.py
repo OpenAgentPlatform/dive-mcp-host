@@ -1,6 +1,7 @@
 """Dive MCP Host CLI."""
 
 import argparse
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -15,6 +16,9 @@ from dive_mcp_host.host.host import DiveMcpHost
 # Default paths for CLI
 CLI_DATA_DIR = Path.home() / ".dive_mcp_host"
 CHECKPOINTER_PATH = CLI_DATA_DIR / "checkpoints.db"
+
+# Loading animation characters
+LOADING_CHARS = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 
 def parse_query(args: type[CLIArgs]) -> HumanMessage:
@@ -194,6 +198,7 @@ async def run() -> None:
                 # Start interactive chat loop
                 print("\nChat started. Type 'exit' or press Ctrl-C to quit.")
                 print(f"Chat ID: {current_chat_id}")
+                print(f"Model: {config.llm.model_provider}/{config.llm.model}")
                 print("=" * 60)
 
                 while True:
@@ -211,7 +216,7 @@ async def run() -> None:
 
                         # Process the query
                         query = HumanMessage(content=user_input)
-                        print("\nAssistant: ", end="")
+                        print()
                         await process_query(chat, query, output_parser)
 
                     except EOFError:
@@ -225,16 +230,49 @@ async def run() -> None:
         sys.exit(0)
 
 
+async def show_loading(stop_event: asyncio.Event) -> None:
+    """Show a loading animation until stop_event is set."""
+    idx = 0
+    while not stop_event.is_set():
+        char = LOADING_CHARS[idx % len(LOADING_CHARS)]
+        print(f"\r{char} Thinking...", end="", flush=True)
+        idx += 1
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=0.1)
+        except asyncio.TimeoutError:
+            continue
+    # Clear the loading line
+    print("\r" + " " * 20 + "\r", end="", flush=True)
+
+
 async def process_query(chat, query: HumanMessage, output_parser: StrOutputParser) -> None:
     """Process a single query and print the response."""
-    async for response in chat.query(query, stream_mode="messages"):
-        assert isinstance(response, tuple)
-        msg = response[0]
-        if isinstance(msg, AIMessage):
-            content = output_parser.invoke(msg)
-            print(content, end="")
-            continue
-        print(f"\n\n==== Start Of {type(msg)} ===")
-        print(msg)
-        print(f"==== End Of {type(msg)} ===\n")
+    # Start loading animation
+    stop_loading = asyncio.Event()
+    loading_task = asyncio.create_task(show_loading(stop_loading))
+
+    first_response = True
+    try:
+        async for response in chat.query(query, stream_mode="messages"):
+            # Stop loading on first response
+            if first_response:
+                stop_loading.set()
+                await loading_task
+                first_response = False
+
+            assert isinstance(response, tuple)
+            msg = response[0]
+            if isinstance(msg, AIMessage):
+                content = output_parser.invoke(msg)
+                print(content, end="", flush=True)
+                continue
+            print(f"\n\n==== Start Of {type(msg)} ===")
+            print(msg)
+            print(f"==== End Of {type(msg)} ===\n")
+    finally:
+        # Ensure loading is stopped
+        if not stop_loading.is_set():
+            stop_loading.set()
+            await loading_task
+
     print()  # Add newline after response
