@@ -35,9 +35,9 @@ LOGO = """
     │    ████    ████  ████    ████      │
     │      ████              ████        │
     │         ████████████████           │
-    │   ╱                                │
-    │  ╱                                 │
-    │ ╱   Dive MCP Host CLI              │
+    │   /                                │
+    │  /                                 │
+    │ /   Dive MCP Host CLI              │
     ╰────────────────────────────────────╯
 """
 
@@ -115,9 +115,7 @@ def load_config(config_path: str) -> HostConfig:
     # Add default checkpointer if not present
     if "checkpointer" not in config_data:
         CHECKPOINTER_PATH.parent.mkdir(parents=True, exist_ok=True)
-        config_data["checkpointer"] = {
-            "uri": f"sqlite:///{CHECKPOINTER_PATH}"
-        }
+        config_data["checkpointer"] = {"uri": f"sqlite:///{CHECKPOINTER_PATH}"}
 
     return HostConfig.model_validate(config_data)
 
@@ -156,12 +154,69 @@ def load_merged_config(mcp_config_path: str, model_config_path: str) -> HostConf
     merged_config = {
         "llm": active_config,
         "mcp_servers": mcp_servers,
-        "checkpointer": {
-            "uri": f"sqlite:///{CHECKPOINTER_PATH}"
-        }
+        "checkpointer": {"uri": f"sqlite:///{CHECKPOINTER_PATH}"},
     }
 
     return HostConfig.model_validate(merged_config)
+
+
+def get_config_from_args(args: type[CLIArgs]) -> HostConfig:
+    """Load configuration based on CLI arguments."""
+    if args.config_path:
+        return load_config(args.config_path)
+
+    if args.config_dir or args.mcp_config_path or args.model_config_path:
+        # User explicitly provided config options
+        if args.config_dir:
+            config_dir = Path(args.config_dir)
+            mcp_config_path = str(config_dir / "mcp_config.json")
+            model_config_path = str(config_dir / "model_config.json")
+        else:
+            mcp_config_path = args.mcp_config_path or "mcp_config.json"
+            model_config_path = args.model_config_path or "model_config.json"
+
+        return load_merged_config(mcp_config_path, model_config_path)
+
+    # No config options provided, try default files in order
+    default_config = Path("config.json")
+    if default_config.exists():
+        return load_config(str(default_config))
+
+    # Fall back to separate config files
+    return load_merged_config("mcp_config.json", "model_config.json")
+
+
+async def interactive_chat_loop(
+    chat, output_parser: StrOutputParser, config: HostConfig, chat_id: str
+) -> None:
+    """Run the interactive chat loop."""
+    print("\nChat started. Type 'exit' or press Ctrl-C to quit.")
+    print(f"Chat ID: {chat_id}")
+    print(f"Model: {config.llm.model_provider}/{config.llm.model}")
+    print("=" * 60)
+
+    while True:
+        try:
+            # Read user input
+            user_input = input("\nYou: ").strip()
+
+            if not user_input:
+                continue
+
+            # Check for exit commands
+            if user_input.lower() in ["exit", "quit"]:
+                print("\nGoodbye!")
+                break
+
+            # Process the query
+            query = HumanMessage(content=user_input)
+            print()
+            await process_query(chat, query, output_parser)
+
+        except EOFError:
+            # Handle Ctrl-D
+            print("\n\nGoodbye!")
+            break
 
 
 async def run() -> None:
@@ -172,36 +227,12 @@ async def run() -> None:
     args = setup_argument_parser()
 
     # Get initial query if provided
-    initial_query = None
-    if args.query:
-        initial_query = parse_query(args)
+    initial_query = parse_query(args) if args.query else None
 
-    # Load config based on provided arguments
-    if args.config_path:
-        config = load_config(args.config_path)
-    elif args.config_dir or args.mcp_config_path or args.model_config_path:
-        # User explicitly provided config options
-        if args.config_dir:
-            config_dir = Path(args.config_dir)
-            mcp_config_path = str(config_dir / "mcp_config.json")
-            model_config_path = str(config_dir / "model_config.json")
-        else:
-            mcp_config_path = args.mcp_config_path or "mcp_config.json"
-            model_config_path = args.model_config_path or "model_config.json"
+    # Load configuration
+    config = get_config_from_args(args)
 
-        config = load_merged_config(mcp_config_path, model_config_path)
-    else:
-        # No config options provided, try default files in order
-        default_config = Path("config.json")
-        if default_config.exists():
-            config = load_config(str(default_config))
-        else:
-            # Fall back to separate config files
-            mcp_config_path = "mcp_config.json"
-            model_config_path = "model_config.json"
-            config = load_merged_config(mcp_config_path, model_config_path)
-
-    current_chat_id: str | None = args.chat_id
+    # Load system prompt if provided
     system_prompt = None
     if args.prompt_file:
         with Path(args.prompt_file).open("r") as f:
@@ -216,7 +247,7 @@ async def run() -> None:
             print("Tools initialized")
             print("=" * 60)
 
-            chat = mcp_host.chat(chat_id=current_chat_id, system_prompt=system_prompt)
+            chat = mcp_host.chat(chat_id=args.chat_id, system_prompt=system_prompt)
             current_chat_id = chat.chat_id
 
             async with chat:
@@ -225,33 +256,9 @@ async def run() -> None:
                     await process_query(chat, initial_query, output_parser)
 
                 # Start interactive chat loop
-                print("\nChat started. Type 'exit' or press Ctrl-C to quit.")
-                print(f"Chat ID: {current_chat_id}")
-                print(f"Model: {config.llm.model_provider}/{config.llm.model}")
-                print("=" * 60)
-
-                while True:
-                    try:
-                        # Read user input
-                        user_input = input("\nYou: ").strip()
-
-                        if not user_input:
-                            continue
-
-                        # Check for exit commands
-                        if user_input.lower() in ["exit", "quit"]:
-                            print("\nGoodbye!")
-                            break
-
-                        # Process the query
-                        query = HumanMessage(content=user_input)
-                        print()
-                        await process_query(chat, query, output_parser)
-
-                    except EOFError:
-                        # Handle Ctrl-D
-                        print("\n\nGoodbye!")
-                        break
+                await interactive_chat_loop(
+                    chat, output_parser, config, current_chat_id
+                )
 
     except KeyboardInterrupt:
         # Handle Ctrl-C
@@ -268,13 +275,15 @@ async def show_loading(stop_event: asyncio.Event) -> None:
         idx += 1
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=0.1)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             continue
     # Clear the loading line
     print("\r" + " " * 20 + "\r", end="", flush=True)
 
 
-async def process_query(chat, query: HumanMessage, output_parser: StrOutputParser) -> None:
+async def process_query(
+    chat, query: HumanMessage, output_parser: StrOutputParser
+) -> None:
     """Process a single query and print the response."""
     # Start loading animation
     stop_loading = asyncio.Event()
