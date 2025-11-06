@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -10,6 +11,10 @@ from langchain_core.output_parsers import StrOutputParser
 from dive_mcp_host.cli.cli_types import CLIArgs
 from dive_mcp_host.host.conf import HostConfig
 from dive_mcp_host.host.host import DiveMcpHost
+
+# Default paths for CLI
+CLI_DATA_DIR = Path.home() / ".dive_mcp_host"
+CHECKPOINTER_PATH = CLI_DATA_DIR / "checkpoints.db"
 
 
 def parse_query(args: type[CLIArgs]) -> HumanMessage:
@@ -75,7 +80,16 @@ def setup_argument_parser() -> type[CLIArgs]:
 def load_config(config_path: str) -> HostConfig:
     """Load the configuration."""
     with Path(config_path).open("r") as f:
-        return HostConfig.model_validate_json(f.read())
+        config_data = json.load(f)
+
+    # Add default checkpointer if not present
+    if "checkpointer" not in config_data:
+        CHECKPOINTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+        config_data["checkpointer"] = {
+            "uri": f"sqlite:///{CHECKPOINTER_PATH}"
+        }
+
+    return HostConfig.model_validate(config_data)
 
 
 def load_merged_config(mcp_config_path: str, model_config_path: str) -> HostConfig:
@@ -105,10 +119,16 @@ def load_merged_config(mcp_config_path: str, model_config_path: str) -> HostConf
         server_config_with_name = {**server_config, "name": server_name}
         mcp_servers[server_name] = server_config_with_name
 
+    # Setup default checkpointer for CLI (use sqlite in home directory)
+    CHECKPOINTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+
     # Merge configs
     merged_config = {
         "llm": active_config,
-        "mcp_servers": mcp_servers
+        "mcp_servers": mcp_servers,
+        "checkpointer": {
+            "uri": f"sqlite:///{CHECKPOINTER_PATH}"
+        }
     }
 
     return HostConfig.model_validate(merged_config)
@@ -117,7 +137,11 @@ def load_merged_config(mcp_config_path: str, model_config_path: str) -> HostConf
 async def run() -> None:
     """dive_mcp_host CLI entrypoint."""
     args = setup_argument_parser()
-    query = parse_query(args)
+
+    # Get initial query if provided
+    initial_query = None
+    if args.query:
+        initial_query = parse_query(args)
 
     # Load config based on provided arguments
     if args.config_path:
@@ -151,23 +175,66 @@ async def run() -> None:
             system_prompt = f.read()
 
     output_parser = StrOutputParser()
-    async with DiveMcpHost(config) as mcp_host:
-        print("Waiting for tools to initialize...")
-        await mcp_host.tools_initialized_event.wait()
-        print("Tools initialized")
-        chat = mcp_host.chat(chat_id=current_chat_id, system_prompt=system_prompt)
-        current_chat_id = chat.chat_id
-        async with chat:
-            async for response in chat.query(query, stream_mode="messages"):
-                assert isinstance(response, tuple)
-                msg = response[0]
-                if isinstance(msg, AIMessage):
-                    content = output_parser.invoke(msg)
-                    print(content, end="")
-                    continue
-                print(f"\n\n==== Start Of {type(msg)} ===")
-                print(msg)
-                print(f"==== End Of {type(msg)} ===\n")
 
-    print()
-    print(f"Chat ID: {current_chat_id}")
+    try:
+        async with DiveMcpHost(config) as mcp_host:
+            print("Waiting for tools to initialize...")
+            await mcp_host.tools_initialized_event.wait()
+            print("Tools initialized")
+            print("=" * 60)
+
+            chat = mcp_host.chat(chat_id=current_chat_id, system_prompt=system_prompt)
+            current_chat_id = chat.chat_id
+
+            async with chat:
+                # Process initial query if provided
+                if initial_query:
+                    await process_query(chat, initial_query, output_parser)
+
+                # Start interactive chat loop
+                print("\nChat started. Type 'exit' or press Ctrl-C to quit.")
+                print(f"Chat ID: {current_chat_id}")
+                print("=" * 60)
+
+                while True:
+                    try:
+                        # Read user input
+                        user_input = input("\nYou: ").strip()
+
+                        if not user_input:
+                            continue
+
+                        # Check for exit commands
+                        if user_input.lower() in ["exit", "quit"]:
+                            print("\nGoodbye!")
+                            break
+
+                        # Process the query
+                        query = HumanMessage(content=user_input)
+                        print("\nAssistant: ", end="")
+                        await process_query(chat, query, output_parser)
+
+                    except EOFError:
+                        # Handle Ctrl-D
+                        print("\n\nGoodbye!")
+                        break
+
+    except KeyboardInterrupt:
+        # Handle Ctrl-C
+        print("\n\nGoodbye!")
+        sys.exit(0)
+
+
+async def process_query(chat, query: HumanMessage, output_parser: StrOutputParser) -> None:
+    """Process a single query and print the response."""
+    async for response in chat.query(query, stream_mode="messages"):
+        assert isinstance(response, tuple)
+        msg = response[0]
+        if isinstance(msg, AIMessage):
+            content = output_parser.invoke(msg)
+            print(content, end="")
+            continue
+        print(f"\n\n==== Start Of {type(msg)} ===")
+        print(msg)
+        print(f"==== End Of {type(msg)} ===\n")
+    print()  # Add newline after response
