@@ -1,10 +1,10 @@
 {
     "mcpServers": {
-        "biggo-mcp-server": {
+        "fetch": {
             "transport": "command",
             "command": "uvx",
             "args": [
-                "BigGo-MCP-Server@latest"
+                "mcp-server-fetch@latest"
             ]
         }
     }

@@ -6,7 +6,7 @@
       "model": "gpt-4o-mini",
       "apiKey": "openai_api_key",
       "base_url": "",
-      "temperature": 0.5, 
+      "temperature": 0.5,
       "top_p": 0.5
     },
     "ollama": {
@@ -14,7 +14,7 @@
       "model": "qwen2.5:14b",
       "apiKey": "",
       "configuration": {
-        "baseURL": "https://ollama.biggo.dev"
+        "baseURL": "http://localhost:11434"
       },
       "temperature": 0.7,
       "top_p": 1
