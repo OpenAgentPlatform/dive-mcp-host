@@ -335,23 +335,21 @@ class ChatProcessor:
                     await db.create_chat(
                         chat_id, title, dive_user["user_id"], dive_user["user_type"]
                     )
-                    await db.create_message(
-                        NewMessage(
-                            chatId=chat_id,
-                            role=Role.USER,
-                            messageId=query_message.id,
-                            content=query_input.text or "",  # type: ignore
-                            files=(
-                                (query_input.images or [])
-                                + (query_input.documents or [])
-                            ),
-                        ),
-                    )
-                    await session.commit()
-
                     title_await = asyncio.create_task(
                         self._generate_title(query_input.text)
                     )
+                await db.create_message(
+                    NewMessage(
+                        chatId=chat_id,
+                        role=Role.USER,
+                        messageId=query_message.id,
+                        content=query_input.text or "",  # type: ignore
+                        files=(
+                            (query_input.images or []) + (query_input.documents or [])
+                        ),
+                    ),
+                )
+                await session.commit()
 
         await self.stream.write(
             StreamMessage(
