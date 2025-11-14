@@ -328,30 +328,47 @@ class ChatProcessor:
         else:
             query_message = None
 
-        if isinstance(query_input, QueryInput):
-            async with self.app.db_sessionmaker() as session:
-                db = self.app.msg_store(session)
-                if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
-                    await db.create_chat(
-                        chat_id, title, dive_user["user_id"], dive_user["user_type"]
-                    )
-                    await db.create_message(
-                        NewMessage(
-                            chatId=chat_id,
-                            role=Role.USER,
-                            messageId=query_message.id,
-                            content=query_input.text or "",  # type: ignore
-                            files=(
-                                (query_input.images or [])
-                                + (query_input.documents or [])
-                            ),
-                        ),
-                    )
-                    await session.commit()
-
+        async with self.app.db_sessionmaker() as session:
+            db = self.app.msg_store(session)
+            original_msg_exist = False
+            if not await db.check_chat_exists(chat_id, dive_user["user_id"]):
+                await db.create_chat(
+                    chat_id, title, dive_user["user_id"], dive_user["user_type"]
+                )
+                if query_input:
                     title_await = asyncio.create_task(
                         self._generate_title(query_input.text)
                     )
+            elif regenerate_message_id:
+                await db.delete_messages_after(chat_id, query_message.id)
+                original_msg_exist = await db.lock_msg(
+                    chat_id=chat_id,
+                    message_id=query_message.id,
+                )
+                if query_input and original_msg_exist:
+                    await db.update_message_content(
+                        query_message.id,  # type: ignore
+                        QueryInput(
+                            text=query_input.text or "",
+                            images=query_input.images or [],
+                            documents=query_input.documents or [],
+                            tool_calls=query_input.tool_calls,
+                        ),
+                    )
+
+            if not original_msg_exist:
+                await db.create_message(
+                    NewMessage(
+                        chatId=chat_id,
+                        role=Role.USER,
+                        messageId=query_message.id,
+                        content=query_input.text or "",  # type: ignore
+                        files=(
+                            (query_input.images or []) + (query_input.documents or [])
+                        ),
+                    ),
+                )
+            await session.commit()
 
         await self.stream.write(
             StreamMessage(
@@ -382,25 +399,6 @@ class ChatProcessor:
 
             if title_await:
                 await db.patch_chat(chat_id, user_id=dive_user["user_id"], title=title)
-
-            original_msg_exist: bool = False
-            if regenerate_message_id and query_message:
-                assert query_message.id, "Message ID doesn't exist"
-                await db.delete_messages_after(chat_id, query_message.id)
-                original_msg_exist = await db.lock_msg(
-                    chat_id=chat_id,
-                    message_id=query_message.id,
-                )
-                if query_input and original_msg_exist:
-                    await db.update_message_content(
-                        query_message.id,  # type: ignore
-                        QueryInput(
-                            text=query_input.text or "",
-                            images=query_input.images or [],
-                            documents=query_input.documents or [],
-                            tool_calls=query_input.tool_calls,
-                        ),
-                    )
 
             for message in current_messages:
                 assert message.id
