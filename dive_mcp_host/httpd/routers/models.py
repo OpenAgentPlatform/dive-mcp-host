@@ -158,6 +158,17 @@ class InteractiveContent(BaseModel):
     content: AuthenticationRequiredContent
 
 
+class ErrorContent(BaseModel):
+    """Error content."""
+
+    message: str
+    type: str
+
+    model_config = ConfigDict(
+        extra="allow",
+    )
+
+
 class StreamMessage(BaseModel):
     """Stream message."""
 
@@ -175,6 +186,7 @@ class StreamMessage(BaseModel):
         str
         | list[ToolCallsContent]
         | ToolResultContent
+        | ErrorContent
         | ChatInfoContent
         | MessageInfoContent
         | InteractiveContent
