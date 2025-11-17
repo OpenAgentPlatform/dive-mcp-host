@@ -10,7 +10,6 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolCall
 
-from dive_mcp_host.host.errors import ThreadQueryError
 from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
