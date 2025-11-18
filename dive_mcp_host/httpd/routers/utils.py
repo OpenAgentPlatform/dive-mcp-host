@@ -22,6 +22,7 @@ from langchain_core.messages import (
 )
 from langchain_core.messages.tool import ToolMessage
 from langchain_core.output_parsers import StrOutputParser
+from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel
 from starlette.datastructures import State
 
@@ -51,6 +52,7 @@ from dive_mcp_host.httpd.database.models import (
 from dive_mcp_host.httpd.routers.models import (
     AuthenticationRequiredContent,
     ChatInfoContent,
+    ErrorContent,
     InteractiveContent,
     MessageInfoContent,
     StreamMessage,
@@ -109,9 +111,18 @@ class EventStreamContextManager:
             import traceback
 
             logger.error(traceback.format_exception(exc_type, exc_val, exc_tb))
+            content = ErrorContent(message=str(exc_val), type="thread-query-error")
+
+            if (error := getattr(exc_val, "error", None)) and isinstance(
+                error, OpenAIAPIError
+            ):
+                content.message = error.message
+                content.type = error.type
+                content.code = error.code
+
             self._exit_message = StreamMessage(
                 type="error",
-                content=f"<thread-query-error>{exc_val}</thread-query-error>",
+                content=content,
             ).model_dump_json(by_alias=True)
 
         self.done = True
@@ -356,7 +367,7 @@ class ChatProcessor:
                         ),
                     )
 
-            if not original_msg_exist:
+            if query_input and not original_msg_exist:
                 await db.create_message(
                     NewMessage(
                         chatId=chat_id,
@@ -584,7 +595,9 @@ class ChatProcessor:
             await self.stream.write(
                 StreamMessage(
                     type="error",
-                    content="stop_reason: max_tokens",
+                    content=ErrorContent(
+                        message="stop_reason: max_tokens", type="max_tokens"
+                    ),
                 )
             )
 

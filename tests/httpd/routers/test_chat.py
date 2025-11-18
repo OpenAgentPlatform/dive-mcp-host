@@ -1163,10 +1163,9 @@ def test_chat_error(test_client, monkeypatch):
                 has_chat_info = True
             if inner_json["type"] == "error":
                 has_error = True
-                assert (
-                    inner_json["content"]
-                    == "<thread-query-error>an test error</thread-query-error>"
-                )
+                error_content = inner_json["content"]
+                assert error_content["message"] == "an test error"
+                assert error_content["type"] == "thread-query-error"
 
     assert has_chat_info
     assert has_error
@@ -1209,3 +1208,46 @@ def test_chat_with_tool_progress(
                 has_progress = True
 
     assert has_progress
+
+
+def test_chat_with_openai_error(test_client, monkeypatch):
+    """Test the chat endpoint with an OpenAI error."""
+    client, app = test_client
+    from openai import APIError as OpenAIAPIError
+
+    def mock_process_chat(*args, **kwargs):
+        raise OpenAIAPIError(
+            message="an test error",
+            request=None,
+            body={
+                "type": "insufficient_quota",
+                "code": "insufficient_quota",
+            },
+        )
+
+    monkeypatch.setattr(
+        "dive_mcp_host.models.fake.FakeMessageToolModel._generate",
+        mock_process_chat,
+    )
+
+    response = client.post(
+        "/api/chat", data={"chatId": "test_chat_id", "message": "Calculate 2+2"}
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    has_chat_info = False
+    has_error = False
+
+    for json_obj in helper.extract_stream(response.text):
+        assert "message" in json_obj
+        if json_obj["message"]:
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "chat_info":
+                has_chat_info = True
+            if inner_json["type"] == "error":
+                has_error = True
+                error_content = inner_json["content"]
+                assert error_content["type"] == "insufficient_quota"
+
+    assert has_chat_info
+    assert has_error
