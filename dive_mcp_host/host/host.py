@@ -93,6 +93,7 @@ class DiveMcpHost(ContextProtocol):
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         async with AsyncExitStack() as stack:
@@ -196,45 +197,48 @@ class DiveMcpHost(ContextProtocol):
         Chats can be resumed after reload by using the same chat_id.
         """
         # NOTE: Do Not restart MCP Servers when there is on-going query.
-        if self._exit_stack is None:
-            raise RuntimeError("Host not initialized")
+        async with self._lock:
+            if self._exit_stack is None:
+                raise RuntimeError("Host not initialized")
 
-        # Update config
-        old_config = self._config
-        self._config = new_config
+            # Update config
+            old_config = self._config
+            self._config = new_config
 
-        try:
-            # Reload model if needed
-            if old_config.llm != new_config.llm:
-                self._model = None
-                await self._init_models()
+            try:
+                # Reload model if needed
+                if old_config.llm != new_config.llm:
+                    self._model = None
+                    await self._init_models()
 
-            await self._tool_manager.reload(
-                new_configs=new_config.mcp_servers, force=force_mcp
-            )
+                await self._tool_manager.reload(
+                    new_configs=new_config.mcp_servers, force=force_mcp
+                )
 
-            # Reload checkpointer if needed
-            if old_config.checkpointer != new_config.checkpointer:
-                if self._checkpointer is not None:
-                    await self._exit_stack.aclose()
-                    self._checkpointer = None
+                # Reload checkpointer if needed
+                if old_config.checkpointer != new_config.checkpointer:
+                    if self._checkpointer is not None:
+                        await self._exit_stack.aclose()
+                        self._checkpointer = None
 
-                if new_config.checkpointer:
-                    checkpointer = get_checkpointer(str(new_config.checkpointer.uri))
-                    self._checkpointer = await self._exit_stack.enter_async_context(
-                        checkpointer
-                    )
-                    await self._checkpointer.setup()
+                    if new_config.checkpointer:
+                        checkpointer = get_checkpointer(
+                            str(new_config.checkpointer.uri)
+                        )
+                        self._checkpointer = await self._exit_stack.enter_async_context(
+                            checkpointer
+                        )
+                        await self._checkpointer.setup()
 
-            # Call the reloader function to handle service restart
-            if reloader:
-                await reloader()
+                # Call the reloader function to handle service restart
+                if reloader:
+                    await reloader()
 
-        except Exception as e:
-            # Restore old config if reload fails
-            self._config = old_config
-            logging.error("Failed to reload host: %s", e)
-            raise
+            except Exception as e:
+                # Restore old config if reload fails
+                self._config = old_config
+                logging.error("Failed to reload host: %s", e)
+                raise
 
     @property
     def config(self) -> HostConfig:
