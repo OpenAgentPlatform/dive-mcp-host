@@ -84,12 +84,14 @@ class DiveMcpHost(ContextProtocol):
         self._config = config
         self._model: BaseChatModel | None = None
         self._checkpointer: BaseCheckpointSaver[str] | None = None
+        # Build OAuthManager kwargs, only pass callback_url if redirect_uri is set
+        oauth_kwargs = {"store": oauth_store}
+        if self.config.oauth_config.redirect_uri:
+            oauth_kwargs["callback_url"] = self.config.oauth_config.redirect_uri
         self._tool_manager: ToolManager = ToolManager(
             configs=self._config.mcp_servers,
             log_config=self.config.log_config,
-            oauth_manager=OAuthManager(
-                self.config.oauth_config.redirect_uri, oauth_store
-            ),
+            oauth_manager=OAuthManager(**oauth_kwargs),
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None

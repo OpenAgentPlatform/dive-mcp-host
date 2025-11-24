@@ -73,6 +73,10 @@ def main() -> None:
         report_status_fd=args.report_status_fd,
     )
 
+    # Set OAuth resource file path if provided
+    if args.oauth_resource_file:
+        app.set_oauth_resource_file(str(args.oauth_resource_file))
+
     serversocket = socket.socket(
         socket.AF_INET6 if ":" in args.listen else socket.AF_INET,
         socket.SOCK_STREAM,

@@ -1,9 +1,10 @@
 from asyncio import create_task, wait_for
 from logging import getLogger
+from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
@@ -286,30 +287,87 @@ async def login_oauth(
     return response
 
 
-@tools.get("/login/oauth/callback")
+@tools.get("/login/oauth/callback", response_class=HTMLResponse)
 async def oauth_callback(
     code: str,
     state: str,
     app: DiveHostAPI = Depends(get_app),
-) -> OAuthResult:
-    """OAuth callback."""
+) -> HTMLResponse:
+    """OAuth callback endpoint.
+
+    This endpoint is called by the OAuth provider after user authorization.
+    It processes the authorization code and returns an HTML page to the user.
+    The HTML template can use JavaScript to check window.oauthResult for status.
+    """
     oauth_manager = app.dive_host["default"].oauth_manager
+
+    # Load the HTML template
+    # Use custom resource file if provided and exists, otherwise use default
+    custom_resource_path = app.oauth_resource_file
+    if custom_resource_path and Path(custom_resource_path).exists():
+        template_path = Path(custom_resource_path)
+    else:
+        default_template = "oauth_callback.html"
+        template_path = Path(__file__).parent.parent / "templates" / default_template
+
+    html_content = template_path.read_text(encoding="utf-8")
+
+    # Initialize OAuth result data
+    oauth_result = {
+        "success": False,
+        "error": None,
+        "server_name": None,
+    }
+
     try:
         server_name = await oauth_manager.set_oauth_code(code, state)
         if server_name is None:
-            return OAuthResult(success=False, message="invalid state")
-        task = create_task(oauth_manager.wait_authorization(state))
-        result = await wait_for(task, timeout=10)
-        if result.type == "auth_success":
-            await app.dive_host["default"].restart_mcp_server(server_name)
-        return OAuthResult(
-            success=True,
-            server_name=server_name,
-            stage=result.type,
-        )
-    except Exception:
-        logger.exception("cannot set oauth code")
-        return OAuthResult(success=False, message="cannot set oauth code")
+            logger.warning("Invalid OAuth state: %s", state)
+            oauth_result["error"] = "Invalid OAuth state"
+        else:
+            oauth_result["server_name"] = server_name
+
+            # Wait for authorization to complete
+            task = create_task(oauth_manager.wait_authorization(state))
+            result = await wait_for(task, timeout=10)
+
+            # Restart MCP server if authorization was successful
+            if result.type == "auth_success":
+                await app.dive_host["default"].restart_mcp_server(server_name)
+                logger.info(
+                    "OAuth authorization successful for server: %s", server_name
+                )
+                oauth_result["success"] = True
+            else:
+                logger.warning(
+                    "OAuth authorization failed for server %s: %s",
+                    server_name,
+                    result.error,
+                )
+                oauth_result["error"] = result.error or "Authorization failed"
+    except Exception as e:
+        logger.exception("Error processing OAuth callback")
+        oauth_result["error"] = str(e)
+
+    # Inject OAuth result into HTML at the beginning
+    import json
+
+    oauth_script = f"""<script>
+window.oauthResult = {json.dumps(oauth_result)};
+</script>
+"""
+
+    # Insert script right after <head> tag or at the very beginning
+    if "<head>" in html_content:
+        html_content = html_content.replace("<head>", f"<head>\n{oauth_script}", 1)
+    elif "<body>" in html_content:
+        html_content = html_content.replace("<body>", f"<body>\n{oauth_script}", 1)
+    else:
+        # If no head or body tag, prepend to the beginning
+        html_content = oauth_script + html_content
+
+    status_code = 200 if oauth_result["success"] else 500
+    return HTMLResponse(content=html_content, status_code=status_code)
 
 
 @tools.post("/login/oauth/delete")
