@@ -7,10 +7,15 @@ from pydantic import BaseModel, Field
 
 from dive_mcp_host.httpd.database.models import Chat, ChatMessage, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
-from dive_mcp_host.httpd.routers.models import ResultResponse, SortBy, UserInputError
+from dive_mcp_host.httpd.routers.models import (
+    ResultResponse,
+    SortBy,
+    UserInputError,
+)
 from dive_mcp_host.httpd.routers.utils import (
     ChatProcessor,
     EventStreamContextManager,
+    calculate_token_usage,
     get_filename_remove_url,
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
@@ -248,6 +253,8 @@ async def get_chat(
         )
         if chat:
             chat = get_filename_remove_url(chat)
+            # Calculate token_usage from all assistant messages
+            chat.token_usage = calculate_token_usage(chat.messages)
     return DataResult(success=True, message=None, data=chat)
 
 

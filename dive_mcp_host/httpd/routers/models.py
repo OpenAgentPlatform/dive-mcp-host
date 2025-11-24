@@ -169,6 +169,17 @@ class ErrorContent(BaseModel):
     )
 
 
+class TokenUsageContent(BaseModel):
+    """Token usage content for streaming."""
+
+    input_tokens: int = Field(default=0, alias="inputTokens")
+    output_tokens: int = Field(default=0, alias="outputTokens")
+    user_token: int = Field(default=0, alias="userToken")
+    time_to_first_token: float = Field(default=0.0, alias="timeToFirstToken")
+    tokens_per_second: float = Field(default=0.0, alias="tokensPerSecond")
+    model_name: str = Field(alias="modelName")
+
+
 class StreamMessage(BaseModel):
     """Stream message."""
 
@@ -181,6 +192,7 @@ class StreamMessage(BaseModel):
         "chat_info",
         "message_info",
         "interactive",
+        "token_usage",
     ]
     content: (
         str
@@ -191,6 +203,7 @@ class StreamMessage(BaseModel):
         | MessageInfoContent
         | InteractiveContent
         | ToolCallProgress
+        | TokenUsageContent
     )
 
 
@@ -199,7 +212,10 @@ class TokenUsage(BaseModel):
 
     total_input_tokens: int = Field(default=0, alias="totalInputTokens")
     total_output_tokens: int = Field(default=0, alias="totalOutputTokens")
+    user_token: int = Field(default=0, alias="userToken")
     total_tokens: int = Field(default=0, alias="totalTokens")
+    time_to_first_token: float = Field(default=0.0, alias="timeToFirstToken")
+    tokens_per_second: float = Field(default=0.0, alias="tokensPerSecond")
 
 
 class ModelSingleConfig(BaseModel):

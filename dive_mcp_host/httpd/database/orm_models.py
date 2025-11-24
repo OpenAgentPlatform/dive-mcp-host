@@ -161,6 +161,9 @@ class ResourceUsage(Base):
         model: Model name.
         total_input_tokens: Total input tokens.
         total_output_tokens: Total output tokens.
+        user_token: User input tokens.
+        time_to_first_token: Time to first token in seconds.
+        tokens_per_second: Tokens per second.
         total_run_time: Total run time.
     """
 
@@ -177,6 +180,9 @@ class ResourceUsage(Base):
     model: Mapped[str] = mapped_column(Text())
     total_input_tokens: Mapped[int] = mapped_column(BigInteger())
     total_output_tokens: Mapped[int] = mapped_column(BigInteger())
+    user_token: Mapped[int] = mapped_column(BigInteger(), default=0)
+    time_to_first_token: Mapped[float] = mapped_column(Float(), default=0.0)
+    tokens_per_second: Mapped[float] = mapped_column(Float(), default=0.0)
     total_run_time: Mapped[float] = mapped_column(Float())
 
     message: Mapped["Message"] = relationship(
