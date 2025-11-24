@@ -82,7 +82,13 @@ class LogConfig(BaseModel):
 class OAuthConfig(BaseModel):
     """Config for OAuth."""
 
-    redirect_uri: str = "dive://mcp.oauth.redirect"
+    redirect_uri: str | None = None
+
+    def get_redirect_uri(self, port: int) -> str:
+        """Get redirect URI with dynamic port."""
+        if self.redirect_uri:
+            return self.redirect_uri
+        return f"http://localhost:{port}/api/tools/login/oauth/callback"
 
 
 class EmbedConfig(BaseModel):
