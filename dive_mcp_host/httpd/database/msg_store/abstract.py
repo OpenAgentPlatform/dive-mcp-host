@@ -8,6 +8,7 @@ from dive_mcp_host.httpd.database.models import (
     Message,
     NewMessage,
     QueryInput,
+    ResourceUsage,
 )
 
 
@@ -155,4 +156,17 @@ class AbstractMessageStore(ABC):
 
         Returns:
             Next AI Message object.
+        """
+
+    @abstractmethod
+    async def update_message_resource_usage(
+        self,
+        message_id: str,
+        resource_usage: "ResourceUsage",
+    ) -> None:
+        """Update or create resource usage for a message.
+
+        Args:
+            message_id: Unique identifier for the message.
+            resource_usage: ResourceUsage data to update or create.
         """
