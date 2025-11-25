@@ -728,6 +728,7 @@ class McpServer(ContextProtocol):
                 timeout=timeout,
                 httpx_client_factory=self._httpx_client_factory,
                 sse_read_timeout=sse_read_timeout,
+                auth=auth,
             )
         if self.config.transport in ("streamable"):
             return streamablehttp_client(
@@ -1013,8 +1014,10 @@ class McpServer(ContextProtocol):
 
     async def create_oauth_authorization(self) -> AuthorizationProgress:
         """Authorize the OAuth client."""
-        if self.config.transport != "streamable":
-            raise RuntimeError("Only streamable transport is supported for oauth")
+        if self.config.transport != "streamable" and self.config.transport != "sse":
+            raise RuntimeError(
+                "Only streamable and sse transport is supported for oauth"
+            )
 
         if self.auth_manager is None:
             raise RuntimeError("OAuth manager is not initialized")
