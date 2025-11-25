@@ -1,8 +1,12 @@
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import datetime  # noqa: TC003
 from enum import StrEnum
 
-from langchain_core.messages import ToolCall
+from langchain_core.messages import ToolCall  # noqa: TC002
 from pydantic import BaseModel, ConfigDict, Field
+
+from dive_mcp_host.httpd.routers.models import TokenUsage  # noqa: TC001
 
 
 class ResourceUsage(BaseModel):
@@ -11,6 +15,9 @@ class ResourceUsage(BaseModel):
     model: str
     total_input_tokens: int
     total_output_tokens: int
+    user_token: int = 0
+    time_to_first_token: float = 0.0
+    tokens_per_second: float = 0.0
     total_run_time: float
 
 
@@ -78,3 +85,4 @@ class ChatMessage(BaseModel):
 
     chat: Chat
     messages: list[Message]
+    token_usage: TokenUsage | None = None

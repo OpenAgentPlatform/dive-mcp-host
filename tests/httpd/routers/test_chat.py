@@ -315,7 +315,14 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
                         "role": "user",
                         "chatId": "test_edit_chat",
                         # "messageId": "none-existing-msg-123123",
-                        "resource_usage": None,
+                        "resource_usage": {
+                            "model": "",
+                            "total_input_tokens": 0,
+                            "total_output_tokens": 0,
+                            "time_to_first_token": 0.0,
+                            "tokens_per_second": 0.0,
+                            # total_run_time varies with execution time
+                        },
                         "files": [],
                         "toolCalls": [],
                     },
@@ -328,7 +335,7 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
                             "model": "",
                             "total_input_tokens": 0,
                             "total_output_tokens": 0,
-                            "total_run_time": 0.0,
+                            # total_run_time varies
                         },
                         "files": [],
                         "toolCalls": [],
@@ -1163,10 +1170,9 @@ def test_chat_error(test_client, monkeypatch):
                 has_chat_info = True
             if inner_json["type"] == "error":
                 has_error = True
-                assert (
-                    inner_json["content"]
-                    == "<thread-query-error>an test error</thread-query-error>"
-                )
+                error_content = inner_json["content"]
+                assert error_content["message"] == "an test error"
+                assert error_content["type"] == "thread-query-error"
 
     assert has_chat_info
     assert has_error
@@ -1209,3 +1215,169 @@ def test_chat_with_tool_progress(
                 has_progress = True
 
     assert has_progress
+
+
+def test_chat_with_openai_error(test_client, monkeypatch):
+    """Test the chat endpoint with an OpenAI error."""
+    client, app = test_client
+    from openai import APIError as OpenAIAPIError
+
+    def mock_process_chat(*args, **kwargs):
+        raise OpenAIAPIError(
+            message="an test error",
+            request=None,
+            body={
+                "type": "insufficient_quota",
+                "code": "insufficient_quota",
+            },
+        )
+
+    monkeypatch.setattr(
+        "dive_mcp_host.models.fake.FakeMessageToolModel._generate",
+        mock_process_chat,
+    )
+
+    response = client.post(
+        "/api/chat", data={"chatId": "test_chat_id", "message": "Calculate 2+2"}
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    has_chat_info = False
+    has_error = False
+
+    for json_obj in helper.extract_stream(response.text):
+        assert "message" in json_obj
+        if json_obj["message"]:
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "chat_info":
+                has_chat_info = True
+            if inner_json["type"] == "error":
+                has_error = True
+                error_content = inner_json["content"]
+                assert error_content["type"] == "insufficient_quota"
+
+    assert has_chat_info
+    assert has_error
+
+
+def test_chat_with_token_usage(test_client):
+    """Test that token usage is properly stored and retrieved.
+
+    This test verifies that:
+    1. Token usage is stored during chat
+    2. Token usage appears in chat response
+    3. Token usage can be retrieved via get_chat API
+    4. Token usage aggregation works correctly for multiple messages
+    """
+    from langchain_core.messages import AIMessage
+
+    from dive_mcp_host.models.fake import FakeMessageToolModel
+
+    client, app = test_client
+    test_chat_id = str(uuid.uuid4())
+
+    # Create FakeMessageToolModel with responses that include usage_metadata
+    # Note: The conftest fixture creates an initial chat which consumes one response,
+    # so we need to provide responses for that plus our two test interactions
+    fake_responses = [
+        AIMessage(content="I am a fake model."),  # For conftest's initial chat
+        AIMessage(
+            content="The answer is 4.",
+            usage_metadata={
+                "input_tokens": 10,
+                "output_tokens": 8,
+                "total_tokens": 18,
+            },
+        ),
+        AIMessage(
+            content="The answer is 6.",
+            usage_metadata={
+                "input_tokens": 12,
+                "output_tokens": 9,
+                "total_tokens": 21,
+            },
+        ),
+    ]
+    fake_model = FakeMessageToolModel(responses=fake_responses)
+
+    # Replace the model in the host
+    app.dive_host["default"]._model = fake_model
+
+    # First interaction
+    response = client.post(
+        "/api/chat",
+        data={"chatId": test_chat_id, "message": "What is 2+2?"},
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Verify token usage in streaming response
+    has_token_usage_in_stream = False
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj.get("message"):
+            inner_json = json.loads(json_obj["message"])
+            if inner_json.get("type") == "token_usage":
+                token_usage = inner_json.get("content", {})
+                if token_usage:
+                    has_token_usage_in_stream = True
+                    assert token_usage.get("inputTokens") == 10
+                    assert token_usage.get("outputTokens") == 8
+
+    assert has_token_usage_in_stream, "Token usage not found in stream response"
+
+    # Second interaction
+    response = client.post(
+        "/api/chat",
+        data={"chatId": test_chat_id, "message": "What is 3+3?"},
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Verify token usage in streaming response (shows latest message usage)
+    has_second_usage = False
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj.get("message"):
+            inner_json = json.loads(json_obj["message"])
+            if inner_json.get("type") == "token_usage":
+                token_usage = inner_json.get("content", {})
+                if token_usage:
+                    has_second_usage = True
+                    # Stream shows the latest message's token usage
+                    assert token_usage.get("inputTokens") == 12
+                    assert token_usage.get("outputTokens") == 9
+
+    assert has_second_usage, "Second token usage not found"
+
+    # Test get_chat API to verify token usage is persisted and aggregated
+    response = client.get(f"/api/chat/{test_chat_id}")
+    assert response.status_code == SUCCESS_CODE
+
+    response_data = response.json()
+    assert "data" in response_data, "data not in response"
+
+    chat_data = response_data["data"]
+    assert "token_usage" in chat_data, "token_usage not in get_chat response"
+
+    token_usage = chat_data["token_usage"]
+    assert token_usage is not None, "token_usage is None"
+    # Verify aggregated token usage
+    assert token_usage["totalInputTokens"] == 22  # 10 + 12
+    assert token_usage["totalOutputTokens"] == 17  # 8 + 9
+
+    # Verify messages also have resource_usage
+    messages = chat_data.get("messages", [])
+    assert len(messages) > 0, "No messages found"
+
+    # Check AI messages have resource_usage
+    ai_messages = [msg for msg in messages if msg["role"] == "assistant"]
+    assert len(ai_messages) == 2, f"Expected 2 AI messages, got {len(ai_messages)}"
+
+    # Verify first AI message
+    first_ai_msg = ai_messages[0]
+    assert "resource_usage" in first_ai_msg
+    assert first_ai_msg["resource_usage"]["total_input_tokens"] == 10
+    assert first_ai_msg["resource_usage"]["total_output_tokens"] == 8
+
+    # Verify second AI message
+    second_ai_msg = ai_messages[1]
+    assert "resource_usage" in second_ai_msg
+    assert second_ai_msg["resource_usage"]["total_input_tokens"] == 12
+    assert second_ai_msg["resource_usage"]["total_output_tokens"] == 9

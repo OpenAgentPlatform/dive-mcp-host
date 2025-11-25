@@ -88,6 +88,7 @@ class DiveHostAPI(FastAPI):
         self._listen_port: int | None = None
         self._report_status_file: str | None = None
         self._report_status_fd: int | None = None
+        self._oauth_resource_file: str | None = None
 
         self._engine: AsyncEngine | None = None
 
@@ -243,13 +244,23 @@ class DiveHostAPI(FastAPI):
 
         logger.debug("got %s mcp servers in config", len(mcp_servers))
 
+        # Get OAuth config with dynamic port
+        oauth_config = self._service_config_manager.current_setting.oauth
+        if self._listen_port:
+            # Create a new OAuthConfig with updated redirect_uri
+            from dive_mcp_host.host.conf import OAuthConfig
+
+            oauth_config = OAuthConfig(
+                redirect_uri=oauth_config.get_redirect_uri(self._listen_port)
+            )
+
         return HostConfig(
             llm=model_setting,
             embed=self._model_config_manager.full_config.embed_config,
             checkpointer=self._service_config_manager.current_setting.checkpointer,
             mcp_servers=mcp_servers,
             log_config=self._service_config_manager.current_setting.mcp_server_log,
-            oauth_config=self._service_config_manager.current_setting.oauth,
+            oauth_config=oauth_config,
         )
 
     async def ready(self) -> bool:
@@ -284,6 +295,15 @@ class DiveHostAPI(FastAPI):
     def set_listen_port(self, port: int) -> None:
         """Set the listen port."""
         self._listen_port = port
+
+    def set_oauth_resource_file(self, template_path: str | None) -> None:
+        """Set the OAuth resource file path."""
+        self._oauth_resource_file = template_path
+
+    @property
+    def oauth_resource_file(self) -> str | None:
+        """Get the OAuth resource file path."""
+        return self._oauth_resource_file
 
     def report_status(self, error: str | None = None) -> None:
         """Report the status of the DiveHostAPI."""

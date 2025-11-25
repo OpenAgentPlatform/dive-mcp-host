@@ -21,7 +21,9 @@ from langchain_core.messages import (
     SystemMessage,
 )
 from langchain_core.messages.tool import ToolMessage
+from langchain_core.messages.utils import count_tokens_approximately
 from langchain_core.output_parsers import StrOutputParser
+from openai import APIError as OpenAIAPIError
 from pydantic import BaseModel
 from starlette.datastructures import State
 
@@ -51,10 +53,12 @@ from dive_mcp_host.httpd.database.models import (
 from dive_mcp_host.httpd.routers.models import (
     AuthenticationRequiredContent,
     ChatInfoContent,
+    ErrorContent,
     InteractiveContent,
     MessageInfoContent,
     StreamMessage,
     TokenUsage,
+    TokenUsageContent,
     ToolCallsContent,
     ToolResultContent,
 )
@@ -109,9 +113,18 @@ class EventStreamContextManager:
             import traceback
 
             logger.error(traceback.format_exception(exc_type, exc_val, exc_tb))
+            content = ErrorContent(message=str(exc_val), type="thread-query-error")
+
+            if (error := getattr(exc_val, "error", None)) and isinstance(
+                error, OpenAIAPIError
+            ):
+                content.message = error.message
+                content.type = error.type
+                content.code = error.code
+
             self._exit_message = StreamMessage(
                 type="error",
-                content=f"<thread-query-error>{exc_val}</thread-query-error>",
+                content=content,
             ).model_dump_json(by_alias=True)
 
         self.done = True
@@ -356,7 +369,7 @@ class ChatProcessor:
                         ),
                     )
 
-            if not original_msg_exist:
+            if query_input and not original_msg_exist:
                 await db.create_message(
                     NewMessage(
                         chatId=chat_id,
@@ -378,10 +391,11 @@ class ChatProcessor:
         )
 
         start = time.time()
-        user_message, ai_message, current_messages = await self._process_chat(
+        user_message, ai_message, current_messages, ttft = await self._process_chat(
             chat_id,
             query_message,
             is_resend=regenerate_message_id is not None,
+            start_time=start,
         )
         end = time.time()
         if ai_message is None:
@@ -390,6 +404,9 @@ class ChatProcessor:
             return "", TokenUsage()
         assert user_message.id
         assert ai_message.id
+
+        # Calculate user message tokens early, before the loop
+        user_tokens = count_tokens_approximately([user_message]) if user_message else 0
 
         if title_await:
             title = await title_await
@@ -402,13 +419,57 @@ class ChatProcessor:
 
             for message in current_messages:
                 assert message.id
-                if isinstance(message, AIMessage):
-                    if (
-                        message.usage_metadata is None
-                        or (duration := message.usage_metadata.get("total_duration"))
-                        is None
-                    ):
-                        duration = 0 if message.id == ai_message.id else end - start
+                if isinstance(message, HumanMessage):
+                    # Update user message with resource_usage
+                    user_resource_usage = ResourceUsage(
+                        model="",  # User messages don't have a model
+                        total_input_tokens=0,
+                        total_output_tokens=0,
+                        user_token=user_tokens,
+                        time_to_first_token=0.0,
+                        tokens_per_second=0.0,
+                        total_run_time=0.0,
+                    )
+                    # Update the existing user message with resource_usage
+                    await db.update_message_resource_usage(
+                        message.id,
+                        user_resource_usage,
+                    )
+                elif isinstance(message, AIMessage):
+                    # Get duration from metadata or calculate from timing
+                    duration = None
+                    if message.usage_metadata:
+                        duration = message.usage_metadata.get("total_duration")
+
+                    # If no valid duration from metadata, calculate it
+                    if not duration or duration <= 0:
+                        duration = end - start if message.id == ai_message.id else 0
+
+                    # Calculate tokens per second
+                    output_tokens = (
+                        message.usage_metadata["output_tokens"]
+                        if message.usage_metadata
+                        else 0
+                    )
+                    tokens_per_second = (
+                        output_tokens / duration if duration > 0 else 0.0
+                    )
+
+                    # Debug logging
+                    logger.debug(
+                        "AI message tokens_per_second calculation: "
+                        "output_tokens=%s, duration=%s, tps=%s, "
+                        "is_final=%s, usage_metadata=%s",
+                        output_tokens,
+                        duration,
+                        tokens_per_second,
+                        message.id == ai_message.id,
+                        message.usage_metadata,
+                    )
+
+                    # Use TTFT only for the final AI message
+                    message_ttft = ttft if message.id == ai_message.id else 0.0
+
                     resource_usage = ResourceUsage(
                         model=message.response_metadata.get("model")
                         or message.response_metadata.get("model_name")
@@ -416,9 +477,10 @@ class ChatProcessor:
                         total_input_tokens=message.usage_metadata["input_tokens"]
                         if message.usage_metadata
                         else 0,
-                        total_output_tokens=message.usage_metadata["output_tokens"]
-                        if message.usage_metadata
-                        else 0,
+                        total_output_tokens=output_tokens,
+                        user_token=user_tokens,
+                        time_to_first_token=message_ttft,
+                        tokens_per_second=tokens_per_second,
                         total_run_time=duration,
                     )
                     result = (
@@ -475,16 +537,53 @@ class ChatProcessor:
             )
         )
 
+        # Calculate tokens per second for the final response
+        total_duration = end - start
+        output_tokens_count = (
+            ai_message.usage_metadata["output_tokens"]
+            if ai_message.usage_metadata
+            else 0
+        )
+        tps = output_tokens_count / total_duration if total_duration > 0 else 0.0
+
+        # Debug logging
+        logger.debug(
+            "Final token usage calculation: output_tokens=%s, total_duration=%s, tps=%s, "  # noqa: E501
+            "usage_metadata=%s",
+            output_tokens_count,
+            total_duration,
+            tps,
+            ai_message.usage_metadata,
+        )
+
         token_usage = TokenUsage(
             totalInputTokens=ai_message.usage_metadata["input_tokens"]
             if ai_message.usage_metadata
             else 0,
-            totalOutputTokens=ai_message.usage_metadata["output_tokens"]
-            if ai_message.usage_metadata
-            else 0,
+            totalOutputTokens=output_tokens_count,
+            userToken=user_tokens,
             totalTokens=ai_message.usage_metadata["total_tokens"]
             if ai_message.usage_metadata
             else 0,
+        )
+
+        # Send token usage message before stream completion
+        await self.stream.write(
+            StreamMessage(
+                type="token_usage",
+                content=TokenUsageContent(
+                    inputTokens=ai_message.usage_metadata["input_tokens"]
+                    if ai_message.usage_metadata
+                    else 0,
+                    outputTokens=output_tokens_count,
+                    userToken=user_tokens,
+                    timeToFirstToken=ttft,
+                    tokensPerSecond=tps,
+                    modelName=ai_message.response_metadata.get("model")
+                    or ai_message.response_metadata.get("model_name")
+                    or "",
+                ),
+            )
         )
 
         return result, token_usage
@@ -507,13 +606,18 @@ class ChatProcessor:
         Returns:
             tuple[str, TokenUsage]: The result and token usage.
         """
-        _, ai_message, _ = await self._process_chat(
+        user_message, ai_message, _, _ = await self._process_chat(
             chat_id, query_input, history, tools
         )
+
+        # Calculate user message tokens
+        user_tokens = count_tokens_approximately([user_message]) if user_message else 0
+
         usage = TokenUsage()
         if ai_message.usage_metadata:
             usage.total_input_tokens = ai_message.usage_metadata["input_tokens"]
             usage.total_output_tokens = ai_message.usage_metadata["output_tokens"]
+            usage.user_token = user_tokens
             usage.total_tokens = ai_message.usage_metadata["total_tokens"]
 
         return str(ai_message.content), usage
@@ -525,7 +629,8 @@ class ChatProcessor:
         history: list[BaseMessage] | None = None,
         tools: list | None = None,
         is_resend: bool = False,
-    ) -> tuple[HumanMessage, AIMessage, list[BaseMessage]]:
+        start_time: float | None = None,
+    ) -> tuple[HumanMessage, AIMessage, list[BaseMessage], float]:
         messages = [*history] if history else []
 
         # if retry input is empty
@@ -572,7 +677,9 @@ class ChatProcessor:
                 stream_mode=["messages", "values", "updates", "custom"],
                 is_resend=is_resend,
             )
-            return await self._handle_response(response_generator)
+            # Use provided start_time or current time
+            query_start_time = start_time if start_time is not None else time.time()
+            return await self._handle_response(response_generator, query_start_time)
 
         raise RuntimeError("Unreachable")
 
@@ -584,7 +691,9 @@ class ChatProcessor:
             await self.stream.write(
                 StreamMessage(
                     type="error",
-                    content="stop_reason: max_tokens",
+                    content=ErrorContent(
+                        message="stop_reason: max_tokens", type="max_tokens"
+                    ),
                 )
             )
 
@@ -617,24 +726,29 @@ class ChatProcessor:
         await self.stream.write(StreamMessage(type="interactive", content=content))
 
     async def _handle_response(
-        self, response: AsyncIterator[dict[str, Any] | Any]
-    ) -> tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage]]:
+        self, response: AsyncIterator[dict[str, Any] | Any], start_time: float
+    ) -> tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage], float]:
         """Handle response.
 
         Returns:
-            tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage]]:
-            The human message, the AI message, and all messages of the current query.
+            tuple[HumanMessage | Any, AIMessage | Any, list[BaseMessage], float]:
+            The human message, the AI message, all messages of the current
+            query, and time to first token.
         """
         user_message = None
         ai_message = None
         values_messages: list[BaseMessage] = []
         current_messages: list[BaseMessage] = []
+        time_to_first_token: float = 0.0
         async for res_type, res_content in response:
             if res_type == "messages":
                 message, _ = res_content
                 if isinstance(message, AIMessage):
                     logger.log(TRACE, "got AI message: %s", message.model_dump_json())
                     if message.content:
+                        # Record time to first token if not already recorded
+                        if time_to_first_token == 0.0:
+                            time_to_first_token = time.time() - start_time
                         await self._stream_text_msg(message)
                 elif isinstance(message, ToolMessage):
                     logger.log(TRACE, "got tool message: %s", message.model_dump_json())
@@ -703,7 +817,7 @@ class ChatProcessor:
         if user_message:
             current_messages = values_messages[values_messages.index(user_message) :]
 
-        return user_message, ai_message, current_messages
+        return user_message, ai_message, current_messages, time_to_first_token
 
     async def _generate_title(self, query: str) -> str:
         """Generate title."""
@@ -957,3 +1071,62 @@ def get_filename_remove_url(chat: ChatMessage) -> ChatMessage:
 
         msg.files = files
     return chat
+
+
+def calculate_token_usage(messages: list[Message]) -> TokenUsage | None:
+    """Calculate aggregated token usage from a list of messages.
+
+    Args:
+        messages: List of messages to calculate token usage from.
+
+    Returns:
+        TokenUsage object with aggregated statistics, or None if no usage data exists.
+    """
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_user_tokens = 0
+    total_tokens = 0
+    time_to_first_token = 0.0
+    weighted_tps_sum = 0.0
+
+    for message in messages:
+        if message.resource_usage:
+            total_input_tokens += message.resource_usage.total_input_tokens
+            total_output_tokens += message.resource_usage.total_output_tokens
+            total_user_tokens += message.resource_usage.user_token
+            # Calculate total tokens if not directly available
+            total_tokens += (
+                message.resource_usage.total_input_tokens
+                + message.resource_usage.total_output_tokens
+            )
+
+            # Get the first TTFT from assistant messages
+            if (
+                time_to_first_token == 0.0
+                and message.resource_usage.time_to_first_token > 0
+            ):
+                time_to_first_token = message.resource_usage.time_to_first_token
+
+            # Calculate weighted average of tokens_per_second
+            if message.resource_usage.total_output_tokens > 0:
+                weighted_tps_sum += (
+                    message.resource_usage.tokens_per_second
+                    * message.resource_usage.total_output_tokens
+                )
+
+    # Calculate average tokens per second
+    tokens_per_second = (
+        weighted_tps_sum / total_output_tokens if total_output_tokens > 0 else 0.0
+    )
+
+    if total_input_tokens > 0 or total_output_tokens > 0:
+        return TokenUsage(
+            totalInputTokens=total_input_tokens,
+            totalOutputTokens=total_output_tokens,
+            userToken=total_user_tokens,
+            totalTokens=total_tokens,
+            timeToFirstToken=time_to_first_token,
+            tokensPerSecond=tokens_per_second,
+        )
+
+    return None

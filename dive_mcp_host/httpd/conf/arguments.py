@@ -107,6 +107,13 @@ class Arguments(BaseModel):
         description="Log level to use.",
     )
 
+    oauth_resource_file: Annotated[StrPath | None, AfterValidator(_convert_path)] = (
+        Field(
+            default=None,
+            description="Custom HTML template for OAuth callback page.",
+        )
+    )
+
     @model_validator(mode="after")
     def rewrite_default_path(self) -> Self:
         """Rewrite default config file path according to working directory."""
