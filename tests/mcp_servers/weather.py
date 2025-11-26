@@ -150,7 +150,7 @@ async def oauth_protected_resource(host: Host) -> dict[str, Any]:
 
 # RFC 8414 OAuth 2.0 Authorization Server Metadata
 #  - RFC 7591
-@app.get("/.well-known/oauth-authorization-server")
+@app.get("/.well-known/oauth-authorization-server/{tenent}")
 async def oauth_authorization_server(host: Host) -> dict[str, Any]:
     """OAuth authorization server metadata."""
     return {

@@ -31,7 +31,7 @@ dependencies = [
     "langgraph>=0.6.6",
     "fastapi>=0.116.1",
     "httpx[brotli,http2,socks,zstd]",
-    "mcp==1.18",
+    "mcp==1.22",
     "anyio>=4.10.0",
     "pydantic>=2.11.7",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
