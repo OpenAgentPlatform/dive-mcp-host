@@ -9,13 +9,14 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
+from mcp.client.auth import OAuthFlowError, TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.message import SessionMessage
 from pydantic import AnyUrl, Field, RootModel
 from pydantic.dataclasses import dataclass
 
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.hack.oauth2 import OAuthClientProvider
 
 type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
 type WriteStreamType = MemoryObjectSendStream[SessionMessage]
