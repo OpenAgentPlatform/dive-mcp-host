@@ -1014,7 +1014,7 @@ class McpServer(ContextProtocol):
 
     async def create_oauth_authorization(self) -> AuthorizationProgress:
         """Authorize the OAuth client."""
-        if self.config.transport != "streamable" and self.config.transport != "sse":
+        if self.config.transport not in {"streamable", "sse"}:
             raise RuntimeError(
                 "Only streamable and sse transport is supported for oauth"
             )
