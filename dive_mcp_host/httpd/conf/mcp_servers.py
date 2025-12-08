@@ -42,6 +42,7 @@ class MCPServerConfig(BaseModel):
     headers: dict[str, SecretStr] | None = Field(default_factory=dict)
     exclude_tools: list[str] = Field(default_factory=list)
     initial_timeout: float = Field(default=10, ge=10, alias="initialTimeout")
+    tool_call_timeout: float = Field(default=10 * 60, alias="toolCallTimeout")
 
     model_config = ConfigDict(
         validate_by_name=True,
