@@ -186,6 +186,39 @@ class TextContent:
         return asdict(cls(text=text))
 
 
+def _extract_text_from_message(message: HumanMessage) -> str:
+    """Extract plain text content from a HumanMessage.
+
+    This extracts the actual text content, ignoring the dict wrapper
+    that would otherwise inflate token counts.
+    """
+    if isinstance(message.content, str):
+        return message.content
+    if isinstance(message.content, list):
+        texts = []
+        for item in message.content:
+            if isinstance(item, str):
+                texts.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        return "".join(texts)
+    return ""
+
+
+def count_user_message_tokens(message: HumanMessage | None) -> int:
+    """Count tokens for a user message based on actual text content.
+
+    This avoids inflated token counts caused by the dict wrapper format
+    used internally for message content.
+    """
+    if not message:
+        return 0
+    text = _extract_text_from_message(message)
+    # Use a simple HumanMessage with plain text for accurate counting
+    plain_message = HumanMessage(content=text)
+    return count_tokens_approximately([plain_message])
+
+
 @dataclass(slots=True)
 class ImageAndDocuments:
     """Structure that contains image and documents."""
@@ -406,7 +439,7 @@ class ChatProcessor:
         assert ai_message.id
 
         # Calculate user message tokens early, before the loop
-        user_tokens = count_tokens_approximately([user_message]) if user_message else 0
+        user_tokens = count_user_message_tokens(user_message)
 
         if title_await:
             title = await title_await
@@ -611,7 +644,7 @@ class ChatProcessor:
         )
 
         # Calculate user message tokens
-        user_tokens = count_tokens_approximately([user_message]) if user_message else 0
+        user_tokens = count_user_message_tokens(user_message)
 
         usage = TokenUsage()
         if ai_message.usage_metadata:
