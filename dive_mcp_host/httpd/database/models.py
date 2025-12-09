@@ -16,6 +16,8 @@ class ResourceUsage(BaseModel):
     total_input_tokens: int
     total_output_tokens: int
     user_token: int = 0
+    custom_prompt_token: int = 0
+    system_prompt_token: int = 0
     time_to_first_token: float = 0.0
     tokens_per_second: float = 0.0
     total_run_time: float

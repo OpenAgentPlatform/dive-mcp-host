@@ -219,6 +219,21 @@ def count_user_message_tokens(message: HumanMessage | None) -> int:
     return count_tokens_approximately([plain_message])
 
 
+def count_prompt_tokens(prompt: str | None) -> int:
+    """Count tokens for a prompt string using langchain's estimation.
+
+    Args:
+        prompt: The prompt string to count tokens for.
+
+    Returns:
+        The estimated token count.
+    """
+    if not prompt:
+        return 0
+    message = SystemMessage(content=prompt)
+    return count_tokens_approximately([message])
+
+
 @dataclass(slots=True)
 class ImageAndDocuments:
     """Structure that contains image and documents."""
@@ -441,6 +456,12 @@ class ChatProcessor:
         # Calculate user message tokens early, before the loop
         user_tokens = count_user_message_tokens(user_message)
 
+        # Calculate prompt tokens using langchain estimation
+        custom_prompt = self.app.prompt_config_manager.get_prompt(PromptKey.CUSTOM)
+        system_prompt = self.app.prompt_config_manager.get_prompt(PromptKey.SYSTEM)
+        custom_prompt_tokens = count_prompt_tokens(custom_prompt)
+        system_prompt_tokens = count_prompt_tokens(system_prompt)
+
         if title_await:
             title = await title_await
 
@@ -453,21 +474,9 @@ class ChatProcessor:
             for message in current_messages:
                 assert message.id
                 if isinstance(message, HumanMessage):
-                    # Update user message with resource_usage
-                    user_resource_usage = ResourceUsage(
-                        model="",  # User messages don't have a model
-                        total_input_tokens=0,
-                        total_output_tokens=0,
-                        user_token=user_tokens,
-                        time_to_first_token=0.0,
-                        tokens_per_second=0.0,
-                        total_run_time=0.0,
-                    )
-                    # Update the existing user message with resource_usage
-                    await db.update_message_resource_usage(
-                        message.id,
-                        user_resource_usage,
-                    )
+                    # User message no longer stores user_token
+                    # user_token is now stored in AIMessage
+                    pass
                 elif isinstance(message, AIMessage):
                     # Get duration from metadata or calculate from timing
                     duration = None
@@ -512,6 +521,8 @@ class ChatProcessor:
                         else 0,
                         total_output_tokens=output_tokens,
                         user_token=user_tokens,
+                        custom_prompt_token=custom_prompt_tokens,
+                        system_prompt_token=system_prompt_tokens,
                         time_to_first_token=message_ttft,
                         tokens_per_second=tokens_per_second,
                         total_run_time=duration,
@@ -595,6 +606,8 @@ class ChatProcessor:
             else 0,
             totalOutputTokens=output_tokens_count,
             userToken=user_tokens,
+            customPromptToken=custom_prompt_tokens,
+            systemPromptToken=system_prompt_tokens,
             totalTokens=ai_message.usage_metadata["total_tokens"]
             if ai_message.usage_metadata
             else 0,
@@ -610,6 +623,8 @@ class ChatProcessor:
                     else 0,
                     outputTokens=output_tokens_count,
                     userToken=user_tokens,
+                    customPromptToken=custom_prompt_tokens,
+                    systemPromptToken=system_prompt_tokens,
                     timeToFirstToken=ttft,
                     tokensPerSecond=tps,
                     modelName=ai_message.response_metadata.get("model")
@@ -646,11 +661,19 @@ class ChatProcessor:
         # Calculate user message tokens
         user_tokens = count_user_message_tokens(user_message)
 
+        # Calculate prompt tokens using langchain estimation
+        custom_prompt = self.app.prompt_config_manager.get_prompt(PromptKey.CUSTOM)
+        system_prompt = self.app.prompt_config_manager.get_prompt(PromptKey.SYSTEM)
+        custom_prompt_tokens = count_prompt_tokens(custom_prompt)
+        system_prompt_tokens = count_prompt_tokens(system_prompt)
+
         usage = TokenUsage()
         if ai_message.usage_metadata:
             usage.total_input_tokens = ai_message.usage_metadata["input_tokens"]
             usage.total_output_tokens = ai_message.usage_metadata["output_tokens"]
             usage.user_token = user_tokens
+            usage.custom_prompt_token = custom_prompt_tokens
+            usage.system_prompt_token = system_prompt_tokens
             usage.total_tokens = ai_message.usage_metadata["total_tokens"]
 
         return str(ai_message.content), usage
@@ -1118,6 +1141,8 @@ def calculate_token_usage(messages: list[Message]) -> TokenUsage | None:
     total_input_tokens = 0
     total_output_tokens = 0
     total_user_tokens = 0
+    total_custom_prompt_tokens = 0
+    total_system_prompt_tokens = 0
     total_tokens = 0
     time_to_first_token = 0.0
     weighted_tps_sum = 0.0
@@ -1127,6 +1152,8 @@ def calculate_token_usage(messages: list[Message]) -> TokenUsage | None:
             total_input_tokens += message.resource_usage.total_input_tokens
             total_output_tokens += message.resource_usage.total_output_tokens
             total_user_tokens += message.resource_usage.user_token
+            total_custom_prompt_tokens += message.resource_usage.custom_prompt_token
+            total_system_prompt_tokens += message.resource_usage.system_prompt_token
             # Calculate total tokens if not directly available
             total_tokens += (
                 message.resource_usage.total_input_tokens
@@ -1157,6 +1184,8 @@ def calculate_token_usage(messages: list[Message]) -> TokenUsage | None:
             totalInputTokens=total_input_tokens,
             totalOutputTokens=total_output_tokens,
             userToken=total_user_tokens,
+            customPromptToken=total_custom_prompt_tokens,
+            systemPromptToken=total_system_prompt_tokens,
             totalTokens=total_tokens,
             timeToFirstToken=time_to_first_token,
             tokensPerSecond=tokens_per_second,
