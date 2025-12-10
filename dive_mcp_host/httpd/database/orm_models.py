@@ -162,6 +162,8 @@ class ResourceUsage(Base):
         total_input_tokens: Total input tokens.
         total_output_tokens: Total output tokens.
         user_token: User input tokens.
+        custom_prompt_token: Custom prompt tokens.
+        system_prompt_token: System prompt tokens.
         time_to_first_token: Time to first token in seconds.
         tokens_per_second: Tokens per second.
         total_run_time: Total run time.
@@ -181,6 +183,8 @@ class ResourceUsage(Base):
     total_input_tokens: Mapped[int] = mapped_column(BigInteger())
     total_output_tokens: Mapped[int] = mapped_column(BigInteger())
     user_token: Mapped[int] = mapped_column(BigInteger(), default=0)
+    custom_prompt_token: Mapped[int] = mapped_column(BigInteger(), default=0)
+    system_prompt_token: Mapped[int] = mapped_column(BigInteger(), default=0)
     time_to_first_token: Mapped[float] = mapped_column(Float(), default=0.0)
     tokens_per_second: Mapped[float] = mapped_column(Float(), default=0.0)
     total_run_time: Mapped[float] = mapped_column(Float())

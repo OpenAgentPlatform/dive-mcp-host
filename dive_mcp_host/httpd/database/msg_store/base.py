@@ -274,6 +274,8 @@ class BaseMessageStore(AbstractMessageStore):
                         "total_input_tokens": message.resource_usage.total_input_tokens,
                         "total_output_tokens": message.resource_usage.total_output_tokens,  # noqa: E501
                         "user_token": message.resource_usage.user_token,
+                        "custom_prompt_token": message.resource_usage.custom_prompt_token,  # noqa: E501
+                        "system_prompt_token": message.resource_usage.system_prompt_token,  # noqa: E501
                         "time_to_first_token": message.resource_usage.time_to_first_token,  # noqa: E501
                         "tokens_per_second": message.resource_usage.tokens_per_second,
                         "total_run_time": message.resource_usage.total_run_time,
@@ -546,6 +548,8 @@ class BaseMessageStore(AbstractMessageStore):
                     total_input_tokens=resource_usage.total_input_tokens,
                     total_output_tokens=resource_usage.total_output_tokens,
                     user_token=resource_usage.user_token,
+                    custom_prompt_token=resource_usage.custom_prompt_token,
+                    system_prompt_token=resource_usage.system_prompt_token,
                     time_to_first_token=resource_usage.time_to_first_token,
                     tokens_per_second=resource_usage.tokens_per_second,
                     total_run_time=resource_usage.total_run_time,
@@ -560,6 +564,8 @@ class BaseMessageStore(AbstractMessageStore):
                 total_input_tokens=resource_usage.total_input_tokens,
                 total_output_tokens=resource_usage.total_output_tokens,
                 user_token=resource_usage.user_token,
+                custom_prompt_token=resource_usage.custom_prompt_token,
+                system_prompt_token=resource_usage.system_prompt_token,
                 time_to_first_token=resource_usage.time_to_first_token,
                 tokens_per_second=resource_usage.tokens_per_second,
                 total_run_time=resource_usage.total_run_time,

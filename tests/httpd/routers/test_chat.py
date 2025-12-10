@@ -315,14 +315,9 @@ def test_edit_chat_none_existing_msg(test_client: tuple[TestClient, DiveHostAPI]
                         "role": "user",
                         "chatId": "test_edit_chat",
                         # "messageId": "none-existing-msg-123123",
-                        "resource_usage": {
-                            "model": "",
-                            "total_input_tokens": 0,
-                            "total_output_tokens": 0,
-                            "time_to_first_token": 0.0,
-                            "tokens_per_second": 0.0,
-                            # total_run_time varies with execution time
-                        },
+                        # user messages no longer store resource_usage
+                        # user_token is now stored in AIMessage
+                        "resource_usage": None,
                         "files": [],
                         "toolCalls": [],
                     },
