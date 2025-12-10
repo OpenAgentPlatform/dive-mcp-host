@@ -36,6 +36,7 @@ from dive_mcp_host.host.agents.message_order import FAKE_TOOL_RESPONSE
 from dive_mcp_host.host.custom_events import (
     ToolAuthenticationRequired,
     ToolCallProgress,
+    ToolElicitationRequest,
 )
 from dive_mcp_host.host.errors import LogBufferNotFoundError
 from dive_mcp_host.host.store.base import FileType, StoreManagerProtocol
@@ -53,6 +54,7 @@ from dive_mcp_host.httpd.database.models import (
 from dive_mcp_host.httpd.routers.models import (
     AuthenticationRequiredContent,
     ChatInfoContent,
+    ElicitationRequestContent,
     ErrorContent,
     InteractiveContent,
     MessageInfoContent,
@@ -801,6 +803,19 @@ class ChatProcessor:
                             content=AuthenticationRequiredContent(
                                 server_name=content.server_name,
                                 auth_url=content.auth_url,
+                            ),
+                        )
+                    )
+                elif res_content[0] == ToolElicitationRequest.NAME:
+                    content = res_content[1]
+                    assert isinstance(content, ToolElicitationRequest)
+                    await self._stream_interactive_msg(
+                        InteractiveContent(
+                            type="elicitation_request",
+                            content=ElicitationRequestContent(
+                                request_id=content.request_id,
+                                message=content.message,
+                                requested_schema=content.requested_schema,
                             ),
                         )
                     )

@@ -48,4 +48,13 @@ class ToolAuthenticationRequired(CustomEvent):
     auth_url: str
 
 
-__all__ = ["ToolAuthenticationRequired", "ToolCallProgress"]
+class ToolElicitationRequest(CustomEvent):
+    """A request for user input from MCP server."""
+
+    NAME: ClassVar[str] = "tool_elicitation_request"
+    request_id: str
+    message: str
+    requested_schema: dict
+
+
+__all__ = ["ToolAuthenticationRequired", "ToolCallProgress", "ToolElicitationRequest"]

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Self
 
 from dive_mcp_host.host.conf import LogConfig, ServerConfig
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
 from dive_mcp_host.host.tools.oauth import OAuthManager
@@ -34,7 +35,8 @@ class ToolManager(ContextProtocol):
         self,
         configs: dict[str, ServerConfig],
         log_config: LogConfig = LogConfig(),
-        oauth_manager: OAuthManager = OAuthManager(),
+        oauth_manager: OAuthManager | None = None,
+        elicitation_manager: ElicitationManager | None = None,
     ) -> None:
         """Initialize the ToolManager."""
         self._configs = configs
@@ -42,7 +44,8 @@ class ToolManager(ContextProtocol):
         self._log_manager = LogManager(
             log_dir=log_config.log_dir, rotation_files=log_config.rotation_files
         )
-        self._oauth_manager = oauth_manager
+        self._oauth_manager = oauth_manager or OAuthManager()
+        self._elicitation_manager = elicitation_manager or ElicitationManager()
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
         self._lock = asyncio.Lock()
@@ -54,6 +57,7 @@ class ToolManager(ContextProtocol):
                 config=config,
                 log_buffer_length=log_config.buffer_length,
                 auth_manager=self._oauth_manager,
+                elicitation_manager=self._elicitation_manager,
             )
             for name, config in self._configs.items()
         }
@@ -157,6 +161,7 @@ class ToolManager(ContextProtocol):
                 config=new_configs[l_key],
                 log_buffer_length=self._log_config.buffer_length,
                 auth_manager=self._oauth_manager,
+                elicitation_manager=self._elicitation_manager,
             )
             launch_servers[l_key] = new_server
             self._mcp_servers[l_key] = new_server
@@ -204,6 +209,11 @@ class ToolManager(ContextProtocol):
     def oauth_manager(self) -> OAuthManager:
         """Get the OAuth manager."""
         return self._oauth_manager
+
+    @property
+    def elicitation_manager(self) -> ElicitationManager:
+        """Get the elicitation manager."""
+        return self._elicitation_manager
 
     @property
     def mcp_servers(self) -> dict[str, McpServer]:

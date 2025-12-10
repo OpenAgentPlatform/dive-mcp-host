@@ -746,6 +746,10 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
                         },
                         {"name": "ignore", "description": "Do nothing."},
+                        {
+                            "name": "elicit",
+                            "description": "A tool that requests user input via elicitation.\nIt prompts the user for their name and returns a greeting.",  # noqa: E501
+                        },
                     ],
                     "description": "",
                     "enabled": True,
@@ -826,6 +830,10 @@ def test_tools_and_mcpserver_enable_status(test_client):
                             "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
                         },
                         {"name": "ignore", "description": "Do nothing."},
+                        {
+                            "name": "elicit",
+                            "description": "A tool that requests user input via elicitation.\nIt prompts the user for their name and returns a greeting.",  # noqa: E501
+                        },
                     ],
                     "description": "",
                     "enabled": False,
@@ -859,6 +867,10 @@ def test_exclude_tools(test_client):
                         },
                         {
                             "name": "ignore",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "elicit",
                             "enabled": True,
                         },
                     ],
@@ -916,6 +928,10 @@ def test_exclude_tools(test_client):
                             "name": "ignore",
                             "enabled": True,
                         },
+                        {
+                            "name": "elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": True,
@@ -971,6 +987,10 @@ def test_exclude_tools(test_client):
                             "name": "ignore",
                             "enabled": True,
                         },
+                        {
+                            "name": "elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": True,
@@ -1004,6 +1024,10 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                         },
                         {
                             "name": "ignore",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "elicit",
                             "enabled": True,
                         },
                     ],
@@ -1061,6 +1085,10 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                             "name": "ignore",
                             "enabled": True,
                         },
+                        {
+                            "name": "elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": False,
@@ -1114,6 +1142,10 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                         },
                         {
                             "name": "ignore",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "elicit",
                             "enabled": True,
                         },
                     ],

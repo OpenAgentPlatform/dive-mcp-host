@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from mcp.shared.session import RequestResponder
 
     from dive_mcp_host.host.conf import ServerConfig
+    from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
     from dive_mcp_host.host.tools.oauth import AuthorizationProgress, OAuthManager
 
     type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
@@ -131,6 +132,7 @@ class McpServer(ContextProtocol):
         name: str,
         config: ServerConfig,
         auth_manager: OAuthManager,
+        elicitation_manager: ElicitationManager,
         log_buffer_length: int = 1000,
     ) -> None:
         """Initialize the McpToolKit.
@@ -138,12 +140,14 @@ class McpServer(ContextProtocol):
         Args:
             name: The name of the MCP server.
             config: The configuration of the MCP server.
-            log_buffer_length: The length of the log buffer.
             auth_manager: The OAuth manager to use for the MCP server.
+            elicitation_manager: The elicitation manager for handling user input.
+            log_buffer_length: The length of the log buffer.
         """
         self.name = name
         self.config = config
         self._auth_manager: OAuthManager = auth_manager
+        self._elicitation_manager: ElicitationManager = elicitation_manager
         self._log_buffer = LogBuffer(name=name, size=log_buffer_length)
         self._stderr_log_proxy = LogProxy(
             callback=self._log_buffer.push_stderr,
@@ -171,6 +175,14 @@ class McpServer(ContextProtocol):
 
         # stdio can only have one session at a time
         self._stdio_client_session: ClientSession | None = None
+        # Current elicitation callback for stdio sessions (set per tool call)
+        self._stdio_elicitation_callback: (
+            Callable[
+                [Any, types.ElicitRequestParams],
+                Awaitable[types.ElicitResult | types.ErrorData],
+            ]
+            | None
+        ) = None
 
         # Each session is mapped to a chat_id
         self._session_store: ServerSessionStore = ServerSessionStore(self.name)
@@ -203,6 +215,11 @@ class McpServer(ContextProtocol):
     def session_count(self) -> int:
         """Retrive the session count."""
         return len(self._session_store)
+
+    @property
+    def elicitation_manager(self) -> ElicitationManager:
+        """Get the elicitation manager for this server."""
+        return self._elicitation_manager
 
     async def _message_handler(
         self,
@@ -305,15 +322,25 @@ class McpServer(ContextProtocol):
         self,
         chat_id: str = "default",
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
+        elicitation_callback: Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
 
+        Args:
+            chat_id: The chat ID.
+            auth_handler: The auth handler callback.
+            elicitation_callback: The elicitation callback for user input requests.
+
         Returns:
             The context manager for the session.
         """
-        return self._return_session(chat_id, auth_handler)
+        return self._return_session(chat_id, auth_handler, elicitation_callback)
 
     async def wait(self, states: list[ClientState]) -> bool:
         """Wait until the client is in the given state or in the failed or closed state.
@@ -387,6 +414,11 @@ class McpServer(ContextProtocol):
         session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
         restart_client: Callable[[Exception], bool] = lambda _: False,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
+        elicitation_callback: Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Get the session ctx mgr from the session store, and handle session errors.
 
@@ -397,6 +429,7 @@ class McpServer(ContextProtocol):
                 If the exception is not restartable, return False.
                 If the exception is restartable, return True.
             auth_handler: The function to handle the authorization progress.
+            elicitation_callback: The callback for handling elicitation.
 
         This wrapper get the session from the session store, and handle the session
         errors.
@@ -409,6 +442,7 @@ class McpServer(ContextProtocol):
                 chat_id,
                 session_creator,
                 auth_handler,
+                elicitation_callback,
             ) as session:
                 yield session
         except (ToolException, McpError) as e:
@@ -459,6 +493,34 @@ class McpServer(ContextProtocol):
         Restart the client if need.
         Only this watcher can set the client status to RUNNING / FAILED.
         """
+
+        async def _stdio_elicitation_callback(
+            context: Any,
+            params: types.ElicitRequestParams,
+        ) -> types.ElicitResult | types.ErrorData:
+            """Default elicitation callback for stdio sessions.
+
+            This callback delegates to the currently set callback on the server.
+            Since stdio sessions are shared, the callback is set per tool call
+            via _stdio_elicitation_callback attribute.
+            """
+            logger.debug(
+                "stdio elicitation callback called for %s, message: %s, schema: %s",
+                self.name,
+                params.message,
+                params.requestedSchema,  # type: ignore[attr-defined]
+            )
+            if callback := self._stdio_elicitation_callback:
+                return await callback(context, params)
+            # No callback set, decline the request
+            logger.warning(
+                "No elicitation callback set for stdio session %s, "
+                "declining request: %s",
+                self.name,
+                params.message,
+            )
+            return types.ElicitResult(action="decline", content=None)  # type: ignore[arg-type]
+
         env = os.environ.copy()
         env.update(self.config.env)
         start_time = time.time()
@@ -479,7 +541,10 @@ class McpServer(ContextProtocol):
                         errlog=self._stderr_log_proxy,
                     ) as (stream_read, stream_send, pid),
                     ClientSession(
-                        stream_read, stream_send, message_handler=self._message_handler
+                        stream_read,
+                        stream_send,
+                        message_handler=self._message_handler,
+                        elicitation_callback=_stdio_elicitation_callback,
                     ) as session,
                 ):
                     self._stdio_client_session = session
@@ -681,11 +746,22 @@ class McpServer(ContextProtocol):
     def _stdio_session(
         self,
         chat_id: ChatID,
-        auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,  # noqa: ARG002
+        auth_handler: Callable[  # noqa: ARG002
+            [AuthorizationProgress], Awaitable[None]
+        ]
+        | None = None,
+        elicitation_callback: Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
         Only one session can exist at a time for a McpStdioServer instance.
+
+        The elicitation_callback is stored on the server instance and used by
+        the shared stdio session's callback during tool execution.
 
         Returns:
             The context manager for the session.
@@ -694,6 +770,8 @@ class McpServer(ContextProtocol):
         @asynccontextmanager
         async def _create(**_kwargs: Any) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
+            # Set the elicitation callback for this tool call
+            self._stdio_elicitation_callback = elicitation_callback
             try:
                 session = await self._stdio_wait_for_session()
                 await session.initialize()
@@ -701,6 +779,9 @@ class McpServer(ContextProtocol):
             except Exception:
                 logger.exception("stdio session error, chat_id: %s", chat_id)
                 raise
+            finally:
+                # Clear the callback after the session context ends
+                self._stdio_elicitation_callback = None
 
         return self._session_ctx_mgr_wrapper("default", _create, lambda _: True)
 
@@ -752,6 +833,28 @@ class McpServer(ContextProtocol):
 
     async def _http_init_client(self) -> None:
         """Initialize the HTTP client."""
+
+        async def _http_init_elicitation_callback(
+            _context: Any,
+            params: types.ElicitRequestParams,
+        ) -> types.ElicitResult | types.ErrorData:
+            """Default elicitation callback for HTTP init sessions.
+
+            This callback uses the elicitation manager to handle requests.
+            """
+            logger.debug(
+                "http init elicitation callback called for %s, message: %s, schema: %s",
+                self.name,
+                params.message,
+                params.requestedSchema,  # type: ignore[attr-defined]
+            )
+            return await self._elicitation_manager.request(
+                params=params,
+                writer=lambda event: logger.debug(
+                    "http init elicitation event: %s", event
+                ),
+            )
+
         async with AsyncExitStack() as stack:
             assert self.config.url
             auth = await stack.enter_async_context(
@@ -769,7 +872,9 @@ class McpServer(ContextProtocol):
             )
             session = await stack.enter_async_context(
                 ClientSession(
-                    *[streams[0], streams[1]], message_handler=self._message_handler
+                    *[streams[0], streams[1]],
+                    message_handler=self._message_handler,
+                    elicitation_callback=_http_init_elicitation_callback,
                 )
             )
             await self._init_tool_info(session)
@@ -835,6 +940,11 @@ class McpServer(ContextProtocol):
         self,
         chat_id: ChatID,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
+        elicitation_callback: Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -847,6 +957,11 @@ class McpServer(ContextProtocol):
         @asynccontextmanager
         async def _create(
             auth_handler: Callable[[AuthorizationProgress], Awaitable[None]]
+            | None = None,
+            elicitation_callback: Callable[
+                [Any, types.ElicitRequestParams],
+                Awaitable[types.ElicitResult | types.ErrorData],
+            ]
             | None = None,
             **_kwargs: Any,
         ) -> AsyncGenerator[ClientSession, None]:
@@ -869,6 +984,7 @@ class McpServer(ContextProtocol):
                         ClientSession(
                             *[streams[0], streams[1]],
                             message_handler=self._message_handler,
+                            elicitation_callback=elicitation_callback,
                         )
                     )
                     await session.initialize()
@@ -878,7 +994,10 @@ class McpServer(ContextProtocol):
                 raise
 
         return self._session_ctx_mgr_wrapper(
-            chat_id, _create, auth_handler=auth_handler
+            chat_id,
+            _create,
+            auth_handler=auth_handler,
+            elicitation_callback=elicitation_callback,
         )
 
     async def _local_http_process_watcher(self) -> None:
@@ -976,6 +1095,11 @@ class McpServer(ContextProtocol):
         self,
         chat_id: str,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,  # noqa: ARG002
+        elicitation_callback: Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -986,13 +1110,22 @@ class McpServer(ContextProtocol):
         """
 
         @asynccontextmanager
-        async def _create(**_kwargs: Any) -> AsyncGenerator[ClientSession, None]:
+        async def _create(
+            elicitation_callback: Callable[
+                [Any, types.ElicitRequestParams],
+                Awaitable[types.ElicitResult | types.ErrorData],
+            ]
+            | None = None,
+            **_kwargs: Any,
+        ) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             try:
                 async with (
                     self._http_get_client() as streams,
                     ClientSession(
-                        *[streams[0], streams[1]], message_handler=self._message_handler
+                        *[streams[0], streams[1]],
+                        message_handler=self._message_handler,
+                        elicitation_callback=elicitation_callback,
                     ) as session,
                 ):
                     await session.initialize()
@@ -1005,6 +1138,7 @@ class McpServer(ContextProtocol):
             chat_id,
             _create,
             lambda e: isinstance(e, httpx.ConnectError),
+            elicitation_callback=elicitation_callback,
         )
 
     @property
@@ -1014,7 +1148,7 @@ class McpServer(ContextProtocol):
 
     async def create_oauth_authorization(self) -> AuthorizationProgress:
         """Authorize the OAuth client."""
-        if self.config.transport != "streamable" and self.config.transport != "sse":
+        if self.config.transport not in {"streamable", "sse"}:
             raise RuntimeError(
                 "Only streamable and sse transport is supported for oauth"
             )
@@ -1112,6 +1246,27 @@ class McpTool(BaseTool):
                     )
                 )
 
+        async def queue_writer(event: tuple[str, Any]) -> None:
+            await custom_event_queue.put(event)
+
+        def sync_writer(event: tuple[str, Any]) -> None:
+            task = asyncio.create_task(queue_writer(event))
+            # Store reference to prevent task from being garbage collected
+            sync_writer.background_tasks.add(task)  # type: ignore[attr-defined]
+            task.add_done_callback(sync_writer.background_tasks.discard)  # type: ignore[attr-defined]
+
+        sync_writer.background_tasks: set[asyncio.Task[None]] = set()  # type: ignore[attr-defined]
+
+        async def elicitation_callback(
+            _context: Any,
+            params: types.ElicitRequestParams,
+        ) -> types.ElicitResult | types.ErrorData:
+            """Handle elicitation request from MCP server."""
+            return await self.mcp_server.elicitation_manager.request(
+                params=params,
+                writer=sync_writer,
+            )
+
         tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
         chat_id = config.get("configurable", {}).get(
             ConfigurableKey.THREAD_ID, "default"
@@ -1143,7 +1298,9 @@ class McpTool(BaseTool):
         )
 
         try:
-            async with self.mcp_server.session(chat_id, auth_callback) as session:
+            async with self.mcp_server.session(
+                chat_id, auth_callback, elicitation_callback
+            ) as session:
                 try:
                     tool_task = asyncio.create_task(
                         session.call_tool(

@@ -19,6 +19,7 @@ from dive_mcp_host.host.helpers.checkpointer import get_checkpointer
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.store.base import StoreManagerProtocol
 from dive_mcp_host.host.tools import McpServerInfo, ToolManager
+from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.oauth import BaseTokenStore, OAuthManager
@@ -324,6 +325,11 @@ class DiveMcpHost(ContextProtocol):
     def oauth_manager(self) -> OAuthManager:
         """Get the OAuth manager."""
         return self._tool_manager.oauth_manager
+
+    @property
+    def elicitation_manager(self) -> ElicitationManager:
+        """Get the elicitation manager."""
+        return self._tool_manager.elicitation_manager
 
     def get_mcp_server(self, name: str) -> McpServer:
         """Get MCP server."""

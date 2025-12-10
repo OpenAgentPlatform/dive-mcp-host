@@ -380,3 +380,49 @@ async def delete_oauth(
     await oauth_manager.store.delete(oauth_request.server_name)
     await app.dive_host["default"].restart_mcp_server(oauth_request.server_name)
     return ResultResponse(success=True)
+
+
+class ElicitationRespondRequest(BaseModel):
+    """Request model for responding to an elicitation request."""
+
+    request_id: str
+    action: Literal["accept", "decline", "cancel"]
+    content: dict | None = None
+
+
+class ElicitationRespondResult(ResultResponse):
+    """Response model for elicitation respond."""
+
+    found: bool
+
+
+@tools.post("/elicitation/respond")
+async def respond_to_elicitation(
+    request: ElicitationRespondRequest,
+    app: DiveHostAPI = Depends(get_app),
+) -> ElicitationRespondResult:
+    """Respond to an elicitation request from an MCP server.
+
+    This endpoint is called by the frontend when the user responds to an
+    elicitation request (e.g., user input form).
+
+    Args:
+        request: The elicitation response with request_id, action, content.
+        app: The DiveHostAPI instance.
+
+    Returns:
+        ElicitationRespondResult: Result of the respond operation.
+    """
+    elicitation_manager = app.dive_host["default"].elicitation_manager
+    found = elicitation_manager.respond_to_request(
+        request_id=request.request_id,
+        action=request.action,
+        content=request.content,
+    )
+
+    if not found:
+        logger.warning(
+            "Elicitation request %s not found or already resolved", request.request_id
+        )
+
+    return ElicitationRespondResult(success=True, found=found)
