@@ -18,6 +18,7 @@ from dive_mcp_host.host.conf import HostConfig, LogConfig, ProxyUrl
 from dive_mcp_host.host.conf.llm import LLMConfig
 from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.tools import McpServer, McpServerInfo, ServerConfig, ToolManager
+from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.mcp_server import McpTool
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.host.tools.oauth import OAuthManager
@@ -57,8 +58,10 @@ async def test_tool_manager_sse(
     ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -83,8 +86,10 @@ async def test_tool_manager_stdio(
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -114,8 +119,10 @@ async def test_tool_manager_streamable(
     ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -145,8 +152,10 @@ async def test_tool_manager_tool_name_with_slash(
     ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -171,12 +180,12 @@ async def test_tool_manager_reload(
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
 
         # test reload with same config
         await tool_manager.reload(echo_tool_stdio_config)
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
 
         # test reload with modified config
         new_config = echo_tool_stdio_config.copy()
@@ -188,12 +197,12 @@ async def test_tool_manager_reload(
         )
         await tool_manager.reload(new_config)
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "fetch", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "fetch", "ignore"]
 
         # test remove tool
         await tool_manager.reload(echo_tool_stdio_config)
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
 
         # verify tools still work after reload
         for tool in tools:
@@ -288,7 +297,8 @@ async def test_tool_manager_massive_tools(
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert len(tools) == 2 * (more_tools + 1)
+        # 3 tools per server (echo, ignore, elicit) * (more_tools + 1) servers
+        assert len(tools) == 3 * (more_tools + 1)
 
 
 @pytest.mark.asyncio
@@ -311,6 +321,7 @@ async def test_remote_http_mcp_tool_exception_handling(
             config=configs["echo"],
             log_buffer_length=log_config.buffer_length,
             auth_manager=OAuthManager(),
+            elicitation_manager=ElicitationManager(),
         ) as server,
     ):
         server.RESTART_INTERVAL = 0.1
@@ -398,6 +409,7 @@ async def test_local_http_mcp_tool_exception_handling(
         config=echo_tool_local_sse_config["echo"],
         log_buffer_length=log_config.buffer_length,
         auth_manager=OAuthManager(),
+        elicitation_manager=ElicitationManager(),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -484,6 +496,7 @@ async def test_stdio_mcp_tool_exception_handling(
         config=echo_tool_stdio_config["echo"],
         log_buffer_length=log_config.buffer_length,
         auth_manager=OAuthManager(),
+        elicitation_manager=ElicitationManager(),
     ) as server:
         server.RESTART_INTERVAL = 0.1
         tools = server.mcp_tools
@@ -539,8 +552,10 @@ async def test_tool_manager_local_sse(
     async with ToolManager(echo_tool_local_sse_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -687,8 +702,10 @@ async def test_tool_kwargs(
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -704,6 +721,8 @@ async def test_tool_kwargs(
                 assert json.loads(str(result.content)) == []
 
         for tool in tools:
+            if tool.name == "elicit":
+                continue  # elicit tool requires different args and user interaction
             result = await tool.ainvoke(
                 ToolCall(
                     name=tool.name,
@@ -755,6 +774,7 @@ def test_tool_missing_properties(log_config: LogConfig) -> None:
             transport="stdio",
         ),
         auth_manager=OAuthManager(),
+        elicitation_manager=ElicitationManager(),
     )
     mcp_tool = McpTool.from_tool(tool, mcp_server)
 
@@ -798,7 +818,7 @@ async def test_tool_progress(
     async with ToolManager(echo_tool_stdio_config, log_config) as tool_manager:
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+        assert sorted([i.name for i in tools]) == ["echo", "elicit", "ignore"]
         for tool in tools:
             if tool.name != "echo":
                 continue
@@ -861,7 +881,11 @@ async def test_tool_proxy(
                     async with ToolManager(cfg, log_config) as tool_manager:
                         await tool_manager.initialized_event.wait()
                         tools = tool_manager.langchain_tools()
-                        assert sorted([i.name for i in tools]) == ["echo", "ignore"]
+                        assert sorted([i.name for i in tools]) == [
+                            "echo",
+                            "elicit",
+                            "ignore",
+                        ]
 
 
 @pytest.mark.asyncio
@@ -877,18 +901,17 @@ async def test_tool_manager_exclude_tools(
     ):
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert len(tools) == 2
-        assert tools[0].name == "echo"
-        assert tools[1].name == "ignore"
+        assert len(tools) == 3
+        assert sorted([t.name for t in tools]) == ["echo", "elicit", "ignore"]
 
-        # Disable 'igonre' tool
+        # Disable 'ignore' tool
         new_config = deepcopy(configs)
         new_config["echo"].exclude_tools = ["ignore"]
         await tool_manager.reload(new_config)
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
-        assert len(tools) == 1
-        assert tools[0].name == "echo"
+        assert len(tools) == 2
+        assert sorted([t.name for t in tools]) == ["echo", "elicit"]
 
 
 @pytest.mark.asyncio
@@ -906,11 +929,13 @@ async def test_custum_initalize_timeout(
     """Test if our customized timeout actually apply."""
     echo_tool_local_sse_config["echo"].initial_timeout = 0
     auth_manager = OAuthManager()
+    elicitation_manager = ElicitationManager()
     async with McpServer(
         name="echo",
         config=echo_tool_local_sse_config["echo"],
         log_buffer_length=log_config.buffer_length,
         auth_manager=auth_manager,
+        elicitation_manager=elicitation_manager,
     ) as server:
         assert server.server_info.client_status == ClientState.FAILED
 
@@ -920,6 +945,7 @@ async def test_custum_initalize_timeout(
         config=echo_tool_stdio_config["echo"],
         log_buffer_length=log_config.buffer_length,
         auth_manager=auth_manager,
+        elicitation_manager=elicitation_manager,
     ) as server:
         assert server.server_info.client_status == ClientState.FAILED
 
@@ -930,6 +956,7 @@ async def test_custum_initalize_timeout(
             config=config["echo"],
             log_buffer_length=log_config.buffer_length,
             auth_manager=auth_manager,
+            elicitation_manager=elicitation_manager,
         ) as server:
             assert server.server_info.client_status == ClientState.FAILED
 
@@ -940,5 +967,267 @@ async def test_custum_initalize_timeout(
             config=config["echo"],
             log_buffer_length=log_config.buffer_length,
             auth_manager=auth_manager,
+            elicitation_manager=elicitation_manager,
         ) as server:
             assert server.server_info.client_status == ClientState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_elicitation_stdio_accept(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with stdio transport - user accepts."""
+    elicitation_manager = ElicitationManager()
+
+    async with ToolManager(
+        echo_tool_stdio_config, log_config, elicitation_manager=elicitation_manager
+    ) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            # Wait for elicitation request to be created
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            # Respond to the request
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(
+                request_id, "accept", {"name": "TestUser", "confirmed": True}
+            )
+
+        # Run tool call and response in parallel
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "Hello, TestUser! Confirmed: True"
+
+
+@pytest.mark.asyncio
+async def test_elicitation_stdio_decline(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with stdio transport - user declines."""
+    elicitation_manager = ElicitationManager()
+
+    async with ToolManager(
+        echo_tool_stdio_config, log_config, elicitation_manager=elicitation_manager
+    ) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(request_id, "decline", None)
+
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "User declined to provide input"
+
+
+@pytest.mark.asyncio
+async def test_elicitation_stdio_cancel(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with stdio transport - user cancels."""
+    elicitation_manager = ElicitationManager()
+
+    async with ToolManager(
+        echo_tool_stdio_config, log_config, elicitation_manager=elicitation_manager
+    ) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(request_id, "cancel", None)
+
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "User cancelled the request"
+
+
+@pytest.mark.asyncio
+async def test_elicitation_sse_accept(
+    echo_tool_sse_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with SSE transport - user accepts."""
+    elicitation_manager = ElicitationManager()
+
+    async with (
+        echo_tool_sse_server as (_, configs),
+        ToolManager(
+            configs, log_config, elicitation_manager=elicitation_manager
+        ) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(
+                request_id, "accept", {"name": "SSEUser", "confirmed": False}
+            )
+
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "Hello, SSEUser! Confirmed: False"
+
+
+@pytest.mark.asyncio
+async def test_elicitation_streamable_accept(
+    echo_tool_streamable_server: AbstractAsyncContextManager[
+        tuple[int, dict[str, ServerConfig]]
+    ],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with streamable HTTP transport - user accepts."""
+    elicitation_manager = ElicitationManager()
+
+    async with (
+        echo_tool_streamable_server as (_, configs),
+        ToolManager(
+            configs, log_config, elicitation_manager=elicitation_manager
+        ) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(
+                request_id, "accept", {"name": "StreamUser", "confirmed": True}
+            )
+
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "Hello, StreamUser! Confirmed: True"
+
+
+@pytest.mark.asyncio
+async def test_elicitation_local_sse_accept(
+    echo_tool_local_sse_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test elicitation with local SSE transport - user accepts."""
+    elicitation_manager = ElicitationManager()
+
+    async with ToolManager(
+        echo_tool_local_sse_config, log_config, elicitation_manager=elicitation_manager
+    ) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        elicit_tool = next((t for t in tools if t.name == "elicit"), None)
+        assert elicit_tool is not None
+
+        async def respond_to_elicitation():
+            for _ in range(50):
+                await asyncio.sleep(0.1)
+                if elicitation_manager._pending_requests:
+                    break
+            request_id = next(iter(elicitation_manager._pending_requests.keys()))
+            elicitation_manager.respond_to_request(
+                request_id, "accept", {"name": "LocalSSEUser", "confirmed": True}
+            )
+
+        response_task = asyncio.create_task(respond_to_elicitation())
+        result = await elicit_tool.ainvoke(
+            ToolCall(
+                name="elicit",
+                id="123",
+                args={"prompt_message": "Please enter your name"},
+                type="tool_call",
+            ),
+        )
+        await response_task
+
+        assert isinstance(result, ToolMessage)
+        content = json.loads(str(result.content))
+        assert content[0]["text"] == "Hello, LocalSSEUser! Confirmed: True"

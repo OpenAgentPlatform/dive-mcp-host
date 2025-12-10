@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from logging import getLogger
 from typing import Any
 
+from mcp import types
+
 from dive_mcp_host.host.errors import McpSessionNotRunningError
 from dive_mcp_host.host.tools.hack import ClientSession
 from dive_mcp_host.host.tools.model_types import ChatID
@@ -31,6 +33,8 @@ class _SessionStoreItem:
     - client_tasks: The tasks that use the session.
     - exec: The exception that occurred in the session.
     - active_ts: The timestamp when the session is active.
+    - auth_handler: The OAuth authorization progress handler.
+    - elicitation_callback: The callback for handling elicitation requests.
     """
 
     chat_id: ChatID
@@ -41,6 +45,14 @@ class _SessionStoreItem:
     client_tasks: list[asyncio.Task[Any]] = field(default_factory=list)
     exec: BaseException | None = None
     active_ts: float = field(default_factory=time.time)
+    auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None
+    elicitation_callback: (
+        Callable[
+            [Any, types.ElicitRequestParams],
+            Awaitable[types.ElicitResult | types.ErrorData],
+        ]
+        | None
+    ) = None
 
     async def waiting_loop(self) -> None:
         while True:
@@ -61,14 +73,11 @@ class _SessionStoreItem:
 class ServerSessionStore:
     """Session Store for a running MCP server."""
 
-    __slots__ = ("_auth_handlers", "_map", "_mcp_server_name")
+    __slots__ = ("_map", "_mcp_server_name")
 
     def __init__(self, mcp_server_name: str) -> None:
         """Initialize the session store."""
         self._map: dict[ChatID, _SessionStoreItem] = {}
-        self._auth_handlers: dict[
-            ChatID, Callable[[AuthorizationProgress], Awaitable[None]]
-        ] = {}
         self._mcp_server_name = mcp_server_name
 
     def __len__(self) -> int:
@@ -85,7 +94,8 @@ class ServerSessionStore:
         stored_session = self._map[chat_id]
         try:
             async with session_ctx(
-                auth_handler=self._wrapper_auth_handler(chat_id)
+                auth_handler=self._wrapper_auth_handler(stored_session),
+                elicitation_callback=self._wrapper_elicitation_callback(stored_session),
             ) as session:
                 stored_session.session = session
                 stored_session.initialized.set()
@@ -105,15 +115,40 @@ class ServerSessionStore:
             stored_session.session = None
             self._error_cleanup(stored_session.task, stored_session, None)
 
-    def _wrapper_auth_handler(self, chat_id: ChatID) -> None:
+    def _wrapper_auth_handler(
+        self, stored_session: _SessionStoreItem
+    ) -> Callable[[AuthorizationProgress], Awaitable[None]]:
         """Wrapper the auth handler."""
 
         async def auth_handler(progress: AuthorizationProgress) -> None:
             """Handle the authorization progress."""
-            if handler := self._auth_handlers.get(chat_id):
+            if handler := stored_session.auth_handler:
                 await handler(progress)
 
         return auth_handler
+
+    def _wrapper_elicitation_callback(
+        self, stored_session: _SessionStoreItem
+    ) -> Callable[
+        [Any, types.ElicitRequestParams],
+        Awaitable[types.ElicitResult | types.ErrorData],
+    ]:
+        """Wrapper the elicitation callback.
+
+        This wrapper allows the callback to be dynamically updated after session
+        creation, similar to _wrapper_auth_handler.
+        """
+
+        async def elicitation_callback(
+            context: Any, params: types.ElicitRequestParams
+        ) -> types.ElicitResult | types.ErrorData:
+            """Handle elicitation requests."""
+            if callback := stored_session.elicitation_callback:
+                return await callback(context, params)
+            # Default behavior: decline if no callback is set
+            return types.ElicitResult(action="decline", content=None)  # type: ignore[arg-type]
+
+        return elicitation_callback
 
     def _error_cleanup(
         self,
@@ -142,6 +177,11 @@ class ServerSessionStore:
         chat_id: str,
         session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
+        elicitation_callback: Callable[
+            [Any, "types.ElicitRequestParams"],
+            Awaitable["types.ElicitResult | types.ErrorData"],
+        ]
+        | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Create a new session or return the existing one.
 
@@ -160,10 +200,13 @@ class ServerSessionStore:
         If the same chat_id is used again, a new session will be recreated.
         """
         stored_session = self._map.get(chat_id)
-        self._auth_handlers[chat_id] = auth_handler
 
         if not stored_session:
-            stored_session = _SessionStoreItem(chat_id=chat_id)
+            stored_session = _SessionStoreItem(
+                chat_id=chat_id,
+                auth_handler=auth_handler,
+                elicitation_callback=elicitation_callback,
+            )
             self._map[chat_id] = stored_session
             logger.debug(
                 "Create new session for chat_id: %s, name: %s",
@@ -181,6 +224,10 @@ class ServerSessionStore:
                 chat_id,
                 self._mcp_server_name,
             )
+            # Update callbacks for existing session
+            stored_session.auth_handler = auth_handler
+            if elicitation_callback:
+                stored_session.elicitation_callback = elicitation_callback
         if current_task := asyncio.current_task():
             stored_session.add_task(current_task)
         else:

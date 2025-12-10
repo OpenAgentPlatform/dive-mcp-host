@@ -769,7 +769,7 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         await host.tools_initialized_event.wait()
 
         # Verify initial state
-        assert len(host.tools) == 2  # echo and ignore tools
+        assert len(host.tools) == 3  # echo, elicit, and ignore tools
         assert isinstance(host.config.llm, LLMConfig)
         assert host.config.llm.configuration is None
 
@@ -783,7 +783,7 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         assert host.config.llm.model == "fake"
 
         # Verify tools were updated
-        assert len(host.tools) == 3  # echo, fetch, and their ignore counterparts
+        assert len(host.tools) == 4  # echo, elicit, ignore + fetch
         tool_names = [tool.name for tool in host.tools]
         assert "echo" in tool_names
         assert "fetch" in tool_names
@@ -800,7 +800,7 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         reloader_called = False
         await host.reload(new_config, mock_reloader)
         assert reloader_called
-        assert len(host.tools) == 3
+        assert len(host.tools) == 4  # echo, ignore, elicit + fetch
 
 
 @pytest.mark.asyncio

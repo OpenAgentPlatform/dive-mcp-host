@@ -8,7 +8,11 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from mcp.types import Icon, InitializeResult
 
-from dive_mcp_host.host.tools.echo import ECHO_DESCRIPTION, IGNORE_DESCRIPTION
+from dive_mcp_host.host.tools.echo import (
+    ECHO_DESCRIPTION,
+    ELICIT_DESCRIPTION,
+    IGNORE_DESCRIPTION,
+)
 from dive_mcp_host.host.tools.log import LogEvent, LogMsg
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
@@ -84,6 +88,10 @@ def test_list_tools_no_mock(test_client):
                         {
                             "name": "ignore",
                             "description": IGNORE_DESCRIPTION,
+                        },
+                        {
+                            "name": "elicit",
+                            "description": ELICIT_DESCRIPTION,
                         },
                     ],
                 }
@@ -301,6 +309,10 @@ async def test_list_tools_with_missing_server_not_in_cache(
                         {
                             "name": "ignore",
                             "description": IGNORE_DESCRIPTION,
+                        },
+                        {
+                            "name": "elicit",
+                            "description": ELICIT_DESCRIPTION,
                         },
                     ],
                 },
@@ -601,3 +613,119 @@ def test_unauthorized_status(test_client_with_weather: tuple[TestClient, DiveHos
     assert weather["error"] is not None
     assert weather["status"] == ClientState.UNAUTHORIZED
     assert weather["tools"] == []
+
+
+def test_elicitation_respond_not_found(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test elicitation respond with non-existent request ID."""
+    client, _ = test_client
+    response = client.post(
+        "/api/tools/elicitation/respond",
+        json={
+            "request_id": "nonexistent_id",
+            "action": "accept",
+            "content": {"name": "test"},
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert response_data["found"] is False
+
+
+def test_elicitation_respond_with_pending_request(
+    test_client: tuple[TestClient, DiveHostAPI],
+):
+    """Test elicitation respond with a pending request."""
+    client, app = test_client
+
+    # Create a pending elicitation request
+    elicitation_manager = app.dive_host["default"].elicitation_manager
+    request_id, future = elicitation_manager.create_request(
+        message="Please enter your name",
+        requested_schema={"type": "object", "properties": {"name": {"type": "string"}}},
+    )
+
+    # Respond to the request
+    response = client.post(
+        "/api/tools/elicitation/respond",
+        json={
+            "request_id": request_id,
+            "action": "accept",
+            "content": {"name": "John"},
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert response_data["found"] is True
+
+    # Verify the future was resolved
+    assert future.done()
+    result = future.result()
+    assert result.action == "accept"
+    assert result.content == {"name": "John"}
+
+
+def test_elicitation_respond_decline(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test elicitation respond with decline action."""
+    client, app = test_client
+
+    # Create a pending elicitation request
+    elicitation_manager = app.dive_host["default"].elicitation_manager
+    request_id, future = elicitation_manager.create_request(
+        message="Confirm action",
+        requested_schema={
+            "type": "object",
+            "properties": {"confirm": {"type": "boolean"}},
+        },
+    )
+
+    # Respond with decline
+    response = client.post(
+        "/api/tools/elicitation/respond",
+        json={
+            "request_id": request_id,
+            "action": "decline",
+            "content": None,
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert response_data["found"] is True
+
+    # Verify the future was resolved with decline
+    assert future.done()
+    result = future.result()
+    assert result.action == "decline"
+    assert result.content is None
+
+
+def test_elicitation_respond_cancel(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test elicitation respond with cancel action."""
+    client, app = test_client
+
+    # Create a pending elicitation request
+    elicitation_manager = app.dive_host["default"].elicitation_manager
+    request_id, future = elicitation_manager.create_request(
+        message="Input required",
+        requested_schema={"type": "object"},
+    )
+
+    # Respond with cancel
+    response = client.post(
+        "/api/tools/elicitation/respond",
+        json={
+            "request_id": request_id,
+            "action": "cancel",
+        },
+    )
+    assert response.status_code == status.HTTP_200_OK
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert response_data["found"] is True
+
+    # Verify the future was resolved with cancel
+    assert future.done()
+    result = future.result()
+    assert result.action == "cancel"

@@ -151,11 +151,19 @@ class AuthenticationRequiredContent(BaseModel):
     auth_url: str
 
 
+class ElicitationRequestContent(BaseModel):
+    """Elicitation request content from MCP server."""
+
+    request_id: str
+    message: str
+    requested_schema: dict
+
+
 class InteractiveContent(BaseModel):
     """Interactive content."""
 
-    type: Literal["authentication_required"]
-    content: AuthenticationRequiredContent
+    type: Literal["authentication_required", "elicitation_request"]
+    content: AuthenticationRequiredContent | ElicitationRequestContent
 
 
 class ErrorContent(BaseModel):

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Annotated
 
 from mcp.server.fastmcp import Context, FastMCP, Icon
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 Instructions = """Echo a message."""
 
@@ -64,6 +64,41 @@ async def ignore(
 ) -> None:
     """Do nothing."""
     return
+
+
+ELICIT_DESCRIPTION = """A tool that requests user input via elicitation.
+It prompts the user for their name and returns a greeting."""
+
+
+class ElicitUserInfo(BaseModel):
+    """Schema for user information elicitation."""
+
+    name: str = Field(description="User's name")
+    confirmed: bool = Field(default=False, description="Whether the user confirmed")
+
+
+@mcp.tool(name="elicit", description=ELICIT_DESCRIPTION)
+async def elicit(
+    prompt_message: Annotated[
+        str, Field(description="The message to display when asking for user input")
+    ],
+    ctx: Context,
+) -> str:
+    """Request user input via elicitation and return a greeting."""
+    result = await ctx.elicit(
+        message=prompt_message,
+        schema=ElicitUserInfo,
+    )
+
+    if result.action == "cancel":
+        return "User cancelled the request"
+    if result.action == "decline":
+        return "User declined to provide input"
+    if result.action == "accept" and result.data:
+        name = result.data.name
+        confirmed = result.data.confirmed
+        return f"Hello, {name}! Confirmed: {confirmed}"
+    return "No valid response received"
 
 
 if __name__ == "__main__":
