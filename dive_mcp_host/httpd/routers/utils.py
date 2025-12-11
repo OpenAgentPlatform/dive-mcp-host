@@ -247,11 +247,8 @@ class ContentHandler:
     async def invoke(self, msg: AIMessage) -> str:
         """Extract various types of content."""
         result = self._text_content(msg)
-        model_name = msg.response_metadata.get("model_name")
-
-        if model_name in {"gemini-2.5-flash-image-preview"}:
-            result = f"{result} {await self._gemini_25_image(msg)}"
-
+        if image_content := await self._gemini_image(msg):
+            result = f"{result} {image_content}"
         return result
 
     def _text_content(self, msg: AIMessage) -> str:
@@ -282,7 +279,7 @@ class ContentHandler:
             url = f"file://{url}"
         return url
 
-    async def _gemini_25_image(self, msg: AIMessage) -> str:
+    async def _gemini_image(self, msg: AIMessage) -> str:
         """Gemini will return base64 image content.
 
         {

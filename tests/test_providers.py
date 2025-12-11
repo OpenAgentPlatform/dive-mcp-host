@@ -132,7 +132,7 @@ async def test_anthropic(echo_tool_stdio_config: dict[str, ServerConfig]) -> Non
 
         await _run_the_test(config)
 
-    for m in ["claude-3-7-sonnet-20250219"]:
+    for m in ["claude-opus-4-5-20251101"]:
         await _one_model(m)
 
 
