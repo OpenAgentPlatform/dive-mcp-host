@@ -154,7 +154,7 @@ lint.ignore = [
 lint.extend-select = ["I"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/test_*.py" = ["S101", "ANN", "D107", "ARG001", "PLR2004", "SLF001", "PT012"]
+"**/test_*.py" = ["S101", "ANN", "D107", "ARG001", "PLR2004", "SLF001", "PT012", "RUF059"]
 "dive_mcp_host/cli/**/*.py" = ["S101", "ANN", "D107", "T201"]
 
 [tool.ruff.format]
