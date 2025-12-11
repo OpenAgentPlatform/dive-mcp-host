@@ -55,6 +55,7 @@ class ImageBase64Msg:
     """Structure for sending image with inline base64."""
 
     base64: str
+    mime_type: str
     type: Literal["image"] = "image"
 
     @classmethod
@@ -64,7 +65,9 @@ class ImageBase64Msg:
         Arguments:
             inline_base64: 'data:image/jpeg;base64,{base64_image}'
         """
-        return asdict(cls(base64=inline_base64))
+        mime = inline_base64.removeprefix("data:").split(";")[0]
+        base64_data = inline_base64.split(",")[-1]
+        return asdict(cls(base64=base64_data, mime_type=mime))
 
 
 @dataclass(slots=True)
