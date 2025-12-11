@@ -24,7 +24,6 @@ class ImageUrlMsg:
 
     url: str
     type: Literal["image"] = "image"
-    source_type: Literal["url"] = "url"
 
     @classmethod
     def create(cls, url: str) -> dict[str, str]:
@@ -52,16 +51,11 @@ class ImageInfoMsg:
 
 
 @dataclass(slots=True)
-class _ImageUrl:
-    url: str
-
-
-@dataclass(slots=True)
 class ImageBase64Msg:
     """Structure for sending image with inline base64."""
 
-    image_url: _ImageUrl
-    type: Literal["image_url"] = "image_url"
+    base64: str
+    type: Literal["image"] = "image"
 
     @classmethod
     def create(cls, inline_base64: str) -> dict[str, str | dict[str, str]]:
@@ -70,22 +64,21 @@ class ImageBase64Msg:
         Arguments:
             inline_base64: 'data:image/jpeg;base64,{base64_image}'
         """
-        return asdict(cls(image_url=_ImageUrl(url=inline_base64)))
+        return asdict(cls(base64=inline_base64))
 
 
 @dataclass(slots=True)
 class DocumentPDFBase64Msg:
     """Structure for sending document with base64."""
 
-    data: str
+    base64: str
     type: Literal["file"] = "file"
-    source_type: Literal["base64"] = "base64"
     mime_type: Literal["application/pdf"] = "application/pdf"
 
     @classmethod
     def create(cls, base64_data: str) -> dict[str, str]:
         """Create document base64 msg."""
-        return asdict(cls(data=base64_data))
+        return asdict(cls(base64=base64_data))
 
 
 @dataclass(slots=True)
