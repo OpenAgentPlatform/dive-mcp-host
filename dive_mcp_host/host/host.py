@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from copy import deepcopy
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
@@ -85,7 +85,7 @@ class DiveMcpHost(ContextProtocol):
         self._model: BaseChatModel | None = None
         self._checkpointer: BaseCheckpointSaver[str] | None = None
         # Build OAuthManager kwargs, only pass callback_url if redirect_uri is set
-        oauth_kwargs = {"store": oauth_store}
+        oauth_kwargs: dict[str, Any] = {"store": oauth_store}
         if self.config.oauth_config.redirect_uri:
             oauth_kwargs["callback_url"] = self.config.oauth_config.redirect_uri
         self._tool_manager: ToolManager = ToolManager(
