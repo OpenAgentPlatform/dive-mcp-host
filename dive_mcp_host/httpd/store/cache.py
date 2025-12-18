@@ -66,7 +66,7 @@ class LocalFileCache:
         cache_file_path = self.get_cache_file_path(key, extension)
         if not cache_file_path.exists():
             return None
-        with cache_file_path.open("r") as f:
+        with cache_file_path.open("r", encoding="utf-8") as f:
             return f.read()
 
     def set(self, key: CacheKeys, value: str, extension: str = "json") -> None:
@@ -81,7 +81,7 @@ class LocalFileCache:
             None
         """
         cache_file_path = self.get_cache_file_path(key, extension)
-        with cache_file_path.open("w") as f:
+        with cache_file_path.open("w", encoding="utf-8") as f:
             f.write(value)
 
     def delete(self, key: CacheKeys, extension: str = "json") -> None:
