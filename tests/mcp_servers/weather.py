@@ -182,7 +182,7 @@ class APP(BaseModel):
     token_endpoint_auth_method: (
         Literal["none", "client_secret_post", "client_secret_basic", "private_key_jwt"]
         | None
-    ) = "client_secret_post"
+    ) = "client_secret_post"  # noqa: S105
 
 
 apps: dict[str, APP] = {}
