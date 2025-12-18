@@ -66,8 +66,12 @@ class LocalFileCache:
         cache_file_path = self.get_cache_file_path(key, extension)
         if not cache_file_path.exists():
             return None
-        with cache_file_path.open("r", encoding="utf-8") as f:
-            return f.read()
+        
+        try:
+            with cache_file_path.open("r", encoding="utf-8") as f:
+                return f.read()
+        except:
+            return None
 
     def set(self, key: CacheKeys, value: str, extension: str = "json") -> None:
         """Set the value of the key.
