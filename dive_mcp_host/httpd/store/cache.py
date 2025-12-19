@@ -69,7 +69,7 @@ class LocalFileCache:
         try:
             with cache_file_path.open("r", encoding="utf-8") as f:
                 return f.read()
-        except Exception as e: # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             logger.error("load cache failed: %s", e)
 
         return None
