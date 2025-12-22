@@ -193,6 +193,16 @@ class DiveHostAPI(FastAPI):
             await stack.enter_async_context(default_host)
             self.dive_host = {"default": default_host}
 
+            # Set httpd base URL for installer tools
+            if self._listen_ip and self._listen_port:
+                from dive_mcp_host.mcp_installer_plugin.runtime import (
+                    set_httpd_base_url,
+                )
+
+                httpd_url = f"http://{self._listen_ip}:{self._listen_port}"
+                set_httpd_base_url(httpd_url)
+                logger.info("HTTPD base URL set: %s", httpd_url)
+
             logger.info("Server Prepare Complete")
             yield
 

@@ -12,6 +12,7 @@ from uuid import UUID
 import pytest
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, HumanMessage, ToolCall, ToolMessage
+from langchain_core.tools import tool
 from mcp.types import Tool
 
 from dive_mcp_host.host.conf import HostConfig, LogConfig, ProxyUrl
@@ -22,6 +23,7 @@ from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.mcp_server import McpTool
 from dive_mcp_host.host.tools.model_types import ClientState
 from dive_mcp_host.host.tools.oauth import OAuthManager
+from dive_mcp_host.host.tools.plugin import ToolManagerPlugin
 
 if TYPE_CHECKING:
     from dive_mcp_host.models.fake import FakeMessageToolModel
@@ -1231,3 +1233,99 @@ async def test_elicitation_local_sse_accept(
         assert isinstance(result, ToolMessage)
         content = json.loads(str(result.content))
         assert content[0]["text"] == "Hello, LocalSSEUser! Confirmed: True"
+
+
+class TestToolManagerPlugin:
+    """Tests for ToolManagerPlugin."""
+
+    def test_register_tools(self) -> None:
+        """Test registering static tools."""
+
+        @tool
+        def my_tool(query: str) -> str:
+            """A test tool."""
+            return f"Result: {query}"
+
+        plugin = ToolManagerPlugin()
+        plugin.register_tools([my_tool])
+
+        tools = plugin.get_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "my_tool"
+
+    def test_register_callback(self) -> None:
+        """Test registering tool callbacks."""
+
+        @tool
+        def callback_tool(x: int) -> int:
+            """A callback tool."""
+            return x * 2
+
+        plugin = ToolManagerPlugin()
+        plugin.register_callback(lambda: [callback_tool], "test_plugin")
+
+        tools = plugin.get_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "callback_tool"
+
+    def test_combined_tools(self) -> None:
+        """Test combining static tools and callbacks."""
+
+        @tool
+        def static_tool(a: str) -> str:
+            """Static tool."""
+            return a
+
+        @tool
+        def dynamic_tool(b: str) -> str:
+            """Dynamic tool."""
+            return b
+
+        plugin = ToolManagerPlugin()
+        plugin.register_tools([static_tool])
+        plugin.register_callback(lambda: [dynamic_tool], "dynamic_plugin")
+
+        tools = plugin.get_tools()
+        assert len(tools) == 2
+        tool_names = [t.name for t in tools]
+        assert "static_tool" in tool_names
+        assert "dynamic_tool" in tool_names
+
+    def test_clear(self) -> None:
+        """Test clearing all tools."""
+
+        @tool
+        def temp_tool(x: str) -> str:
+            """Temporary tool."""
+            return x
+
+        plugin = ToolManagerPlugin()
+        plugin.register_tools([temp_tool])
+        assert len(plugin.get_tools()) == 1
+
+        plugin.clear()
+        assert len(plugin.get_tools()) == 0
+
+    def test_tool_manager_with_plugin(
+        self,
+        log_config: LogConfig,
+    ) -> None:
+        """Test ToolManager integration with plugin."""
+
+        @tool
+        def plugin_tool(msg: str) -> str:
+            """A plugin tool."""
+            return f"Plugin: {msg}"
+
+        plugin = ToolManagerPlugin()
+        plugin.register_tools([plugin_tool])
+
+        # Test without context manager (just initialization)
+        tool_manager = ToolManager(
+            configs={},
+            log_config=log_config,
+            tool_plugin=plugin,
+        )
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "plugin_tool"

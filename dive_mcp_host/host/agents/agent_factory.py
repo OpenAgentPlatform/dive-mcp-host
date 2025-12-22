@@ -1,6 +1,6 @@
 from asyncio import Event
 from enum import StrEnum
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -12,6 +12,9 @@ from langgraph.store.base import BaseStore
 
 from dive_mcp_host.host.prompt import PromptType
 
+if TYPE_CHECKING:
+    from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
+
 
 class ConfigurableKey(StrEnum):
     """Enum for RunnableConfig.configurable keys."""
@@ -22,6 +25,10 @@ class ConfigurableKey(StrEnum):
     MAX_INPUT_TOKENS = "max_input_tokens"
     OVERSIZE_POLICY = "oversize_policy"
     ABORT_SIGNAL = "abort_signal"
+    ELICITATION_MANAGER = "elicitation_manager"
+    STREAM_WRITER = "stream_writer"
+    MCP_RELOAD_CALLBACK = "mcp_reload_callback"  # deprecated
+    LOCALE = "locale"
 
 
 # XXX is there any better way to do this?
@@ -61,6 +68,10 @@ class AgentFactory[T: MessagesState](Protocol):
         max_input_tokens: int | None = None,
         oversize_policy: Literal["window"] | None = None,
         abort_signal: Event | None = None,
+        elicitation_manager: "ElicitationManager | None" = None,
+        stream_writer: "Any | None" = None,
+        locale: str = "en",
+        mcp_reload_callback: "Any | None" = None,
     ) -> RunnableConfig | None:
         """Create a config for the agent.
 
@@ -81,6 +92,10 @@ class AgentFactory[T: MessagesState](Protocol):
                 ConfigurableKey.MAX_INPUT_TOKENS: max_input_tokens,
                 ConfigurableKey.OVERSIZE_POLICY: oversize_policy,
                 ConfigurableKey.ABORT_SIGNAL: abort_signal,
+                ConfigurableKey.ELICITATION_MANAGER: elicitation_manager,
+                ConfigurableKey.STREAM_WRITER: stream_writer,
+                ConfigurableKey.LOCALE: locale,
+                ConfigurableKey.MCP_RELOAD_CALLBACK: mcp_reload_callback,
             },
             "recursion_limit": 102,
         }

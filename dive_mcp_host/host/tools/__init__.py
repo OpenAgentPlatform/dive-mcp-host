@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
 from itertools import chain
 from typing import TYPE_CHECKING, Self
 
@@ -14,9 +13,26 @@ from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer, McpServerInfo, McpTool
 from dive_mcp_host.host.tools.oauth import OAuthManager
+from dive_mcp_host.host.tools.plugin import ToolManagerPlugin
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterable, Mapping
+
+    from langchain_core.tools import BaseTool
+
+# Re-export McpTool for external use
+__all__ = [
+    "ElicitationManager",
+    "LogConfig",
+    "LogManager",
+    "McpServer",
+    "McpServerInfo",
+    "McpTool",
+    "OAuthManager",
+    "ServerConfig",
+    "ToolManager",
+    "ToolManagerPlugin",
+]
 
 
 logger = logging.getLogger(__name__)
@@ -37,8 +53,17 @@ class ToolManager(ContextProtocol):
         log_config: LogConfig = LogConfig(),
         oauth_manager: OAuthManager | None = None,
         elicitation_manager: ElicitationManager | None = None,
+        tool_plugin: ToolManagerPlugin | None = None,
     ) -> None:
-        """Initialize the ToolManager."""
+        """Initialize the ToolManager.
+
+        Args:
+            configs: MCP server configurations.
+            log_config: Log configuration.
+            oauth_manager: OAuth manager for authentication.
+            elicitation_manager: Elicitation manager for user prompts.
+            tool_plugin: Plugin for non-MCP tools.
+        """
         self._configs = configs
         self._log_config = log_config
         self._log_manager = LogManager(
@@ -46,6 +71,7 @@ class ToolManager(ContextProtocol):
         )
         self._oauth_manager = oauth_manager or OAuthManager()
         self._elicitation_manager = elicitation_manager or ElicitationManager()
+        self._tool_plugin = tool_plugin or ToolManagerPlugin()
         self._mcp_servers = dict[str, McpServer]()
         self._mcp_servers_task = dict[str, tuple[asyncio.Task, asyncio.Event]]()
         self._lock = asyncio.Lock()
@@ -65,13 +91,28 @@ class ToolManager(ContextProtocol):
     def langchain_tools(
         self,
         tool_filter: Callable[[McpServer], bool] = lambda _: True,
-    ) -> list[McpTool]:
-        """Get the langchain tools for the MCP servers."""
-        return list(
+        include_installer: bool = True,
+    ) -> list[BaseTool]:
+        """Get the langchain tools for the MCP servers and plugins.
+
+        Args:
+            tool_filter: Filter function for MCP servers.
+            include_installer: Whether to include the installer tool.
+
+        Returns:
+            List of all tools from MCP servers and registered plugins.
+        """
+        # Get MCP tools
+        mcp_tools: list[BaseTool] = list(
             chain.from_iterable(
                 [i.mcp_tools for i in self._mcp_servers.values() if tool_filter(i)],
             ),
         )
+
+        # Get plugin tools (including installer if requested)
+        plugin_tools = self._tool_plugin.get_tools(include_installer=include_installer)
+
+        return mcp_tools + plugin_tools
 
     async def _launch_tools(self, servers: Mapping[str, McpServer]) -> None:
         async def tool_process(
@@ -214,6 +255,11 @@ class ToolManager(ContextProtocol):
     def elicitation_manager(self) -> ElicitationManager:
         """Get the elicitation manager."""
         return self._elicitation_manager
+
+    @property
+    def tool_plugin(self) -> ToolManagerPlugin:
+        """Get the tool plugin for registering non-MCP tools."""
+        return self._tool_plugin
 
     @property
     def mcp_servers(self) -> dict[str, McpServer]:
