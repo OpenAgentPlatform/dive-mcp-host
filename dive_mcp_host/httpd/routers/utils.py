@@ -52,6 +52,8 @@ from dive_mcp_host.httpd.database.models import (
     Role,
 )
 from dive_mcp_host.httpd.routers.models import (
+    AgentToolCallContent,
+    AgentToolResultContent,
     AuthenticationRequiredContent,
     ChatInfoContent,
     ElicitationRequestContent,
@@ -699,18 +701,50 @@ class ChatProcessor:
                 )
             )
 
+    # Tools that belong to installer agent (sub-agent)
+    # These are streamed as agent_tool_call/agent_tool_result, not tool_calls
+    _INSTALLER_AGENT_TOOLS = frozenset(
+        {
+            "fetch",
+            "bash",
+            "read_file",
+            "write_file",
+            "add_mcp_server",
+            "reload_mcp_server",
+            "request_confirmation",
+        }
+    )
+
     async def _stream_tool_calls_msg(self, message: AIMessage) -> None:
+        # Filter out installer agent's internal tools - they are sent as agent_tool_call
+        tool_calls = [
+            c
+            for c in message.tool_calls
+            if c["name"] not in self._INSTALLER_AGENT_TOOLS
+        ]
+        if not tool_calls:
+            logger.debug("Skipping tool_calls - all are installer agent tools")
+            return
+
         await self.stream.write(
             StreamMessage(
                 type="tool_calls",
                 content=[
                     ToolCallsContent(name=c["name"], arguments=c["args"])
-                    for c in message.tool_calls
+                    for c in tool_calls
                 ],
             )
         )
 
     async def _stream_tool_result_msg(self, message: ToolMessage) -> None:
+        # Skip installer agent's internal tools - they are sent as agent_tool_result
+        if message.name in self._INSTALLER_AGENT_TOOLS:
+            logger.debug(
+                "Skipping tool_result for installer agent tool: %s",
+                message.name,
+            )
+            return
+
         result = message.content
         with suppress(json.JSONDecodeError):
             if isinstance(result, list):
@@ -819,6 +853,32 @@ class ChatProcessor:
                             ),
                         )
                     )
+                elif res_content[0] == "agent_tool_call":
+                    # Tool call from sub-agent (e.g., installer agent)
+                    content = res_content[1]
+                    await self.stream.write(
+                        StreamMessage(
+                            type="agent_tool_call",
+                            content=AgentToolCallContent(
+                                tool_call_id=content.get("tool_call_id", ""),
+                                name=content.get("name", ""),
+                                args=content.get("args", {}),
+                            ),
+                        )
+                    )
+                elif res_content[0] == "agent_tool_result":
+                    # Tool result from sub-agent (e.g., installer agent)
+                    content = res_content[1]
+                    await self.stream.write(
+                        StreamMessage(
+                            type="agent_tool_result",
+                            content=AgentToolResultContent(
+                                tool_call_id=content.get("tool_call_id", ""),
+                                name=content.get("name", ""),
+                                result=content.get("result", ""),
+                            ),
+                        )
+                    )
 
         # Find the most recent user and AI messages from newest to oldest
         user_message = next(
@@ -840,6 +900,7 @@ class ChatProcessor:
             tools=[],  # do not use tools
             system_prompt=title_prompt,
             volatile=True,
+            include_installer_tool=False,  # title generator should not have installer
         )
         try:
             async with chat:

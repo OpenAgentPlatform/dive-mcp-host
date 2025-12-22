@@ -334,6 +334,35 @@ class ChatAgentFactory(AgentFactory[AgentState]):
 
         self._build_graph()
 
+    def create_config(
+        self,
+        *,
+        user_id: str,
+        thread_id: str,
+        max_input_tokens: int | None = None,
+        oversize_policy: Literal["window"] | None = None,
+        abort_signal: Event | None = None,
+        elicitation_manager: Any | None = None,
+        stream_writer: Any | None = None,
+        locale: str = "en",
+        mcp_reload_callback: Any | None = None,
+    ) -> RunnableConfig:
+        """Create a config for the agent."""
+        return {
+            "configurable": {
+                ConfigurableKey.THREAD_ID: thread_id,
+                ConfigurableKey.USER_ID: user_id,
+                ConfigurableKey.MAX_INPUT_TOKENS: max_input_tokens,
+                ConfigurableKey.OVERSIZE_POLICY: oversize_policy,
+                ConfigurableKey.ABORT_SIGNAL: abort_signal,
+                ConfigurableKey.ELICITATION_MANAGER: elicitation_manager,
+                ConfigurableKey.STREAM_WRITER: stream_writer,
+                ConfigurableKey.LOCALE: locale,
+                ConfigurableKey.MCP_RELOAD_CALLBACK: mcp_reload_callback,
+            },
+            "recursion_limit": 102,
+        }
+
     def _check_more_steps_needed(
         self, state: AgentState, response: BaseMessage
     ) -> bool:

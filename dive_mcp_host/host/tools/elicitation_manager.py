@@ -90,7 +90,15 @@ class ElicitationManager:
             ),
         )
 
+        logger.info(
+            "ElicitationManager.request() - sending event, request_id: %s, writer: %s",
+            request_id,
+            writer,
+        )
         writer(event)
+        logger.info(
+            "ElicitationManager.request() - event sent, waiting for response..."
+        )
 
         try:
             return await asyncio.wait_for(future, timeout=timeout)

@@ -23,6 +23,7 @@ from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.host.tools.log import LogManager
 from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.oauth import BaseTokenStore, OAuthManager
+from dive_mcp_host.host.tools.plugin import ToolManagerPlugin
 from dive_mcp_host.models import load_model
 
 if TYPE_CHECKING:
@@ -89,10 +90,13 @@ class DiveMcpHost(ContextProtocol):
         oauth_kwargs = {"store": oauth_store}
         if self.config.oauth_config.redirect_uri:
             oauth_kwargs["callback_url"] = self.config.oauth_config.redirect_uri
+        # Create tool plugin for non-MCP tools (installer, etc.)
+        self._tool_plugin = ToolManagerPlugin()
         self._tool_manager: ToolManager = ToolManager(
             configs=self._config.mcp_servers,
             log_config=self.config.log_config,
             oauth_manager=OAuthManager(**oauth_kwargs),
+            tool_plugin=self._tool_plugin,
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None
@@ -120,6 +124,8 @@ class DiveMcpHost(ContextProtocol):
             **self._config.llm.to_load_model_kwargs(),
         )
         self._model = model
+        # Initialize installer tool in the plugin
+        self._tool_plugin.setup_installer_tool(model)
 
     def chat[T: MessagesState](
         self,
@@ -140,6 +146,7 @@ class DiveMcpHost(ContextProtocol):
         disable_default_system_prompt: bool = False,
         tools_in_prompt: bool | None = None,
         volatile: bool = False,
+        include_installer_tool: bool = True,
     ) -> Chat[T]:
         """Start or resume a chat.
 
@@ -152,6 +159,7 @@ class DiveMcpHost(ContextProtocol):
             volatile: if True, the chat will not be saved.
             disable_default_system_prompt: disable default system prompt
             tools_in_prompt: if True, the tools will be passed in the prompt.
+            include_installer_tool: if True, include the install_mcp_server tool.
 
         If the chat ID is not provided, a new chat will be created.
         Customize the agent factory to use a different model or tools.
@@ -161,7 +169,17 @@ class DiveMcpHost(ContextProtocol):
         if self._model is None:
             raise RuntimeError("Model not initialized")
         if tools is None:
-            tools = self._tool_manager.langchain_tools()
+            tools = list(
+                self._tool_manager.langchain_tools(
+                    include_installer=include_installer_tool
+                )
+            )
+        else:
+            tools = list(tools)
+            # Add installer tool if requested and available
+            if include_installer_tool and self._tool_plugin.installer_tool is not None:
+                tools.append(self._tool_plugin.installer_tool)
+
         if tools_in_prompt is None:
             tools_in_prompt = self._config.llm.tools_in_prompt
         agent_factory = get_agent_factory_method(
@@ -178,6 +196,9 @@ class DiveMcpHost(ContextProtocol):
             chat_id=chat_id,
             user_id=user_id,
             checkpointer=None if volatile else self._checkpointer,
+            elicitation_manager=self.elicitation_manager,
+            locale=self._tool_plugin.locale,
+            mcp_reload_callback=self._tool_plugin.mcp_reload_callback,
         )
 
     async def reload(
@@ -257,11 +278,19 @@ class DiveMcpHost(ContextProtocol):
 
     @property
     def tools(self) -> Sequence[BaseTool]:
-        """The ACTIVE tools to the host.
+        """The ACTIVE tools to the host (including installer tool).
 
         This property is read-only. Call `reload` to change the tools.
         """
-        return self._tool_manager.langchain_tools()
+        return self._tool_manager.langchain_tools(include_installer=True)
+
+    @property
+    def mcp_tools(self) -> Sequence[BaseTool]:
+        """The MCP tools only (excluding built-in tools like installer).
+
+        This property is read-only. Call `reload` to change the tools.
+        """
+        return self._tool_manager.langchain_tools(include_installer=False)
 
     @property
     def mcp_server_info(self) -> dict[str, McpServerInfo]:
@@ -338,3 +367,33 @@ class DiveMcpHost(ContextProtocol):
     async def restart_mcp_server(self, name: str) -> McpServerInfo:
         """Restart MCP server."""
         return await self._tool_manager.restart_mcp_server(name)
+
+    @property
+    def installer_tool(self) -> BaseTool | None:
+        """Get the installer tool."""
+        return self._tool_plugin.installer_tool
+
+    @property
+    def tool_plugin(self) -> ToolManagerPlugin:
+        """Get the tool plugin for managing non-MCP tools."""
+        return self._tool_plugin
+
+    def set_locale(self, locale: str) -> None:
+        """Set the locale for user-facing messages in installer.
+
+        Args:
+            locale: The locale code (e.g., 'en', 'zh-TW', 'ja').
+        """
+        self._tool_plugin.set_locale(locale)
+
+    def set_mcp_reload_callback(
+        self, callback: Callable[[], Awaitable[None]] | None
+    ) -> None:
+        """Set the MCP reload callback (deprecated).
+
+        Deprecated: Use mcp_installer_plugin.set_httpd_base_url() for HTTP API reload.
+
+        Args:
+            callback: An async callback function that triggers MCP server reload.
+        """
+        self._tool_plugin.set_mcp_reload_callback(callback)

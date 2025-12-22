@@ -2,7 +2,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
-from typing import Any, Self, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
@@ -28,6 +28,9 @@ from dive_mcp_host.host.errors import (
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.prompt import default_system_prompt
 
+if TYPE_CHECKING:
+    from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,6 +48,9 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         store: BaseStore | None = None,
         checkpointer: BaseCheckpointSaver[V] | None = None,
         disable_default_system_prompt: bool = False,
+        elicitation_manager: "ElicitationManager | None" = None,
+        locale: str = "en",
+        mcp_reload_callback: Callable[[], Any] | None = None,
     ) -> None:
         """Initialize the chat.
 
@@ -57,6 +63,9 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
             store: The store to use for the chat.
             checkpointer: The langgraph checkpointer to use for the chat.
             disable_default_system_prompt: disable default system prompt
+            elicitation_manager: The elicitation manager for tool approval requests.
+            locale: Locale for user-facing messages (e.g., 'en', 'zh-TW').
+            mcp_reload_callback: Callback to reload MCP servers (deprecated).
 
         The agent_factory is called only once to compile the agent.
         """
@@ -70,6 +79,9 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         self._agent_factory: AgentFactory[STATE_TYPE] = agent_factory
         self._abort_signal: asyncio.Event | None = None
         self._disable_default_system_prompt = disable_default_system_prompt
+        self._elicitation_manager = elicitation_manager
+        self._locale = locale
+        self._mcp_reload_callback = mcp_reload_callback
 
     @property
     def active_agent(self) -> CompiledStateGraph:
@@ -207,6 +219,9 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                 user_id=self._user_id,
                 thread_id=self._chat_id,
                 abort_signal=signal,
+                elicitation_manager=self._elicitation_manager,
+                locale=self._locale,
+                mcp_reload_callback=self._mcp_reload_callback,
             )
             try:
                 async for response in self.active_agent.astream(

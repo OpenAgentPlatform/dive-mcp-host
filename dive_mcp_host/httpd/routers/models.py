@@ -130,6 +130,26 @@ class ToolResultContent(BaseModel):
     result: Any
 
 
+class AgentToolCallContent(BaseModel):
+    """Agent (sub-agent) tool call content."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_call_id: str = Field(alias="toolCallId")
+    name: str
+    args: Any
+
+
+class AgentToolResultContent(BaseModel):
+    """Agent (sub-agent) tool result content."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    tool_call_id: str = Field(alias="toolCallId")
+    name: str
+    result: Any
+
+
 class ChatInfoContent(BaseModel):
     """Chat info."""
 
@@ -201,6 +221,8 @@ class StreamMessage(BaseModel):
         "message_info",
         "interactive",
         "token_usage",
+        "agent_tool_call",
+        "agent_tool_result",
     ]
     content: (
         str
@@ -212,6 +234,8 @@ class StreamMessage(BaseModel):
         | InteractiveContent
         | ToolCallProgress
         | TokenUsageContent
+        | AgentToolCallContent
+        | AgentToolResultContent
     )
 
 
