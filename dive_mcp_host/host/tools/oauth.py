@@ -9,13 +9,19 @@ from urllib.parse import parse_qs, urlparse
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
-from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
-from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.client.auth import OAuthFlowError, TokenStorage
+from mcp.shared.auth import (
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+)
 from mcp.shared.message import SessionMessage
 from pydantic import AnyUrl, Field, RootModel
 from pydantic.dataclasses import dataclass
 
 from dive_mcp_host.host.helpers.context import ContextProtocol
+from dive_mcp_host.host.tools.hack.oauth2 import OAuthClientProvider
 
 type ReadStreamType = MemoryObjectReceiveStream[SessionMessage | Exception]
 type WriteStreamType = MemoryObjectSendStream[SessionMessage]
@@ -131,6 +137,7 @@ class TokenStore:
     update_method: Callable[[Self], Awaitable[None]] | None = Field(
         default=None, exclude=True
     )
+    oauth_metadata: OAuthMetadata | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
         """Get the tokens for the client."""
@@ -151,6 +158,16 @@ class TokenStore:
         self.client_info = client_info
         if self.update_method:
             await self.update_method(self)
+
+    async def set_oauth_metadata(self, metadata: OAuthMetadata) -> None:
+        """Set the oauth metadata of the server."""
+        self.oauth_metadata = metadata
+        if self.update_method:
+            await self.update_method(self)
+
+    async def get_oauth_metadata(self) -> OAuthMetadata | None:
+        """Get the oauth metadata of the server."""
+        return self.oauth_metadata
 
 
 class BaseTokenStore(Protocol):

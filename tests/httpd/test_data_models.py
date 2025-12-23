@@ -36,6 +36,6 @@ def test_oap_model(base_url):
     assert config.configuration is not None
     match base_url:
         case None | "":
-            assert config.configuration.base_url == "https://api.oaphub.ai/v1"
+            assert config.configuration.base_url == "https://proxy.oaphub.ai/v1"
         case _:
             assert config.configuration.base_url == base_url

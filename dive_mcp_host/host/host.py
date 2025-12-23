@@ -3,7 +3,7 @@ import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from contextlib import AsyncExitStack
 from copy import deepcopy
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import BaseMessage
@@ -87,7 +87,7 @@ class DiveMcpHost(ContextProtocol):
         self._model: BaseChatModel | None = None
         self._checkpointer: BaseCheckpointSaver[str] | None = None
         # Build OAuthManager kwargs, only pass callback_url if redirect_uri is set
-        oauth_kwargs = {"store": oauth_store}
+        oauth_kwargs: dict[str, Any] = {"store": oauth_store}
         if self.config.oauth_config.redirect_uri:
             oauth_kwargs["callback_url"] = self.config.oauth_config.redirect_uri
         # Create tool plugin for non-MCP tools (installer, etc.)
@@ -100,6 +100,7 @@ class DiveMcpHost(ContextProtocol):
         )
         self._store = store_manager
         self._exit_stack: AsyncExitStack | None = None
+        self._lock: asyncio.Lock = asyncio.Lock()
 
     async def _run_in_context(self) -> AsyncGenerator[Self, None]:
         async with AsyncExitStack() as stack:
@@ -220,45 +221,48 @@ class DiveMcpHost(ContextProtocol):
         Chats can be resumed after reload by using the same chat_id.
         """
         # NOTE: Do Not restart MCP Servers when there is on-going query.
-        if self._exit_stack is None:
-            raise RuntimeError("Host not initialized")
+        async with self._lock:
+            if self._exit_stack is None:
+                raise RuntimeError("Host not initialized")
 
-        # Update config
-        old_config = self._config
-        self._config = new_config
+            # Update config
+            old_config = self._config
+            self._config = new_config
 
-        try:
-            # Reload model if needed
-            if old_config.llm != new_config.llm:
-                self._model = None
-                await self._init_models()
+            try:
+                # Reload model if needed
+                if old_config.llm != new_config.llm:
+                    self._model = None
+                    await self._init_models()
 
-            await self._tool_manager.reload(
-                new_configs=new_config.mcp_servers, force=force_mcp
-            )
+                await self._tool_manager.reload(
+                    new_configs=new_config.mcp_servers, force=force_mcp
+                )
 
-            # Reload checkpointer if needed
-            if old_config.checkpointer != new_config.checkpointer:
-                if self._checkpointer is not None:
-                    await self._exit_stack.aclose()
-                    self._checkpointer = None
+                # Reload checkpointer if needed
+                if old_config.checkpointer != new_config.checkpointer:
+                    if self._checkpointer is not None:
+                        await self._exit_stack.aclose()
+                        self._checkpointer = None
 
-                if new_config.checkpointer:
-                    checkpointer = get_checkpointer(str(new_config.checkpointer.uri))
-                    self._checkpointer = await self._exit_stack.enter_async_context(
-                        checkpointer
-                    )
-                    await self._checkpointer.setup()
+                    if new_config.checkpointer:
+                        checkpointer = get_checkpointer(
+                            str(new_config.checkpointer.uri)
+                        )
+                        self._checkpointer = await self._exit_stack.enter_async_context(
+                            checkpointer
+                        )
+                        await self._checkpointer.setup()
 
-            # Call the reloader function to handle service restart
-            if reloader:
-                await reloader()
+                # Call the reloader function to handle service restart
+                if reloader:
+                    await reloader()
 
-        except Exception as e:
-            # Restore old config if reload fails
-            self._config = old_config
-            logging.error("Failed to reload host: %s", e)
-            raise
+            except Exception as e:
+                # Restore old config if reload fails
+                self._config = old_config
+                logging.error("Failed to reload host: %s", e)
+                raise
 
     @property
     def config(self) -> HostConfig:

@@ -255,9 +255,9 @@ class LLMOapConfiguration(LLMConfiguration):
     """Configuration for the LLM model."""
 
     base_url: Annotated[
-        str, BeforeValidator(lambda v: v or "https://api.oaphub.ai/v1")
+        str, BeforeValidator(lambda v: v or "https://proxy.oaphub.ai/v1")
     ] = Field(
-        default="https://api.oaphub.ai/v1",
+        default="https://proxy.oaphub.ai/v1",
         alias="baseURL",
     )
 

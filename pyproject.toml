@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dive-mcp-host"
-version = "0.5.0"
+version = "0.5.1"
 description = "A MCP host for Dive"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -16,22 +16,8 @@ authors = [
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
-    "langchain-anthropic>=0.3.18",
-    "langchain-core>=0.3.74",
-    "langchain-deepseek>=0.1.4",
-    "langchain-google-genai>=2.1.9",
-    "langchain-openai>=0.3.28",
-    "langchain-ollama>=0.3.5",
-    "langchain-mistralai>=0.2.11",
-    "langchain-aws>=0.2.23",
-    "langchain>=0.3.27,<0.4",
-    "langgraph-checkpoint-postgres>=2.0.22",
-    "langgraph-checkpoint-sqlite>=2.0.11",
-    "langgraph-prebuilt>=0.6.4",
-    "langgraph>=0.6.6",
     "fastapi>=0.116.1",
-    "httpx[brotli,http2,socks,zstd]",
-    "mcp==1.18",
+    "mcp==1.24.0",
     "anyio>=4.10.0",
     "pydantic>=2.11.7",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
@@ -45,6 +31,19 @@ dependencies = [
     "pillow>=11.3.0",
     "websockets >= 15.0.1",
     "python-dotenv>=1.0.1",
+    "langchain>=1.1.3",
+    "langchain-core>=1.1.3",
+    "langchain-anthropic>=1.2.0",
+    "langchain-aws>=1.1.0",
+    "langchain-deepseek>=1.0.1",
+    "langchain-google-genai>=4.1.1",
+    "langchain-mistralai>=1.1.0",
+    "langchain-ollama>=1.0.0",
+    "langchain-openai>=1.1.1",
+    "langgraph-checkpoint-postgres>=3.0.2",
+    "langgraph-checkpoint-sqlite>=3.0.1",
+    "langgraph-prebuilt>=1.0.5",
+    "httpx[brotli,http2,socks,zstd]>=0.28.1",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -155,7 +154,7 @@ lint.ignore = [
 lint.extend-select = ["I"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/test_*.py" = ["S101", "ANN", "D107", "ARG001", "PLR2004", "SLF001", "PT012"]
+"**/test_*.py" = ["S101", "ANN", "D107", "ARG001", "PLR2004", "SLF001", "PT012", "RUF059"]
 "dive_mcp_host/cli/**/*.py" = ["S101", "ANN", "D107", "T201"]
 
 [tool.ruff.format]

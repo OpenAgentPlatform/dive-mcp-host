@@ -788,7 +788,7 @@ class McpServer(ContextProtocol):
     def _http_get_client(
         self,
         timeout: float = 30,
-        sse_read_timeout: float = 60 * 5,
+        sse_read_timeout: float = 10 * 60,
         auth: httpx.Auth | None = None,
     ) -> AbstractAsyncContextManager[
         tuple[ReadStreamType, WriteStreamType]
@@ -978,7 +978,11 @@ class McpServer(ContextProtocol):
                         )
                     )
                     streams = await stack.enter_async_context(
-                        self._http_get_client(auth=auth)
+                        self._http_get_client(
+                            auth=auth,
+                            sse_read_timeout=self.config.tool_call_timeout,
+                            timeout=self.config.tool_call_timeout,
+                        )
                     )
                     session = await stack.enter_async_context(
                         ClientSession(
@@ -1121,7 +1125,10 @@ class McpServer(ContextProtocol):
             """Create new session."""
             try:
                 async with (
-                    self._http_get_client() as streams,
+                    self._http_get_client(
+                        timeout=self.config.tool_call_timeout,
+                        sse_read_timeout=self.config.tool_call_timeout,
+                    ) as streams,
                     ClientSession(
                         *[streams[0], streams[1]],
                         message_handler=self._message_handler,
@@ -1148,7 +1155,7 @@ class McpServer(ContextProtocol):
 
     async def create_oauth_authorization(self) -> AuthorizationProgress:
         """Authorize the OAuth client."""
-        if self.config.transport not in {"streamable", "sse"}:
+        if self.config.transport not in ("streamable", "sse"):
             raise RuntimeError(
                 "Only streamable and sse transport is supported for oauth"
             )

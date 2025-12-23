@@ -290,9 +290,10 @@ async def test_abort_chat() -> None:
             responses = query_task.result()
 
             # Verify that we got fewer responses than expected and no AIMessages
-            assert len(responses) == 2
+            assert len(responses) == 3
             assert responses[0][1][0].content == "This"
             assert responses[1][1][0].content == "<user_aborted>"
+            assert responses[2][1][0].chunk_position == "last"
 
             # Verify the abort signal was cleared
             model.sleep = 0
@@ -303,7 +304,9 @@ async def test_abort_chat() -> None:
                     "This is a long running query", stream_mode=["messages"]
                 )
             ]
-            assert len(responses) == len(fake_responses[0].content.split(" "))
+            assert (
+                len(responses) == len(fake_responses[0].content.split(" ")) + 1
+            )  # last AIMessage with chunk_position = "last"
             assert (
                 sum(
                     [chunk[1][0] for chunk in responses],
@@ -320,7 +323,7 @@ async def test_abort_chat() -> None:
                     "This is a long running query", stream_mode=["messages"]
                 )
             ]
-            assert len(responses) == len(fake_responses[0].content.split(" "))
+            assert len(responses) == len(fake_responses[0].content.split(" ")) + 1
 
 
 @pytest.mark.asyncio
@@ -612,7 +615,8 @@ async def test_abort_chat_with_tools(
             responses = query_task.result()
 
             # Verify that we got fewer responses than expected and no AIMessages
-            assert len(responses) == 5
+            assert len(responses) == 6
+            assert responses[-2][1][0].chunk_position == "last"
             assert responses[-1][1][0].content == "canceled"
 
 

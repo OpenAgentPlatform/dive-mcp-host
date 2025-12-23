@@ -132,7 +132,7 @@ async def test_anthropic(echo_tool_stdio_config: dict[str, ServerConfig]) -> Non
 
         await _run_the_test(config)
 
-    for m in ["claude-3-7-sonnet-20250219"]:
+    for m in ["claude-opus-4-5-20251101"]:
         await _one_model(m)
 
 
@@ -380,14 +380,10 @@ async def test_oap(echo_tool_stdio_config: dict[str, ServerConfig]) -> None:
     if api_key := environ.get("OAP_API_KEY"):
         config = HostConfig(
             llm=LLMOapConfig(
-                model="claude-3-7-sonnet-20250219",
+                model="anthropic/claude_sonnet_4.5",
                 model_provider="oap",
                 api_key=SecretStr(api_key),
-                max_tokens=128000,
                 configuration=configuration,
-                default_headers={
-                    "anthropic-beta": "output-128k-2025-02-19",
-                },
             ),
             mcp_servers=echo_tool_stdio_config,
         )

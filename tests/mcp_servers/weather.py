@@ -150,7 +150,7 @@ async def oauth_protected_resource(host: Host) -> dict[str, Any]:
 
 # RFC 8414 OAuth 2.0 Authorization Server Metadata
 #  - RFC 7591
-@app.get("/.well-known/oauth-authorization-server")
+@app.get("/.well-known/oauth-authorization-server/{tenent}")
 async def oauth_authorization_server(host: Host) -> dict[str, Any]:
     """OAuth authorization server metadata."""
     return {
@@ -179,6 +179,10 @@ class APP(BaseModel):
     redirect_uris: list[str]
     client_id: UUID = Field(default_factory=uuid4)
     client_secret: str = Field(default_factory=token_genator)
+    token_endpoint_auth_method: (
+        Literal["none", "client_secret_post", "client_secret_basic", "private_key_jwt"]
+        | None
+    ) = "client_secret_post"  # noqa: S105
 
 
 apps: dict[str, APP] = {}
