@@ -477,6 +477,18 @@ For different server types:
 4. Create backups before modifying existing configurations
 5. Validate JSON syntax before writing configuration files
 
+### CRITICAL: Testing MCP Servers
+**DO NOT run MCP server commands directly via bash to test if they work.**
+Running commands like `uvx mcp-server-xxx` or `npx @xxx/mcp-server` directly will cause the process to hang indefinitely because MCP servers wait for stdio input.
+Instead, use the `add_mcp_server` or `reload_mcp_server` tools to test if the server loads correctly. These tools will:
+- Register the server configuration
+- Attempt to start the server
+- Report any errors (missing dependencies, wrong paths, etc.)
+If you need to verify a package exists or check its version, use:
+- `pip show <package>` or `npm view <package>` for version info
+- `which <command>` to check if a command is available
+- `pip install --dry-run <package>` to check if installation would succeed
+
 ## Response Format
 When you complete an installation, always provide:
 1. A summary of what was installed
