@@ -3,7 +3,6 @@ import json
 import logging
 import random
 import secrets
-from contextlib import AbstractAsyncContextManager
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import patch
@@ -48,14 +47,12 @@ def no_such_file_mcp_server() -> dict[str, ServerConfig]:
 
 @pytest.mark.asyncio
 async def test_tool_manager_sse(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
+    _, configs = echo_tool_sse_server
     async with (
-        echo_tool_sse_server as (port, configs),
         ToolManager(configs, log_config) as tool_manager,
     ):
         await tool_manager.initialized_event.wait()
@@ -109,14 +106,12 @@ async def test_tool_manager_stdio(
 
 @pytest.mark.asyncio
 async def test_tool_manager_streamable(
-    echo_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
+    _, configs = echo_tool_streamable_server
     async with (
-        echo_tool_streamable_server as (port, configs),
         ToolManager(configs, log_config) as tool_manager,
     ):
         await tool_manager.initialized_event.wait()
@@ -142,14 +137,12 @@ async def test_tool_manager_streamable(
 
 @pytest.mark.asyncio
 async def test_tool_manager_tool_name_with_slash(
-    echo_with_slash_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_with_slash_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test the tool manager."""
+    _port, configs = echo_with_slash_tool_streamable_server
     async with (
-        echo_with_slash_tool_streamable_server as (port, configs),
         ToolManager(configs, log_config) as tool_manager,
     ):
         await tool_manager.initialized_event.wait()
@@ -305,9 +298,7 @@ async def test_tool_manager_massive_tools(
 
 @pytest.mark.asyncio
 async def test_remote_http_mcp_tool_exception_handling(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test the exception handling of the MCP tool.
@@ -316,8 +307,8 @@ async def test_remote_http_mcp_tool_exception_handling(
     1. When a tool call fails, the exception is properly propagated to the caller
     2. Subsequent tool calls succeed after the connection is restored
     """
+    _, configs = echo_tool_sse_server
     async with (
-        echo_tool_sse_server as (_, configs),
         McpServer(
             name="echo",
             config=configs["echo"],
@@ -675,24 +666,20 @@ async def test_mcp_server_info_no_such_file(
 
 @pytest.mark.asyncio
 async def test_mcp_server_info_sse_connection_refused(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test the tool manager's SSE connection refused."""
-    async with echo_tool_sse_server as (port, configs):
-        configs["echo"].url = f"http://localhost:{port + 1}/sse"
-        async with (
-            ToolManager(configs, log_config) as tool_manager,
-        ):
-            await tool_manager.initialized_event.wait()
-            tools = tool_manager.langchain_tools()
-            assert len(tools) == 0
-            assert tool_manager.mcp_server_info["echo"].error is not None
-            assert (
-                tool_manager.mcp_server_info["echo"].client_status == ClientState.FAILED
-            )
+    port, configs = echo_tool_sse_server
+    configs["echo"].url = f"http://localhost:{port + 1}/sse"
+    async with (
+        ToolManager(configs, log_config) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 0
+        assert tool_manager.mcp_server_info["echo"].error is not None
+        assert tool_manager.mcp_server_info["echo"].client_status == ClientState.FAILED
 
 
 @pytest.mark.asyncio
@@ -847,12 +834,8 @@ async def test_tool_progress(
 async def test_tool_proxy(
     subtests,
     pproxy_server: str,
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
-    echo_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test proxy settings."""
@@ -875,30 +858,28 @@ async def test_tool_proxy(
                     assert m.proxy.scheme == "socks5"
 
     for test_cfg in [echo_tool_sse_server, echo_tool_streamable_server]:
-        async with test_cfg as (_, config):
-            cfg = config.copy()
-            for prot in ["http", "socks5"]:
-                cfg["echo"].proxy = ProxyUrl(f"{prot}://{pproxy_server}")
-                with subtests.test(prot=prot, url=cfg["echo"].url):
-                    async with ToolManager(cfg, log_config) as tool_manager:
-                        await tool_manager.initialized_event.wait()
-                        tools = tool_manager.langchain_tools()
-                        assert sorted([i.name for i in tools]) == [
-                            "echo",
-                            "elicit",
-                            "ignore",
-                        ]
+        _, config = test_cfg
+        cfg = config.copy()
+        for prot in ["http", "socks5"]:
+            cfg["echo"].proxy = ProxyUrl(f"{prot}://{pproxy_server}")
+            with subtests.test(prot=prot, url=cfg["echo"].url):
+                async with ToolManager(cfg, log_config) as tool_manager:
+                    await tool_manager.initialized_event.wait()
+                    tools = tool_manager.langchain_tools()
+                    assert sorted([i.name for i in tools]) == [
+                        "echo",
+                        "elicit",
+                        "ignore",
+                    ]
 
 
 @pytest.mark.asyncio
 async def test_tool_manager_exclude_tools(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
 ):
     """Make sure excluded tools are not passed to the llm."""
+    _, configs = echo_tool_sse_server
     async with (
-        echo_tool_sse_server as (_, configs),
         ToolManager(configs) as tool_manager,
     ):
         await tool_manager.initialized_event.wait()
@@ -920,12 +901,8 @@ async def test_tool_manager_exclude_tools(
 async def test_custum_initalize_timeout(
     echo_tool_local_sse_config: dict[str, ServerConfig],
     echo_tool_stdio_config: dict[str, ServerConfig],
-    echo_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ):
     """Test if our customized timeout actually apply."""
@@ -950,28 +927,29 @@ async def test_custum_initalize_timeout(
         elicitation_manager=elicitation_manager,
     ) as server:
         assert server.server_info.client_status == ClientState.FAILED
+    _, config = echo_tool_streamable_server
+    config["echo"].initial_timeout = 0
 
-    async with echo_tool_streamable_server as (_, config):
-        config["echo"].initial_timeout = 0
-        async with McpServer(
-            name="echo",
-            config=config["echo"],
-            log_buffer_length=log_config.buffer_length,
-            auth_manager=auth_manager,
-            elicitation_manager=elicitation_manager,
-        ) as server:
-            assert server.server_info.client_status == ClientState.FAILED
+    async with McpServer(
+        name="echo",
+        config=config["echo"],
+        log_buffer_length=log_config.buffer_length,
+        auth_manager=auth_manager,
+        elicitation_manager=elicitation_manager,
+    ) as server:
+        assert server.server_info.client_status == ClientState.FAILED
 
-    async with echo_tool_sse_server as (_, config):
-        config["echo"].initial_timeout = 0
-        async with McpServer(
-            name="echo",
-            config=config["echo"],
-            log_buffer_length=log_config.buffer_length,
-            auth_manager=auth_manager,
-            elicitation_manager=elicitation_manager,
-        ) as server:
-            assert server.server_info.client_status == ClientState.FAILED
+    _, config = echo_tool_sse_server
+    config["echo"].initial_timeout = 0
+
+    async with McpServer(
+        name="echo",
+        config=config["echo"],
+        log_buffer_length=log_config.buffer_length,
+        auth_manager=auth_manager,
+        elicitation_manager=elicitation_manager,
+    ) as server:
+        assert server.server_info.client_status == ClientState.FAILED
 
 
 @pytest.mark.asyncio
@@ -1101,16 +1079,14 @@ async def test_elicitation_stdio_cancel(
 
 @pytest.mark.asyncio
 async def test_elicitation_sse_accept(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test elicitation with SSE transport - user accepts."""
     elicitation_manager = ElicitationManager()
 
+    _, configs = echo_tool_sse_server
     async with (
-        echo_tool_sse_server as (_, configs),
         ToolManager(
             configs, log_config, elicitation_manager=elicitation_manager
         ) as tool_manager,
@@ -1148,16 +1124,14 @@ async def test_elicitation_sse_accept(
 
 @pytest.mark.asyncio
 async def test_elicitation_streamable_accept(
-    echo_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
     log_config: LogConfig,
 ) -> None:
     """Test elicitation with streamable HTTP transport - user accepts."""
     elicitation_manager = ElicitationManager()
 
+    _, configs = echo_tool_streamable_server
     async with (
-        echo_tool_streamable_server as (_, configs),
         ToolManager(
             configs, log_config, elicitation_manager=elicitation_manager
         ) as tool_manager,
@@ -1329,3 +1303,28 @@ class TestToolManagerPlugin:
         tools = tool_manager.langchain_tools()
         assert len(tools) == 1
         assert tools[0].name == "plugin_tool"
+
+
+@pytest.mark.asyncio
+async def test_verify(
+    echo_https_server: tuple[int, dict[str, ServerConfig]],
+    log_config: LogConfig,
+) -> None:
+    """Some LLM set the tool call argument in kwargs."""
+    config = echo_https_server[1]
+    async with ToolManager(config, log_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 0
+
+    config["echo"].verify = False
+    async with ToolManager(config, log_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) > 0
+
+    config["echo"].verify = True
+    async with ToolManager(config, log_config) as tool_manager:
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        assert len(tools) == 0
