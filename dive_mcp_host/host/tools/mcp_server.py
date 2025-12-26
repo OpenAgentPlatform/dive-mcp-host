@@ -209,6 +209,7 @@ class McpServer(ContextProtocol):
 
         self._httpx_client_factory = create_mcp_http_client_factory(
             proxy=str(self.config.proxy) if self.config.proxy else None,
+            kwargs={"verify": self.config.verify},
         )
 
     @property

@@ -3,7 +3,6 @@ import json
 import os
 import time
 from collections.abc import Awaitable, Callable
-from contextlib import AbstractAsyncContextManager
 from typing import Any, cast
 from unittest import mock
 from unittest.mock import MagicMock
@@ -870,13 +869,11 @@ async def test_thread_query_error_with_state(sqlite_uri: str) -> None:
 
 @pytest.mark.asyncio
 async def test_custom_event_streamable(
-    echo_tool_streamable_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
 ) -> None:
     """Test the custom event."""
+    _, configs = echo_tool_streamable_server
     async with (
-        echo_tool_streamable_server as (_, configs),
         DiveMcpHost(
             HostConfig(
                 llm=LLMConfig(
@@ -923,13 +920,11 @@ async def test_custom_event_streamable(
 
 @pytest.mark.asyncio
 async def test_custom_event(
-    echo_tool_sse_server: AbstractAsyncContextManager[
-        tuple[int, dict[str, ServerConfig]]
-    ],
+    echo_tool_sse_server: tuple[int, dict[str, ServerConfig]],
 ) -> None:
     """Test the custom event."""
+    _, configs = echo_tool_sse_server
     async with (
-        echo_tool_sse_server as (_, configs),
         DiveMcpHost(
             HostConfig(
                 llm=LLMConfig(

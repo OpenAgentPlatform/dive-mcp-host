@@ -59,6 +59,7 @@ class ServerConfig(BaseModel):
     ] = None
     initial_timeout: float = 10
     tool_call_timeout: float = 10 * 60
+    verify: bool | None = None
 
     @field_serializer("headers", when_used="json")
     def dump_headers(self, v: dict[str, SecretStr] | None) -> dict[str, str] | None:

@@ -8,6 +8,7 @@ from typing import Annotated
 
 from mcp.server.fastmcp import Context, FastMCP, Icon
 from pydantic import BaseModel, Field
+from starlette.applications import Starlette
 
 Instructions = """Echo a message."""
 
@@ -64,6 +65,11 @@ async def ignore(
 ) -> None:
     """Do nothing."""
     return
+
+
+def create_app() -> Starlette:
+    """For unicorn."""
+    return mcp.streamable_http_app()
 
 
 ELICIT_DESCRIPTION = """A tool that requests user input via elicitation.
