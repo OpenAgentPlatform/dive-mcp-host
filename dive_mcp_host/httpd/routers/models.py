@@ -311,6 +311,11 @@ class ModelFullConfigs(BaseModel):
     disable_dive_system_prompt: bool = False
     # If True, custom rules will be used directly without extra system prompt from Dive.
 
+    enable_local_tools: bool = True
+    # If True, local tools (fetch, bash, read_file, write_file) will be available
+    # to the LLM directly without going through the installer agent.
+    # Default is True - enabled by default when not specified in config.
+
     model_config = ConfigDict(
         alias_generator=to_camel,
         arbitrary_types_allowed=True,

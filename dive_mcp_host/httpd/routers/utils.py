@@ -353,6 +353,11 @@ class ChatProcessor:
             if app.model_config_manager.full_config
             else False
         )
+        self.enable_local_tools = (
+            app.model_config_manager.full_config.enable_local_tools
+            if app.model_config_manager.full_config
+            else False
+        )
 
     async def handle_chat(
         self,
@@ -722,6 +727,7 @@ class ChatProcessor:
             tools=tools,
             system_prompt=prompt,
             disable_default_system_prompt=self.disable_dive_system_prompt,
+            include_local_tools=self.enable_local_tools,
         )
         async with AsyncExitStack() as stack:
             if chat_id:

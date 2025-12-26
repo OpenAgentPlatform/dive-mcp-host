@@ -77,6 +77,7 @@ from dive_mcp_host.mcp_installer_plugin.tools import (
     InstallerReadFileTool,
     InstallerWriteFileTool,
     get_installer_tools,
+    get_local_tools,
 )
 
 __all__ = [
@@ -96,6 +97,7 @@ __all__ = [
     "get_httpd_base_url",
     "get_installer_system_prompt",
     "get_installer_tools",
+    "get_local_tools",
     "get_system_tools_info",
     "install_mcp_server_tool",
     "is_tool_available",

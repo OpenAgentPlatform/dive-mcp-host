@@ -127,6 +127,8 @@ class DiveMcpHost(ContextProtocol):
         self._model = model
         # Initialize installer tool in the plugin
         self._tool_plugin.setup_installer_tool(model)
+        # Initialize local tools (fetch, bash, read_file, write_file)
+        self._tool_plugin.setup_local_tools()
 
     def chat[T: MessagesState](
         self,
@@ -148,6 +150,7 @@ class DiveMcpHost(ContextProtocol):
         tools_in_prompt: bool | None = None,
         volatile: bool = False,
         include_installer_tool: bool = True,
+        include_local_tools: bool = False,
     ) -> Chat[T]:
         """Start or resume a chat.
 
@@ -161,6 +164,7 @@ class DiveMcpHost(ContextProtocol):
             disable_default_system_prompt: disable default system prompt
             tools_in_prompt: if True, the tools will be passed in the prompt.
             include_installer_tool: if True, include the install_mcp_server tool.
+            include_local_tools: if True, include local tools (fetch, bash, etc.).
 
         If the chat ID is not provided, a new chat will be created.
         Customize the agent factory to use a different model or tools.
@@ -172,7 +176,8 @@ class DiveMcpHost(ContextProtocol):
         if tools is None:
             tools = list(
                 self._tool_manager.langchain_tools(
-                    include_installer=include_installer_tool
+                    include_installer=include_installer_tool,
+                    include_local_tools=include_local_tools,
                 )
             )
         else:
@@ -180,6 +185,9 @@ class DiveMcpHost(ContextProtocol):
             # Add installer tool if requested and available
             if include_installer_tool and self._tool_plugin.installer_tool is not None:
                 tools.append(self._tool_plugin.installer_tool)
+            # Add local tools if requested and available
+            if include_local_tools and self._tool_plugin.local_tools is not None:
+                tools.extend(self._tool_plugin.local_tools)
 
         if tools_in_prompt is None:
             tools_in_prompt = self._config.llm.tools_in_prompt
@@ -376,6 +384,11 @@ class DiveMcpHost(ContextProtocol):
     def installer_tool(self) -> BaseTool | None:
         """Get the installer tool."""
         return self._tool_plugin.installer_tool
+
+    @property
+    def local_tools(self) -> list[BaseTool] | None:
+        """Get the local tools (fetch, bash, read_file, write_file)."""
+        return self._tool_plugin.local_tools
 
     @property
     def tool_plugin(self) -> ToolManagerPlugin:
