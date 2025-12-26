@@ -48,6 +48,7 @@ class ToolManagerPlugin:
         self._tools: list[BaseTool] = []
         self._callbacks: list[tuple[Callable[[], list[BaseTool]], str]] = []
         self._installer_tool: BaseTool | None = None
+        self._local_tools: list[BaseTool] | None = None
         self._locale: str = "en"
         # Deprecated: kept for backwards compatibility
         self._mcp_reload_callback: Callable[[], Awaitable[None]] | None = None
@@ -90,6 +91,23 @@ class ToolManagerPlugin:
         self._installer_tool = install_mcp_server_tool(model)
         logger.info("Installer tool initialized")
 
+    def setup_local_tools(self) -> None:
+        """Setup local tools (fetch, bash, read_file, write_file).
+
+        These tools can be exposed to external LLMs directly without going
+        through the installer agent. They include built-in safety mechanisms
+        like user confirmation for potentially dangerous operations.
+        """
+        from dive_mcp_host.mcp_installer_plugin import get_local_tools
+
+        self._local_tools = get_local_tools()
+        logger.info("Local tools initialized: %d tools", len(self._local_tools))
+
+    @property
+    def local_tools(self) -> list[BaseTool] | None:
+        """Get the local tools."""
+        return self._local_tools
+
     def set_locale(self, locale: str) -> None:
         """Set the locale for user-facing messages.
 
@@ -127,14 +145,20 @@ class ToolManagerPlugin:
         """Get the installer tool."""
         return self._installer_tool
 
-    def get_tools(self, include_installer: bool = True) -> list[BaseTool]:
+    def get_tools(
+        self,
+        include_installer: bool = True,
+        include_local_tools: bool = False,
+    ) -> list[BaseTool]:
         """Get all registered tools.
 
         Args:
             include_installer: Whether to include the installer tool.
+            include_local_tools: Whether to include local tools (fetch, bash, etc.).
 
         Returns:
-            List of all tools from static registration, callbacks, and installer.
+            List of all tools from static registration, callbacks, installer,
+            and optionally local tools.
         """
         tools = list(self._tools)
 
@@ -156,6 +180,10 @@ class ToolManagerPlugin:
         # Add installer tool if available and requested
         if include_installer and self._installer_tool is not None:
             tools.append(self._installer_tool)
+
+        # Add local tools if available and requested
+        if include_local_tools and self._local_tools is not None:
+            tools.extend(self._local_tools)
 
         return tools
 

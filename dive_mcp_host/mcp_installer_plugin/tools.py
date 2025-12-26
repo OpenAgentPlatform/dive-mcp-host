@@ -56,8 +56,30 @@ def _ensure_config(config: RunnableConfig | None) -> RunnableConfig:
 def _get_stream_writer(
     config: RunnableConfig,
 ) -> Callable[[tuple[str, Any]], None]:
-    """Extract stream writer from config."""
-    return config.get("configurable", {}).get("stream_writer", lambda _: None)
+    """Extract stream writer from config or LangGraph context.
+
+    Priority:
+    1. Explicitly set stream_writer in config (used by InstallerAgent)
+    2. LangGraph's get_stream_writer() (used when running in ToolNode)
+    3. No-op lambda as fallback
+    """
+    # First check if stream_writer is explicitly set in config (InstallerAgent case)
+    writer = config.get("configurable", {}).get("stream_writer")
+    if writer is not None:
+        return writer
+
+    # Try to get stream writer from LangGraph context (ToolNode case)
+    try:
+        from langgraph.config import get_stream_writer as lg_get_stream_writer
+
+        writer = lg_get_stream_writer()
+        if writer is not None:
+            return writer
+    except (ImportError, RuntimeError, LookupError):
+        logger.debug("Could not get stream writer from LangGraph context")
+
+    # Fallback to no-op
+    return lambda _: None
 
 
 def _get_dry_run(config: RunnableConfig) -> bool:
@@ -625,30 +647,99 @@ Always requests user approval before writing."""
     ) -> str:
         """Write to a file.
 
-        Note: User confirmation is handled by the confirm_install node in the graph,
-        not by individual tools.
+        Requests user confirmation before writing.
         """
+        from mcp import types
+
+        from dive_mcp_host.host.tools.elicitation_manager import (
+            ElicitationManager,
+            ElicitationTimeoutError,
+        )
+
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        dry_run = _get_dry_run(config)
+        elicitation_manager: ElicitationManager | None = config.get(
+            "configurable", {}
+        ).get("elicitation_manager")
 
         # Expand user home directory
         expanded_path = str(Path(path).expanduser())
+        file_path = Path(expanded_path)
+        file_exists = file_path.exists()
 
-        # Write the file
+        # Prepare content preview (truncate if too long)
+        content_preview = content
+        if len(content) > 500:
+            content_preview = content[:500] + f"\n... ({len(content) - 500} more bytes)"
+
+        # Log the write operation
+        log_details: dict[str, Any] = {
+            "path": expanded_path,
+            "size": len(content),
+            "file_exists": file_exists,
+            "dry_run": dry_run,
+        }
+
+        action_prefix = "[DRY RUN] " if dry_run else ""
+
         stream_writer(
             (
                 InstallerToolLog.NAME,
                 InstallerToolLog(
                     tool="write_file",
-                    action=f"Writing: {path}",
-                    details={"path": expanded_path, "size": len(content)},
+                    action=f"{action_prefix}Writing: {path}",
+                    details=log_details,
                 ),
             )
         )
-        try:
-            file_path = Path(expanded_path)
 
+        # If dry_run is enabled, simulate success without writing
+        if dry_run:
+            return f"[DRY RUN] Would write {len(content)} bytes to {path}\nSimulated success."
+
+        # Request user confirmation before writing
+        if elicitation_manager is not None:
+            operation = "overwrite" if file_exists else "create"
+            confirm_message = (
+                f"The agent wants to {operation} the following file:\n\n"
+                f"**Path:** `{path}`\n"
+                f"**Size:** {len(content)} bytes\n\n"
+                f"**Content:**\n```\n{content_preview}\n```"
+            )
+
+            confirm_schema = {
+                "type": "object",
+                "properties": {},
+            }
+
+            params = types.ElicitRequestFormParams(
+                message=confirm_message,
+                requestedSchema=confirm_schema,
+            )
+
+            logger.info("Requesting user confirmation for write_file: %s", path)
+
+            try:
+                result = await elicitation_manager.request(
+                    params=params,
+                    writer=stream_writer,
+                )
+
+                if result.action == "decline":
+                    return f"Write cancelled: User declined to {operation} the file."
+                if result.action != "accept":
+                    return "Write cancelled: User cancelled the confirmation."
+
+            except ElicitationTimeoutError:
+                return "Error: Confirmation timed out. File not written."
+            except Exception as e:
+                logger.exception("Error getting confirmation via elicitation")
+                return f"Error getting confirmation: {e}"
+
+        # Write the file
+        try:
             if create_dirs:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -1176,4 +1267,22 @@ def get_installer_tools() -> list[BaseTool]:
         InstallerAddMcpServerTool(),
         InstallerReloadMcpServerTool(),
         InstallerRequestConfirmationTool(),
+    ]
+
+
+def get_local_tools() -> list[BaseTool]:
+    """Get local tools that can be exposed to external LLMs.
+
+    These tools (fetch, bash, read_file, write_file) can be used by external LLMs
+    directly without going through the installer agent. They include built-in
+    safety mechanisms like user confirmation for potentially dangerous operations.
+
+    Returns:
+        List of local tools: fetch, bash, read_file, write_file.
+    """
+    return [
+        InstallerFetchTool(),
+        InstallerBashTool(),
+        InstallerReadFileTool(),
+        InstallerWriteFileTool(),
     ]

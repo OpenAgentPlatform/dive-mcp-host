@@ -92,12 +92,14 @@ class ToolManager(ContextProtocol):
         self,
         tool_filter: Callable[[McpServer], bool] = lambda _: True,
         include_installer: bool = True,
+        include_local_tools: bool = False,
     ) -> list[BaseTool]:
         """Get the langchain tools for the MCP servers and plugins.
 
         Args:
             tool_filter: Filter function for MCP servers.
             include_installer: Whether to include the installer tool.
+            include_local_tools: Whether to include local tools (fetch, bash, etc.).
 
         Returns:
             List of all tools from MCP servers and registered plugins.
@@ -109,8 +111,11 @@ class ToolManager(ContextProtocol):
             ),
         )
 
-        # Get plugin tools (including installer if requested)
-        plugin_tools = self._tool_plugin.get_tools(include_installer=include_installer)
+        # Get plugin tools (including installer and/or local tools if requested)
+        plugin_tools = self._tool_plugin.get_tools(
+            include_installer=include_installer,
+            include_local_tools=include_local_tools,
+        )
 
         return mcp_tools + plugin_tools
 
