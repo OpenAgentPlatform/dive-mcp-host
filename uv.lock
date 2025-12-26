@@ -553,7 +553,7 @@ wheels = [
 
 [[package]]
 name = "dive-mcp-host"
-version = "0.5.1"
+version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
