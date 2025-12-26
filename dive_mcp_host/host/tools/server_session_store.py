@@ -7,9 +7,10 @@ from logging import getLogger
 from typing import Any
 
 from mcp import types
+from mcp.client.session import ClientSession, ElicitationFnT
+from mcp.shared.context import RequestContext
 
 from dive_mcp_host.host.errors import McpSessionNotRunningError
-from dive_mcp_host.host.tools.hack import ClientSession
 from dive_mcp_host.host.tools.model_types import ChatID
 from dive_mcp_host.host.tools.oauth import AuthorizationProgress
 
@@ -46,13 +47,7 @@ class _SessionStoreItem:
     exec: BaseException | None = None
     active_ts: float = field(default_factory=time.time)
     auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None
-    elicitation_callback: (
-        Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None
-    ) = None
+    elicitation_callback: ElicitationFnT | None = None
 
     async def waiting_loop(self) -> None:
         while True:
@@ -88,7 +83,7 @@ class ServerSessionStore:
 
     async def _session_watcher(
         self,
-        session_ctx: Callable[[], AbstractAsyncContextManager[ClientSession]],
+        session_ctx: Callable[..., AbstractAsyncContextManager[ClientSession]],
         chat_id: ChatID,
     ) -> None:
         stored_session = self._map[chat_id]
@@ -129,10 +124,7 @@ class ServerSessionStore:
 
     def _wrapper_elicitation_callback(
         self, stored_session: _SessionStoreItem
-    ) -> Callable[
-        [Any, types.ElicitRequestParams],
-        Awaitable[types.ElicitResult | types.ErrorData],
-    ]:
+    ) -> ElicitationFnT:
         """Wrapper the elicitation callback.
 
         This wrapper allows the callback to be dynamically updated after session
@@ -140,7 +132,8 @@ class ServerSessionStore:
         """
 
         async def elicitation_callback(
-            context: Any, params: types.ElicitRequestParams
+            context: RequestContext[ClientSession, Any],
+            params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Handle elicitation requests."""
             if callback := stored_session.elicitation_callback:
@@ -175,13 +168,9 @@ class ServerSessionStore:
     async def get_session_ctx_mgr(
         self,
         chat_id: str,
-        session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
+        session_creator: Callable[..., AbstractAsyncContextManager[ClientSession]],
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
-        elicitation_callback: Callable[
-            [Any, "types.ElicitRequestParams"],
-            Awaitable["types.ElicitResult | types.ErrorData"],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Create a new session or return the existing one.
 

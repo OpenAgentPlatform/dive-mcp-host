@@ -52,7 +52,14 @@ class InstallerToolLog(CustomEvent):
 
     NAME: ClassVar[str] = "installer_tool_log"
 
-    tool: Literal["bash", "fetch", "write_file", "read_file", "add_mcp_server"]
+    tool: Literal[
+        "bash",
+        "fetch",
+        "write_file",
+        "read_file",
+        "add_mcp_server",
+        "reload_mcp_server",
+    ]
     """The tool that generated this log."""
 
     action: str
@@ -60,3 +67,33 @@ class InstallerToolLog(CustomEvent):
 
     details: dict[str, Any] | None = None
     """Additional details about the action."""
+
+
+class InstallerElicitationRequest(CustomEvent):
+    """Request for user approval of an installer operation."""
+
+    NAME: ClassVar[str] = "installer_elicitation_request"
+
+    request_id: str
+    """Unique identifier for this request."""
+
+    operation_type: Literal["bash", "fetch", "write_file", "read_file"]
+    """Type of operation requiring approval."""
+
+    message: str
+    """Human-readable description of the operation."""
+
+    details: dict[str, Any]
+    """Additional details about the operation."""
+
+    risk_level: Literal["low", "medium", "high"]
+    """Assessed risk level of the operation."""
+
+
+class InstallerElicitationResponse(CustomEvent):
+    """User response to an elicitation request."""
+
+    NAME: ClassVar[str] = "installer_elicitation_response"
+
+    action: Literal["allow", "allow_always", "deny"]
+    """User's decision on the operation."""
