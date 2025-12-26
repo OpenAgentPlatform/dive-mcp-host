@@ -4,9 +4,8 @@ These tools provide fetch, bash, and filesystem operations with built-in
 elicitation support for user approval of potentially dangerous operations.
 """
 
-# ruff: noqa: E501, RUF001, PLR0911, PLR2004, S105
+# ruff: noqa: E501, PLR0911, PLR2004, S105
 # E501: Line too long - tool descriptions require specific formatting
-# RUF001: Ambiguous characters - intentional for non-English locale examples
 # PLR0911: Many return statements needed for complex control flow
 # PLR2004: Magic values are intentional truncation limits
 # S105: password_prompt is not a hardcoded password, it's a prompt message
@@ -102,14 +101,14 @@ class InstallerFetchTool(BaseTool):
     description: str = """Fetch content from a URL.
 Use this to retrieve documentation, package information, or other web content.
 The tool will request user approval for unfamiliar URLs."""
-    args_schema: type[BaseModel] = FetchInput
+    args_schema: type[BaseModel] | None = FetchInput
 
     async def _arun(
         self,
         url: str,
         method: str = "GET",
         headers: dict[str, str] | None = None,
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Fetch content from a URL.
 
@@ -264,7 +263,7 @@ Safety notes:
 - Commands with sudo are automatically marked as high-risk
 - Avoid commands that could damage the system
 - Prefer package managers (uvx, npx) over manual installations"""
-    args_schema: type[BaseModel] = BashInput
+    args_schema: type[BaseModel] | None = BashInput
 
     async def _arun(
         self,
@@ -274,7 +273,7 @@ Safety notes:
         requires_password: bool = False,
         password_prompt: str | None = None,
         is_high_risk: bool = False,
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Execute a bash command.
 
@@ -355,7 +354,7 @@ Safety notes:
                 "properties": {},
             }
 
-            params = types.ElicitRequestParams(
+            params = types.ElicitRequestFormParams(
                 message=confirm_message,
                 requestedSchema=confirm_schema,
             )
@@ -403,7 +402,7 @@ Safety notes:
                 "required": ["password"],
             }
 
-            params = types.ElicitRequestParams(
+            params = types.ElicitRequestFormParams(
                 message=password_prompt or "Enter password to execute the command",
                 requestedSchema=password_schema,
             )
@@ -417,9 +416,10 @@ Safety notes:
                 )
 
                 if result.action == "accept" and result.content:
-                    password = result.content.get("password")
-                    if not password:
+                    password_value = result.content.get("password")
+                    if not password_value or not isinstance(password_value, str):
                         return "Error: No password provided. Command not executed."
+                    password = password_value
                 elif result.action == "decline":
                     return "Command cancelled: User declined to provide password."
                 else:
@@ -530,13 +530,13 @@ class InstallerReadFileTool(BaseTool):
     description: str = """Read content from a file.
 Use this to read configuration files, check existing setups, etc.
 Supports text files only."""
-    args_schema: type[BaseModel] = ReadFileInput
+    args_schema: type[BaseModel] | None = ReadFileInput
 
     async def _arun(
         self,
         path: str,
         encoding: str = "utf-8",
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Read a file.
 
@@ -613,7 +613,7 @@ class InstallerWriteFileTool(BaseTool):
 Use this to create or modify configuration files, scripts, etc.
 Will create parent directories if needed.
 Always requests user approval before writing."""
-    args_schema: type[BaseModel] = WriteFileInput
+    args_schema: type[BaseModel] | None = WriteFileInput
 
     async def _arun(
         self,
@@ -621,7 +621,7 @@ Always requests user approval before writing."""
         content: str,
         encoding: str = "utf-8",
         create_dirs: bool = True,
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Write to a file.
 
@@ -748,7 +748,7 @@ Example for uvx-based server:
   command="uvx"
   args=["mcp-server-fetch"]
 """
-    args_schema: type[BaseModel] = AddMcpServerInput
+    args_schema: type[BaseModel] | None = AddMcpServerInput
 
     async def _arun(
         self,
@@ -759,7 +759,7 @@ Example for uvx-based server:
         url: str | None = None,
         transport: str = "stdio",
         enabled: bool = True,
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Add an MCP server configuration.
 
@@ -956,12 +956,12 @@ Check the result for any errors.
 Example:
   reload_mcp_server(server_name="my-server")
 """
-    args_schema: type[BaseModel] = ReloadMcpServerInput
+    args_schema: type[BaseModel] | None = ReloadMcpServerInput
 
     async def _arun(
         self,
         server_name: str,
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Reload a specific MCP server."""
         config = _ensure_config(config)
@@ -1079,16 +1079,16 @@ The user will see your message and can approve or reject the actions.
 If rejected, do NOT proceed with the actions.
 
 Example:
-  message: "我需要執行以下操作來安裝 MCP 伺服器，請確認是否允許？"
-  actions: ["執行命令: npm install -g @anthropic/mcp-server", "寫入設定到 mcp_config.json"]
+  message: "I need to perform the following actions to install the MCP server. Do you approve?"
+  actions: ["Run command: npm install -g @anthropic/mcp-server", "Write config to mcp_config.json"]
 """
-    args_schema: type[BaseModel] = RequestConfirmationInput
+    args_schema: type[BaseModel] | None = RequestConfirmationInput
 
     async def _arun(
         self,
         message: str,
         actions: list[str],
-        config: Annotated[RunnableConfig, InjectedToolArg] = None,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
     ) -> str:
         """Request user confirmation.
 
@@ -1125,7 +1125,7 @@ Example:
             "properties": {},
         }
 
-        params = types.ElicitRequestParams(
+        params = types.ElicitRequestFormParams(
             message=full_message,
             requestedSchema=requested_schema,
         )

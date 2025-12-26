@@ -60,6 +60,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
 
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+    from mcp.client.session import ElicitationFnT
+    from mcp.shared.context import RequestContext
     from mcp.shared.message import SessionMessage
     from mcp.shared.session import RequestResponder
 
@@ -176,13 +178,7 @@ class McpServer(ContextProtocol):
         # stdio can only have one session at a time
         self._stdio_client_session: ClientSession | None = None
         # Current elicitation callback for stdio sessions (set per tool call)
-        self._stdio_elicitation_callback: (
-            Callable[
-                [Any, types.ElicitRequestParams],
-                Awaitable[types.ElicitResult | types.ErrorData],
-            ]
-            | None
-        ) = None
+        self._stdio_elicitation_callback: ElicitationFnT | None = None
 
         # Each session is mapped to a chat_id
         self._session_store: ServerSessionStore = ServerSessionStore(self.name)
@@ -323,11 +319,7 @@ class McpServer(ContextProtocol):
         self,
         chat_id: str = "default",
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
-        elicitation_callback: Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -412,14 +404,10 @@ class McpServer(ContextProtocol):
     async def _session_ctx_mgr_wrapper(
         self,
         chat_id: str,
-        session_creator: Callable[[], AbstractAsyncContextManager[ClientSession]],
+        session_creator: Callable[..., AbstractAsyncContextManager[ClientSession]],
         restart_client: Callable[[Exception], bool] = lambda _: False,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
-        elicitation_callback: Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AsyncGenerator[ClientSession, None]:
         """Get the session ctx mgr from the session store, and handle session errors.
 
@@ -496,7 +484,7 @@ class McpServer(ContextProtocol):
         """
 
         async def _stdio_elicitation_callback(
-            context: Any,
+            context: RequestContext[ClientSession, Any],
             params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Default elicitation callback for stdio sessions.
@@ -751,11 +739,7 @@ class McpServer(ContextProtocol):
             [AuthorizationProgress], Awaitable[None]
         ]
         | None = None,
-        elicitation_callback: Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -836,7 +820,7 @@ class McpServer(ContextProtocol):
         """Initialize the HTTP client."""
 
         async def _http_init_elicitation_callback(
-            _context: Any,
+            _context: RequestContext[ClientSession, Any],
             params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Default elicitation callback for HTTP init sessions.
@@ -941,11 +925,7 @@ class McpServer(ContextProtocol):
         self,
         chat_id: ChatID,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,
-        elicitation_callback: Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -959,11 +939,7 @@ class McpServer(ContextProtocol):
         async def _create(
             auth_handler: Callable[[AuthorizationProgress], Awaitable[None]]
             | None = None,
-            elicitation_callback: Callable[
-                [Any, types.ElicitRequestParams],
-                Awaitable[types.ElicitResult | types.ErrorData],
-            ]
-            | None = None,
+            elicitation_callback: ElicitationFnT | None = None,
             **_kwargs: Any,
         ) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
@@ -1100,11 +1076,7 @@ class McpServer(ContextProtocol):
         self,
         chat_id: str,
         auth_handler: Callable[[AuthorizationProgress], Awaitable[None]] | None = None,  # noqa: ARG002
-        elicitation_callback: Callable[
-            [Any, types.ElicitRequestParams],
-            Awaitable[types.ElicitResult | types.ErrorData],
-        ]
-        | None = None,
+        elicitation_callback: ElicitationFnT | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Get the session.
 
@@ -1116,11 +1088,7 @@ class McpServer(ContextProtocol):
 
         @asynccontextmanager
         async def _create(
-            elicitation_callback: Callable[
-                [Any, types.ElicitRequestParams],
-                Awaitable[types.ElicitResult | types.ErrorData],
-            ]
-            | None = None,
+            elicitation_callback: ElicitationFnT | None = None,
             **_kwargs: Any,
         ) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
@@ -1266,7 +1234,7 @@ class McpTool(BaseTool):
         sync_writer.background_tasks: set[asyncio.Task[None]] = set()  # type: ignore[attr-defined]
 
         async def elicitation_callback(
-            _context: Any,
+            _context: RequestContext[ClientSession, Any],
             params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Handle elicitation request from MCP server."""
