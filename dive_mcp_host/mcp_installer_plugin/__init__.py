@@ -53,6 +53,8 @@ from dive_mcp_host.mcp_installer_plugin.config import (
     PluginSettings,
 )
 from dive_mcp_host.mcp_installer_plugin.events import (
+    AgentToolCall,
+    AgentToolResult,
     InstallerProgress,
     InstallerResult,
     InstallerToolLog,
@@ -81,6 +83,8 @@ from dive_mcp_host.mcp_installer_plugin.tools import (
 )
 
 __all__ = [
+    "AgentToolCall",
+    "AgentToolResult",
     "InstallMcpServerTool",
     "InstallMcpServerToolManager",
     "InstallerAgent",

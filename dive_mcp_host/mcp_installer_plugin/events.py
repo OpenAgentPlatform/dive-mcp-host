@@ -97,3 +97,33 @@ class InstallerElicitationResponse(CustomEvent):
 
     action: Literal["allow", "allow_always", "deny"]
     """User's decision on the operation."""
+
+
+class AgentToolCall(CustomEvent):
+    """Event emitted when an agent tool starts execution."""
+
+    NAME: ClassVar[str] = "agent_tool_call"
+
+    tool_call_id: str
+    """Unique identifier for this tool call."""
+
+    name: str
+    """Name of the tool being called."""
+
+    args: dict[str, Any]
+    """Arguments passed to the tool."""
+
+
+class AgentToolResult(CustomEvent):
+    """Event emitted when an agent tool completes execution."""
+
+    NAME: ClassVar[str] = "agent_tool_result"
+
+    tool_call_id: str
+    """Unique identifier for this tool call."""
+
+    name: str
+    """Name of the tool that was called."""
+
+    result: str
+    """Result returned by the tool."""
