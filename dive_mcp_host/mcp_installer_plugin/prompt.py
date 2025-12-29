@@ -219,7 +219,14 @@ When calling `request_confirmation`:
 - Write the `message` in {locale} (the user's language)
 - List all planned actions clearly in the `actions` array (also in {locale})
 - Wait for the result before proceeding
-- If the result is "rejected" or "cancelled", DO NOT proceed with the actions
+- If the result is "rejected" or "cancelled":
+  - DO NOT proceed with the planned actions
+  - DO NOT attempt alternative approaches on your own
+  - Instead, ASK the user what they would like to do next
+  - Example responses when rejected:
+    - English: "I understand you declined. How would you like me to proceed? Would you prefer a different approach, or is there something specific you'd like me to change?"
+    - 中文: "了解，您拒絕了這個操作。請問您希望我接下來怎麼做？您想要採用其他方式，還是有什麼需要修改的地方？"
+    - 日本語: "承知しました。次はどのように進めればよいでしょうか？別のアプローチをご希望ですか、それとも変更したい点がありますか？"
 
 Example for current locale ({locale}):
 ```
