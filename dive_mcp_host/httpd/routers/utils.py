@@ -913,28 +913,28 @@ class ChatProcessor:
                         )
                     )
                 elif res_content[0] == "agent_tool_call":
-                    # Tool call from sub-agent (e.g., installer agent)
+                    # Tool call from agent tools (installer tools)
                     content = res_content[1]
                     await self.stream.write(
                         StreamMessage(
                             type="agent_tool_call",
                             content=AgentToolCallContent(
-                                tool_call_id=content.get("tool_call_id", ""),
-                                name=content.get("name", ""),
-                                args=content.get("args", {}),
+                                tool_call_id=content.tool_call_id,
+                                name=content.name,
+                                args=content.args,
                             ),
                         )
                     )
                 elif res_content[0] == "agent_tool_result":
-                    # Tool result from sub-agent (e.g., installer agent)
+                    # Tool result from agent tools (installer tools)
                     content = res_content[1]
                     await self.stream.write(
                         StreamMessage(
                             type="agent_tool_result",
                             content=AgentToolResultContent(
-                                tool_call_id=content.get("tool_call_id", ""),
-                                name=content.get("name", ""),
-                                result=content.get("result", ""),
+                                tool_call_id=content.tool_call_id,
+                                name=content.name,
+                                result=content.result,
                             ),
                         )
                     )
