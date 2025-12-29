@@ -23,7 +23,11 @@ from langchain_core.tools import BaseTool, InjectedToolArg
 from langgraph.config import get_config
 from pydantic import BaseModel, Field
 
-from dive_mcp_host.mcp_installer_plugin.events import InstallerToolLog
+from dive_mcp_host.mcp_installer_plugin.events import (
+    AgentToolCall,
+    AgentToolResult,
+    InstallerToolLog,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -66,6 +70,7 @@ def _get_stream_writer(
     # First check if stream_writer is explicitly set in config (InstallerAgent case)
     writer = config.get("configurable", {}).get("stream_writer")
     if writer is not None:
+        logger.debug("Using stream_writer from config")
         return writer
 
     # Try to get stream writer from LangGraph context (ToolNode case)
@@ -74,12 +79,20 @@ def _get_stream_writer(
 
         writer = lg_get_stream_writer()
         if writer is not None:
+            logger.debug("Using stream_writer from LangGraph context")
             return writer
-    except (ImportError, RuntimeError, LookupError):
-        logger.debug("Could not get stream writer from LangGraph context")
+        logger.debug("LangGraph get_stream_writer() returned None")
+    except (ImportError, RuntimeError, LookupError) as e:
+        logger.debug("Could not get stream writer from LangGraph context: %s", e)
 
     # Fallback to no-op
+    logger.debug("Falling back to no-op stream_writer")
     return lambda _: None
+
+
+def _get_tool_call_id(config: RunnableConfig) -> str | None:
+    """Extract tool_call_id from config metadata."""
+    return config.get("metadata", {}).get("tool_call_id")
 
 
 def _get_dry_run(config: RunnableConfig) -> bool:
@@ -97,6 +110,38 @@ def _get_httpd_base_url() -> str | None:
     from dive_mcp_host.mcp_installer_plugin.runtime import get_httpd_base_url
 
     return get_httpd_base_url()
+
+
+def _emit_tool_call(
+    writer: Callable[[tuple[str, Any]], None],
+    tool_call_id: str | None,
+    name: str,
+    args: dict[str, Any],
+) -> None:
+    """Emit agent_tool_call event."""
+    if tool_call_id:
+        writer(
+            (
+                AgentToolCall.NAME,
+                AgentToolCall(tool_call_id=tool_call_id, name=name, args=args),
+            )
+        )
+
+
+def _emit_tool_result(
+    writer: Callable[[tuple[str, Any]], None],
+    tool_call_id: str | None,
+    name: str,
+    result: str,
+) -> None:
+    """Emit agent_tool_result event."""
+    if tool_call_id:
+        writer(
+            (
+                AgentToolResult.NAME,
+                AgentToolResult(tool_call_id=tool_call_id, name=name, result=result),
+            )
+        )
 
 
 class FetchInput(BaseModel):
@@ -140,6 +185,10 @@ The tool will request user approval for unfamiliar URLs."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        args = {"url": url, "method": method, "headers": headers}
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
 
         # Perform the fetch
         stream_writer(
@@ -170,18 +219,24 @@ The tool will request user approval for unfamiliar URLs."""
 
                 content_type = response.headers.get("content-type", "")
                 if "application/json" in content_type:
-                    return response.text
-                if "text/" in content_type or "application/xml" in content_type:
+                    result = response.text
+                elif "text/" in content_type or "application/xml" in content_type:
                     # Truncate very long responses
                     text = response.text
                     if len(text) > 50000:
-                        return text[:50000] + "\n... (truncated)"
-                    return text
-                # For binary content, just return a summary
-                return f"Binary content ({content_type}), size: {len(response.content)} bytes"
+                        result = text[:50000] + "\n... (truncated)"
+                    else:
+                        result = text
+                else:
+                    # For binary content, just return a summary
+                    result = f"Binary content ({content_type}), size: {len(response.content)} bytes"
 
         except httpx.HTTPError as e:
-            return f"Error fetching {url}: {e}"
+            result = f"Error fetching {url}: {e}"
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
 
     def _run(self, *args: Any, **kwargs: Any) -> str:
         """Sync version - not implemented."""
@@ -313,6 +368,51 @@ Safety notes:
         Note: User confirmation is handled by the request_confirmation tool.
         Password input uses elicitation with password format.
         """
+        config = _ensure_config(config)
+
+        stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        dry_run = _get_dry_run(config)
+
+        args = {
+            "command": command,
+            "working_dir": working_dir,
+            "timeout": timeout,
+            "requires_password": requires_password,
+            "is_high_risk": is_high_risk,
+        }
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
+
+        result = await self._execute_bash(
+            command=command,
+            working_dir=working_dir,
+            timeout=timeout,
+            requires_password=requires_password,
+            password_prompt=password_prompt,
+            is_high_risk=is_high_risk,
+            stream_writer=stream_writer,
+            dry_run=dry_run,
+            config=config,
+        )
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
+
+    async def _execute_bash(
+        self,
+        command: str,
+        working_dir: str | None,
+        timeout: int,
+        requires_password: bool,
+        password_prompt: str | None,
+        is_high_risk: bool,
+        stream_writer: Callable[[tuple[str, Any]], None],
+        dry_run: bool,
+        config: RunnableConfig,
+    ) -> str:
+        """Execute the bash command (internal implementation)."""
         from mcp import types
 
         from dive_mcp_host.host.tools.elicitation_manager import (
@@ -320,10 +420,6 @@ Safety notes:
             ElicitationTimeoutError,
         )
 
-        config = _ensure_config(config)
-
-        stream_writer = _get_stream_writer(config)
-        dry_run = _get_dry_run(config)
         elicitation_manager: ElicitationManager | None = config.get(
             "configurable", {}
         ).get("elicitation_manager")
@@ -579,6 +675,10 @@ Supports text files only."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        args = {"path": path, "encoding": encoding}
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
 
         # Expand user home directory
         expanded_path = str(Path(path).expanduser())
@@ -597,20 +697,24 @@ Supports text files only."""
         try:
             file_path = Path(expanded_path)
             if not file_path.exists():
-                return f"Error: File not found: {path}"
-            if not file_path.is_file():
-                return f"Error: Not a file: {path}"
+                result = f"Error: File not found: {path}"
+            elif not file_path.is_file():
+                result = f"Error: Not a file: {path}"
+            else:
+                content = file_path.read_text(encoding=encoding)
 
-            content = file_path.read_text(encoding=encoding)
-
-            # Truncate very long files
-            if len(content) > 100000:
-                content = content[:100000] + "\n... (truncated)"
-
-            return content
+                # Truncate very long files
+                if len(content) > 100000:
+                    result = content[:100000] + "\n... (truncated)"
+                else:
+                    result = content
 
         except OSError as e:
-            return f"Error reading file {path}: {e}"
+            result = f"Error reading file {path}: {e}"
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
 
     def _run(self, *args: Any, **kwargs: Any) -> str:
         """Sync version - not implemented."""
@@ -660,6 +764,46 @@ Always requests user approval before writing."""
 
         Requests user confirmation before writing.
         """
+        config = _ensure_config(config)
+
+        stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        dry_run = _get_dry_run(config)
+
+        args = {
+            "path": path,
+            "content": content[:200] + "..." if len(content) > 200 else content,
+            "encoding": encoding,
+            "create_dirs": create_dirs,
+        }
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
+
+        result = await self._execute_write(
+            path=path,
+            content=content,
+            encoding=encoding,
+            create_dirs=create_dirs,
+            stream_writer=stream_writer,
+            dry_run=dry_run,
+            config=config,
+        )
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
+
+    async def _execute_write(
+        self,
+        path: str,
+        content: str,
+        encoding: str,
+        create_dirs: bool,
+        stream_writer: Callable[[tuple[str, Any]], None],
+        dry_run: bool,
+        config: RunnableConfig,
+    ) -> str:
+        """Execute the write file operation (internal implementation)."""
         from mcp import types
 
         from dive_mcp_host.host.tools.elicitation_manager import (
@@ -667,10 +811,6 @@ Always requests user approval before writing."""
             ElicitationTimeoutError,
         )
 
-        config = _ensure_config(config)
-
-        stream_writer = _get_stream_writer(config)
-        dry_run = _get_dry_run(config)
         elicitation_manager: ElicitationManager | None = config.get(
             "configurable", {}
         ).get("elicitation_manager")

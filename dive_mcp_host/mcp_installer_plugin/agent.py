@@ -170,40 +170,9 @@ class InstallerAgent:
                 else:
                     tool_runtime.config["metadata"] = {"tool_call_id": call["id"]}
 
-                # Get stream writer
-                stream_writer = tool_runtime.config.get("configurable", {}).get(
-                    "stream_writer", lambda _: None
-                )
-
-                # Emit agent_tool_call event before execution
-                stream_writer(
-                    (
-                        "agent_tool_call",
-                        {
-                            "tool_call_id": call["id"],
-                            "name": call["name"],
-                            "args": call["args"],
-                        },
-                    )
-                )
-
-                # Execute the tool
+                # Execute the tool (tools emit agent_tool_call/result events directly)
                 result = await super()._arun_one(call, input_type, tool_runtime)
-                result = cast(ToolMessage, result)
-
-                # Emit agent_tool_result event after execution
-                stream_writer(
-                    (
-                        "agent_tool_result",
-                        {
-                            "tool_call_id": call["id"],
-                            "name": call["name"],
-                            "result": result.content,
-                        },
-                    )
-                )
-
-                return result
+                return cast(ToolMessage, result)
 
         return InstallerToolNode(self.tools)
 
