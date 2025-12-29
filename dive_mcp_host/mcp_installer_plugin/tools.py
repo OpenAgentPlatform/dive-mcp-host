@@ -153,8 +153,19 @@ The tool will request user approval for unfamiliar URLs."""
             )
         )
         try:
+            # Prepare headers with default User-Agent from env if set
+            request_headers = dict(headers) if headers else {}
+            user_agent = (
+                os.environ.get("DIVE_USER_AGENT")
+                or "Mozilla/5.0 (Windows NT 10.0; Win64; x64) dive-mcp-host (+https://github.com/OpenAgentPlatform/dive-mcp-host)"
+            )
+            if user_agent and "User-Agent" not in request_headers:
+                request_headers["User-Agent"] = user_agent
+
             async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-                response = await client.request(method, url, headers=headers)
+                response = await client.request(
+                    method, url, headers=request_headers or None
+                )
                 response.raise_for_status()
 
                 content_type = response.headers.get("content-type", "")
