@@ -73,7 +73,7 @@ async def local_http_server(
             timeout=config.initial_timeout,
         )
 
-    get_client = _sse_client if config.transport == "sse" else websocket_client
+    get_client = _sse_client if config.transport != "websocket" else websocket_client
     logger.debug("Starting local MCP server %s with command: %s", config.name, command)
     if not (
         subprocess := await asyncio.create_subprocess_exec(
