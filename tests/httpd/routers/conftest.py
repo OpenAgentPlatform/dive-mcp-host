@@ -51,7 +51,7 @@ def config_files() -> Generator[ConfigFileNames, None, None]:
         ) as model_config_file,
         tempfile.NamedTemporaryFile(suffix=".testCustomrules") as prompt_config_file,
         tempfile.NamedTemporaryFile(suffix=".sqlite") as db_file,
-        tempfile.TemporaryDirectory() as resource_dir,
+        tempfile.TemporaryDirectory(prefix="dive-mcp-host-test-") as resource_dir,
     ):
         service_config_file.write(
             ServiceConfig(

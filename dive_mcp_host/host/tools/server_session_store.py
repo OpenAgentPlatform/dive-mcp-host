@@ -23,6 +23,7 @@ MAX_IDLE_TIME = 300
 class AbortError(Exception):
     """Abort error."""
 
+
 @dataclass(slots=True)
 class _SessionStoreItem:
     """Session store item.
@@ -150,7 +151,7 @@ class ServerSessionStore:
         self,
         self_task: asyncio.Task[Any] | None,
         stored_session: _SessionStoreItem,
-        e: Exception | None,
+        e: BaseException | None,
     ) -> None:
         if stored_session.cleared:
             return
@@ -230,6 +231,7 @@ class ServerSessionStore:
                 raise McpSessionNotRunningError(self._mcp_server_name, chat_id)
             yield stored_session.session
         except asyncio.CancelledError as e:
+            self._error_cleanup(current_task, stored_session, e)
             if stored_session.exec:
                 raise stored_session.exec from e
             raise

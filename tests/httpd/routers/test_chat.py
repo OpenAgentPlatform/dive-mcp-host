@@ -1376,3 +1376,51 @@ def test_chat_with_token_usage(test_client):
     assert "resource_usage" in second_ai_msg
     assert second_ai_msg["resource_usage"]["total_input_tokens"] == 12
     assert second_ai_msg["resource_usage"]["total_output_tokens"] == 9
+
+
+def test_chat_with_abort_tool_calls(test_client):
+    """Test the chat endpoint with tool calls."""
+    client, app = test_client
+    host = cast("dict[str, DiveMcpHost]", app.dive_host)["default"]
+    model = cast(FakeMessageToolModel, host.model)
+
+    model.responses = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    name="echo",
+                    args={"message": "Hello, world!", "delay_ms": 1000},
+                    id="123",
+                    type="tool_call",
+                ),
+            ],
+        ),
+        AIMessage(content="hihi"),
+    ]
+
+    def req():
+        response = client.post(
+            "/api/chat",
+            data={"message": "call", "chatId": TEST_CHAT_ID},
+        )
+        assert "tool_result" in response.text
+
+    for _ in range(2):
+        with ThreadPoolExecutor(1) as executor:
+            f = executor.submit(req)
+            time.sleep(0.5)
+
+            abort_response = client.post(f"/api/chat/{TEST_CHAT_ID}/abort")
+            assert abort_response.status_code == SUCCESS_CODE, abort_response.text
+            abort_message = abort_response.json()
+            assert abort_message["success"]  # type: ignore
+
+            f.result()
+        # after abortion, we can still have chats
+        response = client.post(
+            "/api/chat", data={"message": "hi", "chatId": TEST_CHAT_ID}
+        )
+        assert "hihi" in response.text
+        time.sleep(30)
+        model.i = 0

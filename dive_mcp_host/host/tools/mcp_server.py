@@ -230,7 +230,7 @@ class McpServer(ContextProtocol):
         - Exception (Literal python exception)
         - ProgressResult (ServerNotification) ... etc
         """
-        logger.info(
+        logger.debug(
             "handling message for %s, type: %s, content: %s",
             self.name,
             type(message).__name__,
@@ -820,7 +820,7 @@ class McpServer(ContextProtocol):
         """Initialize the HTTP client."""
 
         async def _http_init_elicitation_callback(
-            _context: RequestContext[ClientSession, Any],
+            context: RequestContext[ClientSession, Any],  # noqa: ARG001
             params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Default elicitation callback for HTTP init sessions.
@@ -1234,7 +1234,7 @@ class McpTool(BaseTool):
         sync_writer.background_tasks: set[asyncio.Task[None]] = set()  # type: ignore[attr-defined]
 
         async def elicitation_callback(
-            _context: RequestContext[ClientSession, Any],
+            context: RequestContext[ClientSession, Any],  # noqa: ARG001
             params: types.ElicitRequestParams,
         ) -> types.ElicitResult | types.ErrorData:
             """Handle elicitation request from MCP server."""
@@ -1317,6 +1317,9 @@ class McpTool(BaseTool):
                 finally:
                     if abort_task:
                         abort_task.cancel()
+        except asyncio.CancelledError:
+            # the session context raises CancelledError.
+            pass
         finally:
             with suppress(Exception):
                 custom_event_queue.put_nowait(None)

@@ -1328,3 +1328,92 @@ async def test_verify(
         await tool_manager.initialized_event.wait()
         tools = tool_manager.langchain_tools()
         assert len(tools) == 0
+
+
+@pytest.mark.asyncio
+async def test_cancel_streamable(
+    echo_tool_streamable_server: tuple[int, dict[str, ServerConfig]],
+    log_config: LogConfig,
+) -> None:
+    """Test cancel with stremable transport."""
+    _, configs = echo_tool_streamable_server
+
+    runnable_config = {
+        "configurable": {
+            "thread_id": 100,
+            "user_id": "lala",
+        },
+        "recursion_limit": 102,
+    }
+    async with (
+        ToolManager(configs, log_config) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        echo_tool = next((t for t in tools if t.name == "echo"), None)
+        assert echo_tool is not None
+
+        for _ in range(10):
+            task = asyncio.create_task(
+                echo_tool.ainvoke(
+                    ToolCall(
+                        name="echo",
+                        id="123",
+                        args={"message": "hihi", "delay_ms": 2000},
+                        type="tool_call",
+                    ),
+                    config=runnable_config,  # type: ignore
+                )
+            )
+            await asyncio.sleep(0.1)
+            task.cancel()
+
+            result = await task
+
+            assert isinstance(result, ToolMessage)
+            content = json.loads(str(result.content))
+            assert "<user_aborted>" in content[0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_stdio(
+    echo_tool_stdio_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Test cancel with stdio transport."""
+    runnable_config = {
+        "configurable": {
+            "thread_id": 100,
+            "user_id": "lala",
+        },
+        "recursion_limit": 102,
+    }
+    async with (
+        ToolManager(echo_tool_stdio_config, log_config) as tool_manager,
+    ):
+        await tool_manager.initialized_event.wait()
+        tools = tool_manager.langchain_tools()
+        echo_tool = next((t for t in tools if t.name == "echo"), None)
+        assert echo_tool is not None
+
+        for _ in range(2):
+            task = asyncio.create_task(
+                echo_tool.ainvoke(
+                    ToolCall(
+                        name="echo",
+                        id="123",
+                        args={"message": "hihi", "delay_ms": 2000},
+                        type="tool_call",
+                    ),
+                    config=runnable_config,  # type: ignore
+                )
+            )
+            await asyncio.sleep(0.1)
+            task.cancel()
+
+            result = await task
+
+            assert isinstance(result, ToolMessage)
+            content = json.loads(str(result.content))
+            assert "<user_aborted>" in content[0]["text"]
+            await asyncio.sleep(10)
