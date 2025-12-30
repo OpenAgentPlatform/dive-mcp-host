@@ -621,7 +621,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.1" },
     { name = "langgraph-prebuilt", specifier = ">=1.0.5" },
-    { name = "mcp", specifier = "==1.24.0" },
+    { name = "mcp", git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?branch=main" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pproxy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
@@ -1526,8 +1526,8 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.24.0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.1.dev702+d32d1f7"
+source = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?branch=main#d32d1f7dba70277967e938856f2541d0e34a71d0" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
@@ -1543,10 +1543,6 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/d6/2c/db9ae5ab1fcdd9cd2bcc7ca3b7361b712e30590b64d5151a31563af8f82d/mcp-1.24.0.tar.gz", hash = "sha256:aeaad134664ce56f2721d1abf300666a1e8348563f4d3baff361c3b652448efc", size = 604375, upload-time = "2025-12-12T14:19:38.205Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/0d/5cf14e177c8ae655a2fd9324a6ef657ca4cafd3fc2201c87716055e29641/mcp-1.24.0-py3-none-any.whl", hash = "sha256:db130e103cc50ddc3dffc928382f33ba3eaef0b711f7a87c05e7ded65b1ca062", size = 232896, upload-time = "2025-12-12T14:19:36.14Z" },
 ]
 
 [[package]]

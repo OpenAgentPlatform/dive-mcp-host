@@ -20,6 +20,9 @@ logger = getLogger(__name__)
 MAX_IDLE_TIME = 300
 
 
+class AbortError(Exception):
+    """Abort error."""
+
 @dataclass(slots=True)
 class _SessionStoreItem:
     """Session store item.

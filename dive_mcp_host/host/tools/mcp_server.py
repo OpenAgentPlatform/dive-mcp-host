@@ -54,7 +54,7 @@ from dive_mcp_host.host.tools.hack import (
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
 from dive_mcp_host.host.tools.model_types import ChatID, ClientState
-from dive_mcp_host.host.tools.server_session_store import ServerSessionStore
+from dive_mcp_host.host.tools.server_session_store import AbortError, ServerSessionStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -1273,6 +1273,12 @@ class McpTool(BaseTool):
             name=f"stream_writer-{self.name}",
         )
 
+        current_request_id = None
+
+        async def _request_id(request_id: int) -> None:
+            nonlocal current_request_id
+            current_request_id = request_id
+
         try:
             async with self.mcp_server.session(
                 chat_id, auth_callback, elicitation_callback
@@ -1283,16 +1289,31 @@ class McpTool(BaseTool):
                             self.name,
                             arguments=kwargs,
                             progress_callback=progress_callback,
+                            request_id_callback=_request_id,
                         )
                     )
                     if abort_signal:
                         abort_task = asyncio.create_task(_abort_task(tool_task))
                     result = await tool_task
-                except asyncio.CancelledError as canceld:
-                    logger.warning("tool call cancelled %s", canceld)
+                except asyncio.CancelledError as canceled:
+                    logger.warning("tool call cancelled %s", canceled)
                     result = types.CallToolResult(
                         content=[types.TextContent(type="text", text="<user_aborted>")],
                     )
+
+                    if current_request_id:
+                        await session.send_notification(
+                            types.ClientNotification(
+                                types.CancelledNotification(
+                                    params=types.CancelledNotificationParams(
+                                        requestId=current_request_id, reason="aborted"
+                                    )
+                                )
+                            ),
+                            current_request_id,
+                        )
+
+                    raise
                 finally:
                     if abort_task:
                         abort_task.cancel()
