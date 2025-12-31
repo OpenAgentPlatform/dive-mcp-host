@@ -510,10 +510,20 @@ async def test_stdio_mcp_tool_exception_handling(
             ClientState.RUNNING,
             ClientState.RESTARTING,
         ]
+
+        await tools[0].ainvoke(
+            ToolCall(
+                name=tools[0].name,
+                id="123",
+                args={"message": "Hello, world!"},
+                type="tool_call",
+            ),
+        )
+        # session should be created
+        assert server._session_store["default"]
+        session = server._session_store["default"]
+
         await server.wait([ClientState.RUNNING])
-        # The session should be recreated
-        assert server._stdio_client_session != session
-        session = server._stdio_client_session
         await tools[0].ainvoke(
             ToolCall(
                 name=tools[0].name,
@@ -523,17 +533,9 @@ async def test_stdio_mcp_tool_exception_handling(
             ),
         )
 
-        await server.wait([ClientState.RUNNING])
-        # The session should be reused
-        assert server._stdio_client_session == session
-        await tools[0].ainvoke(
-            ToolCall(
-                name=tools[0].name,
-                id="123",
-                args={"message": "Hello, world!"},
-                type="tool_call",
-            ),
-        )
+        # session should stay the same
+        assert server._session_store["default"]
+        assert session == server._session_store["default"]
 
 
 @pytest.mark.asyncio

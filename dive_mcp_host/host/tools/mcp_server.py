@@ -639,69 +639,46 @@ class McpServer(ContextProtocol):
 
     async def _stdio_wait_for_session(self) -> ClientSession:
         """Only called by the session context manager."""
-        for retried in range(self.RETRY_LIMIT):
-            await self.wait(
-                [
-                    ClientState.RUNNING,
-                ]
+        await self.wait([ClientState.RUNNING])
+        if self._client_status in [ClientState.FAILED, ClientState.CLOSED]:
+            logger.error(
+                "Session failed or closed for %s: %s",
+                self.name,
+                self._client_status,
             )
-            if self._client_status in [ClientState.FAILED, ClientState.CLOSED]:
-                logger.error(
-                    "Session failed or closed for %s: %s",
+            raise McpSessionClosedOrFailedError(self.name, self._client_status.name)
+        now = time.time()
+        if self._client_status == ClientState.RUNNING and self._stdio_client_session:
+            # check if the session is still active
+            try:
+                logger.debug(
+                    "Checking session health for %s (inactive for %.1f seconds)",
                     self.name,
-                    self._client_status,
+                    now - self._last_active,
                 )
-                raise McpSessionClosedOrFailedError(self.name, self._client_status.name)
-            now = time.time()
-            if (
-                self._client_status == ClientState.RUNNING
-                and self._stdio_client_session
-            ):
-                # check if the session is still active
-                try:
-                    logger.debug(
-                        "Checking session health for %s (inactive for %.1f seconds)",
-                        self.name,
-                        now - self._last_active,
-                    )
-                    async with asyncio.timeout(10):
-                        await self._stdio_client_session.send_ping()
-                        self._last_active = time.time()
-                except Exception as e:  # noqa: BLE001
-                    logger.error(
-                        "Keep-alive error for %s: %s",
-                        self.name,
-                        e,
-                        extra={
-                            "mcp_server": self.name,
-                            "client_status": self._client_status,
-                        },
-                    )
-                    async with self._cond:
-                        await self.__change_state(
-                            ClientState.RESTARTING, [ClientState.RUNNING], e
-                        )
-            if (
-                self._client_status == ClientState.RUNNING
-                and self._stdio_client_session
-            ):
-                return self._stdio_client_session
-            if retried < self.RETRY_LIMIT - 1:
-                logger.warning(
-                    "Session not initialized, retrying, %s status: %s (attempt %d/%d)",
+                async with asyncio.timeout(10):
+                    await self._stdio_client_session.send_ping()
+                    self._last_active = time.time()
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    "Keep-alive error for %s: %s",
                     self.name,
-                    self._client_status,
-                    retried + 1,
-                    self.RETRY_LIMIT,
+                    e,
                     extra={
                         "mcp_server": self.name,
                         "client_status": self._client_status,
                     },
                 )
-                await asyncio.sleep(self.RESTART_INTERVAL)
+                async with self._cond:
+                    await self.__change_state(
+                        ClientState.RESTARTING, [ClientState.RUNNING], e
+                    )
+
+        if self._client_status == ClientState.RUNNING and self._stdio_client_session:
+            return self._stdio_client_session
+
         logger.error(
-            "Session not initialized after %d attempts, %s status: %s",
-            self.RETRY_LIMIT,
+            "Session not initialized, %s status: %s",
             self.name,
             self._client_status,
             extra={"mcp_server": self.name, "client_status": self._client_status},

@@ -1422,5 +1422,5 @@ def test_chat_with_abort_tool_calls(test_client):
             "/api/chat", data={"message": "hi", "chatId": TEST_CHAT_ID}
         )
         assert "hihi" in response.text
-        time.sleep(30)
+        time.sleep(5)
         model.i = 0
