@@ -1,6 +1,22 @@
 """System prompt module for Dive MCP host."""
 
+import platform
 from datetime import UTC, datetime
+
+
+def _get_os_info() -> str:
+    """Get operating system information."""
+    system = platform.system()
+    os_name = {
+        "Darwin": "macOS",
+        "Linux": "Linux",
+        "Windows": "Windows",
+    }.get(system, system)
+
+    version = platform.version()
+    machine = platform.machine()
+
+    return f"{os_name} {version} ({machine})"
 
 
 def system_prompt(custom_rules: str) -> str:
@@ -13,11 +29,13 @@ def system_prompt(custom_rules: str) -> str:
         A complete system prompt string with embedded custom rules.
     """
     current_time = datetime.now(tz=UTC).isoformat()
+    os_info = _get_os_info()
 
     return f"""
 <Dive_System_Thinking_Protocol>
   I am an AI Assistant using Model Context Protocol (MCP) to access tools and applications.
   Current Time: {current_time}
+  Operating System: {os_info}
 
   <User_Defined_Rules>
     {custom_rules}

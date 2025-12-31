@@ -35,6 +35,10 @@ def _detect_system_tools() -> dict[str, dict[str, str | None]]:
         ("yarn", ["yarn"], ["--version"]),
         ("pnpm", ["pnpm"], ["--version"]),
         ("bun", ["bun"], ["--version"]),
+        # Package managers
+        ("brew", ["brew"], ["--version"]),
+        ("winget", ["winget"], ["--version"]),
+        ("scoop", ["scoop"], ["--version"]),
         # Common tools
         ("git", ["git"], ["--version"]),
         ("curl", ["curl"], ["--version"]),
@@ -351,6 +355,92 @@ Then call the bash tool with the same command.
 5. **Register Server**: YOU MUST call the `add_mcp_server` tool to register the server configuration
 6. **Handle Errors**: If `add_mcp_server` returns an error, install missing dependencies and use `reload_mcp_server`
 7. **Confirm**: Report the successful registration to the user
+
+### macOS: Prefer Homebrew for System Dependencies
+On macOS, **always prefer Homebrew (`brew`) for installing system dependencies** unless the user explicitly requests a different method.
+
+**Why Homebrew?**
+- It's the de facto standard package manager on macOS
+- Provides consistent and reproducible installations
+- Easy to manage and update dependencies
+- Handles binary dependencies and PATH configuration automatically
+
+**Installation Priority on macOS:**
+1. **Homebrew** (`brew install <package>`) - PREFERRED for system tools
+2. **pip/uv** - Only for Python-specific libraries
+3. **npm** - Only for Node.js-specific packages
+
+**Examples:**
+```
+# System dependencies (use Homebrew)
+brew install ffmpeg
+brew install chromium
+brew install sqlite
+
+# Python libraries (use pip/uv)
+pip install requests
+uv pip install numpy
+
+# Node.js packages (use npm)
+npm install -g typescript
+```
+
+**Important Notes:**
+- If Homebrew is not installed, suggest installing it first: `https://brew.sh`
+- Always check if the package is available via `brew search <package>` before using alternatives
+- For dependencies that exist in both Homebrew and pip/npm, prefer Homebrew for better system integration
+
+### Windows: Prefer winget or Scoop for System Dependencies
+On Windows, **prefer winget or Scoop for installing system dependencies** unless the user explicitly requests a different method.
+
+**Why winget (Windows Package Manager)?**
+- Built-in on Windows 10/11 (no additional installation required)
+- Official Microsoft package manager
+- Large repository of packages
+- Handles installation and PATH configuration automatically
+
+**Why Scoop?**
+- Lightweight and portable installations
+- Installs to user directory (no admin rights needed for most packages)
+- Easy to manage and update
+- Great for developer tools
+
+**Installation Priority on Windows:**
+1. **winget** (`winget install <package>`) - PREFERRED if available (built-in on modern Windows)
+2. **Scoop** (`scoop install <package>`) - Alternative if winget unavailable or user prefers
+3. **pip/uv** - Only for Python-specific libraries
+4. **npm** - Only for Node.js-specific packages
+
+**Examples:**
+```
+# System dependencies (use winget - preferred)
+winget install FFmpeg.FFmpeg
+winget install Git.Git
+winget install Python.Python.3.12
+
+# System dependencies (use Scoop - alternative)
+scoop install ffmpeg
+scoop install git
+scoop install python
+
+# Python libraries (use pip/uv)
+pip install requests
+uv pip install numpy
+
+# Node.js packages (use npm)
+npm install -g typescript
+```
+
+**Important Notes:**
+- Check if winget is available first: `winget --version`
+- If winget is not available, check for Scoop: `scoop --version`
+- If neither is installed:
+  - winget: Usually pre-installed on Windows 10/11; can be installed from Microsoft Store (App Installer)
+  - Scoop: Install via PowerShell: `irm get.scoop.sh | iex`
+- Search for packages:
+  - winget: `winget search <package>`
+  - Scoop: `scoop search <package>`
+- For dependencies that exist in both winget/Scoop and pip/npm, prefer winget/Scoop for better system integration
 
 ### GitHub Projects (IMPORTANT)
 When installing from a GitHub repository:
