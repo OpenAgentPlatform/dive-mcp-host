@@ -1416,4 +1416,4 @@ async def test_cancel_stdio(
             assert isinstance(result, ToolMessage)
             content = json.loads(str(result.content))
             assert "<user_aborted>" in content[0]["text"]
-            await asyncio.sleep(10)
+            await asyncio.sleep(5)

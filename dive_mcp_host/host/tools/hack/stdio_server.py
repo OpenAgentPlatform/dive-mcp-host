@@ -1,11 +1,13 @@
 """Copy of mcp.client.stdio.stdio_client."""
 
+import asyncio
 import logging
 import subprocess
 import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Protocol
 
 import anyio
 import anyio.abc
@@ -49,10 +51,18 @@ DEFAULT_INHERITED_ENV_VARS = (
 PROCESS_TERMINATION_TIMEOUT = 2.0
 
 
+class CanceledFnT(Protocol):
+    """Set cancled flag."""
+
+    async def __call__(self, canceled: bool) -> None:
+        """Set cancled flag."""
+
+
 @asynccontextmanager
 async def stdio_client(
     server: StdioServerParameters,
     errlog: LogProxy,
+    is_canceled_callback: CanceledFnT | None = None,
 ) -> AsyncGenerator[
     tuple[
         MemoryObjectReceiveStream[SessionMessage | Exception],
@@ -62,6 +72,8 @@ async def stdio_client(
     None,
 ]:
     """Copy of mcp.client.stdio.stdio_client."""
+    if is_canceled_callback:
+        await is_canceled_callback(False)
     read_stream: MemoryObjectReceiveStream[SessionMessage | Exception]
     read_stream_writer: MemoryObjectSendStream[SessionMessage | Exception]
 
@@ -148,6 +160,8 @@ async def stdio_client(
         finally:
             logger.debug("stdin_writer closed")
 
+    # All errors end up becoming anyio.BrockenResourceError after getting outside
+    # of this 'async with' ...
     async with (
         anyio.create_task_group() as tg,
         process,
@@ -157,6 +171,11 @@ async def stdio_client(
         tg.start_soon(stderr_reader)
         try:
             yield read_stream, write_stream, process.pid
+        except asyncio.CancelledError:
+            logger.warning("process canceled: %s", process.pid)
+            if is_canceled_callback:
+                await is_canceled_callback(True)
+            raise
         except Exception as exc:
             logger.error("Error, closing process %s: %s", process.pid, exc)
             raise

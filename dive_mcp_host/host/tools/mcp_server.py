@@ -54,7 +54,7 @@ from dive_mcp_host.host.tools.hack import (
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
 from dive_mcp_host.host.tools.model_types import ChatID, ClientState
-from dive_mcp_host.host.tools.server_session_store import AbortError, ServerSessionStore
+from dive_mcp_host.host.tools.server_session_store import ServerSessionStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable
@@ -476,7 +476,8 @@ class McpServer(ContextProtocol):
             async with self._cond:
                 self._cond.notify_all()
 
-    async def _stdio_client_watcher(self) -> None:
+    @asynccontextmanager
+    async def _stdio_client_watcher(self) -> AsyncGenerator[ClientSession, None]:
         """Client watcher task.
 
         Restart the client if need.
@@ -512,112 +513,84 @@ class McpServer(ContextProtocol):
 
         env = os.environ.copy()
         env.update(self.config.env)
-        start_time = time.time()
-        while (
-            self._retries == 0
-            or (time.time() - start_time) < self.config.initial_timeout
-        ):
-            should_break = False
-            try:
-                logger.debug("Attempting to initialize client %s", self.name)
-                async with (
-                    stdio_client(
-                        server=StdioServerParameters(
-                            command=self.config.command,
-                            args=self.config.args,
-                            env=env,
-                        ),
-                        errlog=self._stderr_log_proxy,
-                    ) as (stream_read, stream_send, pid),
-                    ClientSession(
-                        stream_read,
-                        stream_send,
-                        message_handler=self._message_handler,
-                        elicitation_callback=_stdio_elicitation_callback,
-                    ) as session,
-                ):
-                    self._stdio_client_session = session
-                    self._pid = pid
-                    await self._init_tool_info(session)
-                    async with self._cond:
-                        await self._cond.wait_for(
-                            lambda: self._client_status
-                            in [ClientState.CLOSED, ClientState.RESTARTING],
-                        )
-                        logger.debug(
-                            "client watcher %s exited. status: %s",
-                            self.name,
-                            self._client_status,
-                        )
-                        if self._client_status == ClientState.RESTARTING:
-                            self._retries = 0
-                            start_time = time.time()
-                            continue
-                        return
-            except* ProcessLookupError as eg:
-                # this raised when a stdio process is exited
-                # and the initialize call is timeout
-                err_msg = f"ProcessLookupError for {self.name}: {eg.exceptions}"
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(
-                    err_msg,
-                    eg.exceptions,
-                )
-                should_break = True
-            except* (
-                FileNotFoundError,
-                PermissionError,
-                McpError,
-                httpx.ConnectError,
-                httpx.InvalidURL,
-                httpx.TooManyRedirects,
-                httpx.ConnectTimeout,
-                ValidationError,
-            ) as eg:
-                err_msg = (
-                    f"Client initialization error for {self.name}: {eg.exceptions}"
-                )
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(err_msg, eg.exceptions)
-                should_break = True
-            except* httpx.HTTPStatusError as eg:
-                err_msg = f"Client http error for {self.name}: {eg.exceptions}"
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(err_msg, eg.exceptions)
-                for e in eg.exceptions:
-                    if (
-                        isinstance(e, httpx.HTTPStatusError)
-                        and e.response.status_code < 500  # noqa: PLR2004
-                        and e.response.status_code != 429  # noqa: PLR2004
-                    ):
-                        should_break = True
-                        break
-            except* asyncio.CancelledError as e:
-                should_break = True
-                logger.debug("Client watcher cancelled for %s", self.name)
-            except* BaseException as eg:
-                err_msg = (
-                    f"Client initialization error for {self.name}: {eg.exceptions}"
-                )
-                logger.exception(err_msg)
-                self._exception = McpSessionGroupError(err_msg, eg.exceptions)
 
-            if self._exception:
-                await self._log_buffer.push_session_error(self._exception)
+        stop_by_cancel = False
 
-            self._retries += 1
-            self._stdio_client_session = None
-            if self._client_status == ClientState.CLOSED:
-                logger.info("Client %s closed, stopping watcher", self.name)
+        async def _is_canceled(canceled: bool) -> None:
+            logger.debug("%s, set is canceled flag: %s", self.name, canceled)
+            nonlocal stop_by_cancel
+            stop_by_cancel = canceled
+
+        try:
+            logger.debug("Attempting to initialize client %s", self.name)
+            async with (
+                stdio_client(
+                    server=StdioServerParameters(
+                        command=self.config.command,
+                        args=self.config.args,
+                        env=env,
+                    ),
+                    errlog=self._stderr_log_proxy,
+                    is_canceled_callback=_is_canceled,
+                ) as (stream_read, stream_send, pid),
+                ClientSession(
+                    stream_read,
+                    stream_send,
+                    message_handler=self._message_handler,
+                    elicitation_callback=_stdio_elicitation_callback,
+                ) as session,
+            ):
+                self._pid = pid
+                await self._init_tool_info(session)
+                yield session
                 return
-            if should_break:
-                break
-            logger.debug(
-                "Retrying client initialization for %s (attempt %d)",
-                self.name,
-                self._retries,
+        except* ProcessLookupError as eg:
+            # this raised when a stdio process is exited
+            # and the initialize call is timeout
+            err_msg = f"ProcessLookupError for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(
+                err_msg,
+                eg.exceptions,
             )
-            await asyncio.sleep(self.RESTART_INTERVAL)
+        except* (
+            FileNotFoundError,
+            PermissionError,
+            McpError,
+            httpx.ConnectError,
+            httpx.InvalidURL,
+            httpx.TooManyRedirects,
+            httpx.ConnectTimeout,
+            ValidationError,
+        ) as eg:
+            err_msg = f"Client initialization error for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(err_msg, eg.exceptions)
+
+        except* httpx.HTTPStatusError as eg:
+            err_msg = f"Client http error for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(err_msg, eg.exceptions)
+
+        # This is actually never used... it's always anyio.BrockenResourceError
+        # when cancelled, thats why we have a flag to indicate that the mcp was
+        # canceled
+        except* asyncio.CancelledError:
+            logger.debug("Client watcher cancelled for %s", self.name)
+
+        except* BaseException as eg:
+            err_msg = f"Client initialization error for {self.name}: {eg.exceptions}"
+            logger.exception(err_msg)
+            self._exception = McpSessionGroupError(err_msg, eg.exceptions)
+
+        if self._exception:
+            await self._log_buffer.push_session_error(self._exception)
+
+        self._retries += 1
+        self._stdio_client_session = None
+        if self._client_status == ClientState.CLOSED:
+            logger.info("Client %s closed, stopping watcher", self.name)
+            return
 
         logger.warning(
             "client for [%s] failed after %d retries %s",
@@ -625,16 +598,20 @@ class McpServer(ContextProtocol):
             self._retries,
             self._exception,
         )
+        # Do not set the state to closed when it is actually just canceled by
+        # 'chat abort'.
         async with self._cond:
-            if self._client_status != ClientState.CLOSED:
+            if self._client_status != ClientState.CLOSED and not stop_by_cancel:
                 await self.__change_state(ClientState.FAILED, None, False)
 
     async def _stdio_setup(self) -> None:
         """Setup the stdio client."""
-        self._server_task = asyncio.create_task(
-            self._stdio_client_watcher(),
-            name=f"stdio_client_watcher-{self.name}",
-        )
+        try:
+            async with self._stdio_client_watcher() as _:
+                pass
+        except (BaseException, Exception):
+            logger.exception("setup error")
+
         async with self._cond:
             await self._cond.wait_for(
                 lambda: self._client_status
@@ -679,7 +656,6 @@ class McpServer(ContextProtocol):
             if (
                 self._client_status == ClientState.RUNNING
                 and self._stdio_client_session
-                and (now - self._last_active > self.KEEP_ALIVE_INTERVAL)
             ):
                 # check if the session is still active
                 try:
@@ -758,11 +734,11 @@ class McpServer(ContextProtocol):
             # Set the elicitation callback for this tool call
             self._stdio_elicitation_callback = elicitation_callback
             try:
-                session = await self._stdio_wait_for_session()
-                await session.initialize()
-                yield session
-            except Exception:
-                logger.exception("stdio session error, chat_id: %s", chat_id)
+                async with self._stdio_client_watcher() as session:
+                    await session.initialize()
+                    yield session
+            except (BaseException, Exception):
+                logger.exception("stdio session create error, chat_id: %s", chat_id)
                 raise
             finally:
                 # Clear the callback after the session context ends
@@ -1295,13 +1271,24 @@ class McpTool(BaseTool):
                     if abort_signal:
                         abort_task = asyncio.create_task(_abort_task(tool_task))
                     result = await tool_task
-                except asyncio.CancelledError as canceled:
-                    logger.warning("tool call cancelled %s", canceled)
-                    result = types.CallToolResult(
-                        content=[types.TextContent(type="text", text="<user_aborted>")],
+                except asyncio.CancelledError:
+                    logger.warning(
+                        "tool call cancelled, "
+                        "name: %s, tool: %s, tool_call_id: %s, request_id: %s",
+                        self.toolkit_name,
+                        self.name,
+                        tool_call_id,
+                        current_request_id,
                     )
-
                     if current_request_id:
+                        logger.debug(
+                            "send CancelledNotification"
+                            "name: %s, tool: %s, tool_call_id: %s, request_id: %s",
+                            self.toolkit_name,
+                            self.name,
+                            tool_call_id,
+                            current_request_id,
+                        )
                         await session.send_notification(
                             types.ClientNotification(
                                 types.CancelledNotification(
@@ -1319,7 +1306,17 @@ class McpTool(BaseTool):
                         abort_task.cancel()
         except asyncio.CancelledError:
             # the session context raises CancelledError.
-            pass
+            logger.warning(
+                "set tool result for abort, "
+                "name: %s, tool: %s, tool_call_id: %s, request_id: %s",
+                self.toolkit_name,
+                self.name,
+                tool_call_id,
+                current_request_id,
+            )
+            result = types.CallToolResult(
+                content=[types.TextContent(type="text", text="<user_aborted>")],
+            )
         finally:
             with suppress(Exception):
                 custom_event_queue.put_nowait(None)
