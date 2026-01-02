@@ -621,7 +621,7 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.1" },
     { name = "langgraph-prebuilt", specifier = ">=1.0.5" },
-    { name = "mcp", git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?branch=main" },
+    { name = "mcp", git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?rev=d32d1f7dba70277967e938856f2541d0e34a71d0" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pproxy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
@@ -1527,7 +1527,7 @@ wheels = [
 [[package]]
 name = "mcp"
 version = "0.0.1.dev702+d32d1f7"
-source = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?branch=main#d32d1f7dba70277967e938856f2541d0e34a71d0" }
+source = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?rev=d32d1f7dba70277967e938856f2541d0e34a71d0#d32d1f7dba70277967e938856f2541d0e34a71d0" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
