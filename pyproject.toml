@@ -53,7 +53,7 @@ classifiers = [
 ]
 
 [tool.uv.sources]
-mcp = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git", branch = "main" }
+mcp = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git", rev = "d32d1f7dba70277967e938856f2541d0e34a71d0" }
 
 [project.optional-dependencies]
 clipboard = []
