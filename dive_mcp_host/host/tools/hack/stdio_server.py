@@ -225,7 +225,11 @@ async def _create_platform_compatible_process(
     else:
         creationflags = 0
     process = await anyio.open_process(
-        [command, *args], creationflags=creationflags, env=env, cwd=cwd
+        [command, *args],
+        creationflags=creationflags,
+        env=env,
+        cwd=cwd,
+        start_new_session=True,
     )
     logger.info("launched process: %s, pid: %s", command, process.pid)
 
