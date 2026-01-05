@@ -578,7 +578,7 @@ class McpServer(ContextProtocol):
         except* asyncio.CancelledError:
             logger.debug("Client watcher cancelled for %s", self.name)
 
-        except* (BaseException) as eg:
+        except* BaseException as eg:
             err_msg = f"Client initialization error for {self.name}: {eg.exceptions}"
             logger.exception(err_msg)
             self._exception = McpSessionGroupError(err_msg, eg.exceptions)
