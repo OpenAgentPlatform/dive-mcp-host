@@ -1063,6 +1063,87 @@ Always requests user approval before writing."""
         raise NotImplementedError("Use async version")
 
 
+class InstallerGetMcpConfigTool(BaseTool):
+    """Tool for getting the current MCP server configuration.
+
+    This tool reads the current MCP configuration file and returns
+    the list of configured servers.
+    """
+
+    name: str = "get_mcp_config"
+    description: str = """Get the current MCP server configuration.
+
+Use this tool to check what MCP servers are already configured before adding new ones.
+This helps avoid duplicate installations and understand the current setup.
+
+Returns a JSON object with all configured MCP servers, including:
+- Server names
+- Transport type (stdio, sse, websocket, streamable)
+- Command and arguments (for stdio transport)
+- URL (for sse/websocket transport)
+- Enabled status
+"""
+    args_schema: type[BaseModel] | None = None
+
+    async def _arun(
+        self,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+    ) -> str:
+        """Get the current MCP configuration."""
+        import json
+
+        config = _ensure_config(config)
+
+        stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        abort_signal = _get_abort_signal(config)
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, {})
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            result = "Error: Operation aborted."
+            _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+            return result
+
+        stream_writer(
+            (
+                InstallerToolLog.NAME,
+                InstallerToolLog(
+                    tool="get_mcp_config",
+                    action="Reading MCP configuration",
+                    details={},
+                ),
+            )
+        )
+
+        try:
+            from dive_mcp_host.httpd.conf.mcp_servers import MCPServerManager
+
+            manager = MCPServerManager()
+            manager.initialize()
+
+            current_config = manager._current_config  # noqa: SLF001
+            if current_config is None:
+                result = json.dumps({"mcpServers": {}}, indent=2)
+            else:
+                result = current_config.model_dump_json(
+                    by_alias=True, exclude_unset=True, indent=2
+                )
+
+        except Exception as e:
+            logger.exception("Error reading MCP config")
+            result = f"Error reading MCP configuration: {e}"
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
+
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        """Sync version - not implemented."""
+        raise NotImplementedError("Use async version")
+
+
 class AddMcpServerInput(BaseModel):
     """Input schema for the add_mcp_server tool."""
 
@@ -1584,6 +1665,7 @@ def get_installer_tools() -> list[BaseTool]:
         InstallerBashTool(),
         InstallerReadFileTool(),
         InstallerWriteFileTool(),
+        InstallerGetMcpConfigTool(),
         InstallerAddMcpServerTool(),
         InstallerReloadMcpServerTool(),
         InstallerRequestConfirmationTool(),
