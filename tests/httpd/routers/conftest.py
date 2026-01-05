@@ -98,6 +98,7 @@ def config_files() -> Generator[ConfigFileNames, None, None]:
                 {
                     "activeProvider": "dive",
                     "enableTools": True,
+                    "enableLocalTools": True,
                     "configs": {
                         "dive": {
                             "modelProvider": "dive",
