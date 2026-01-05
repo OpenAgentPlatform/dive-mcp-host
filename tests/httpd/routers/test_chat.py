@@ -1378,6 +1378,114 @@ def test_chat_with_token_usage(test_client):
     assert second_ai_msg["resource_usage"]["total_output_tokens"] == 9
 
 
+def test_chat_with_abort_local_tool_calls(test_client):
+    """Test the chat endpoint with abort during local tool calls.
+
+    This test verifies that:
+    1. Abort works correctly during local tool execution
+    2. Elicitation requests are properly handled (auto-accepted)
+    3. After abortion, we can still continue chatting
+    """
+    client, app = test_client
+    host = cast("dict[str, DiveMcpHost]", app.dive_host)["default"]
+    model = cast(FakeMessageToolModel, host.model)
+
+    # Use bash tool which triggers elicitation for user confirmation
+    model.responses = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                ToolCall(
+                    name="bash",
+                    args={
+                        "command": "sleep 100",
+                    },
+                    id="tool-call-123",
+                    type="tool_call",
+                ),
+            ],
+        ),
+        AIMessage(content="hihi"),
+    ]
+
+    def handle_elicitation_accept_and_abort(chat_id: str):
+        """Accept elicitation then abort after tool starts executing."""
+        elicitation_manager = host.elicitation_manager
+
+        # Wait for elicitation request to appear
+        max_wait = 3.0
+        start = time.time()
+        request_id = None
+
+        while time.time() - start < max_wait:
+            pending_ids = list(elicitation_manager._pending_requests.keys())
+            if pending_ids:
+                request_id = pending_ids[0]
+                break
+            time.sleep(0.05)
+
+        if request_id:
+            # Accept the elicitation request
+            resp = client.post(
+                "/api/tools/elicitation/respond",
+                json={
+                    "request_id": request_id,
+                    "action": "accept",
+                    "content": {},
+                },
+            )
+            assert resp.status_code == SUCCESS_CODE
+
+            # Wait a bit for the tool to start executing
+            time.sleep(0.3)
+
+        # Now abort the chat
+        abort_response = client.post(f"/api/chat/{chat_id}/abort")
+        assert abort_response.status_code == SUCCESS_CODE, abort_response.text
+        abort_message = abort_response.json()
+        assert abort_message["success"]  # type: ignore
+
+        return request_id is not None
+
+    def req():
+        response = client.post(
+            "/api/chat",
+            data={"message": "run sleep command", "chatId": TEST_CHAT_ID},
+        )
+        return response.text
+
+    for iteration in range(2):
+        with ThreadPoolExecutor(2) as executor:
+            req_future = executor.submit(req)
+            elicit_future = executor.submit(
+                handle_elicitation_accept_and_abort, TEST_CHAT_ID
+            )
+
+            # Wait for both to complete
+            elicitation_handled = elicit_future.result()
+            response_text = req_future.result()
+
+            # Verify elicitation was handled
+            assert elicitation_handled, f"Iteration {iteration}: Elicitation not found"
+
+            # Verify we got tool_result (with abort message) or the stream completed
+            assert (
+                "tool_result" in response_text
+                or "agent_tool_result" in response_text
+                or "interactive" in response_text  # elicitation request was sent
+            ), f"Iteration {iteration}: Unexpected response: {response_text[:500]}"
+
+        # After abortion, we can still have chats
+        response = client.post(
+            "/api/chat", data={"message": "hi", "chatId": TEST_CHAT_ID}
+        )
+        assert "hihi" in response.text, (
+            f"Iteration {iteration}: Expected 'hihi' in response"
+        )
+        time.sleep(3)
+        model.i = 0
+
+
 def test_chat_with_abort_tool_calls(test_client):
     """Test the chat endpoint with tool calls."""
     client, app = test_client
