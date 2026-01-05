@@ -13,8 +13,11 @@ elicitation support for user approval of potentially dangerous operations.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
+import signal
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
@@ -105,6 +108,22 @@ def _get_mcp_reload_callback(config: RunnableConfig) -> Callable[[], Any] | None
     return config.get("configurable", {}).get("mcp_reload_callback")
 
 
+def _get_abort_signal(config: RunnableConfig) -> asyncio.Event | None:
+    """Extract abort signal from config."""
+    return config.get("configurable", {}).get("abort_signal")
+
+
+def _check_aborted(abort_signal: asyncio.Event | None) -> bool:
+    """Check if the abort signal has been set."""
+    return abort_signal is not None and abort_signal.is_set()
+
+
+class AbortedError(Exception):
+    """Raised when an operation is aborted."""
+
+    pass
+
+
 def _get_httpd_base_url() -> str | None:
     """Get httpd base URL from runtime config."""
     from dive_mcp_host.mcp_installer_plugin.runtime import get_httpd_base_url
@@ -186,9 +205,14 @@ The tool will request user approval for unfamiliar URLs."""
 
         stream_writer = _get_stream_writer(config)
         tool_call_id = _get_tool_call_id(config)
-        args = {"url": url, "method": method, "headers": headers}
+        abort_signal = _get_abort_signal(config)
 
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
+
+        tool_args = {"url": url, "method": method, "headers": headers}
+        _emit_tool_call(stream_writer, tool_call_id, self.name, tool_args)
 
         # Perform the fetch
         stream_writer(
@@ -212,9 +236,33 @@ The tool will request user approval for unfamiliar URLs."""
                 request_headers["User-Agent"] = user_agent
 
             async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
-                response = await client.request(
-                    method, url, headers=request_headers or None
+                # Create a task for the request
+                request_task = asyncio.create_task(
+                    client.request(method, url, headers=request_headers or None)
                 )
+
+                # Wait for either the request to complete or abort signal
+                if abort_signal is not None:
+                    abort_task = asyncio.create_task(abort_signal.wait())
+                    done, pending = await asyncio.wait(
+                        [request_task, abort_task],
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await task
+
+                    # Check if aborted
+                    if abort_task in done:
+                        return "Error: Operation aborted."
+
+                    response = request_task.result()
+                else:
+                    response = await request_task
+
                 response.raise_for_status()
 
                 content_type = response.headers.get("content-type", "")
@@ -420,9 +468,14 @@ Safety notes:
             ElicitationTimeoutError,
         )
 
+        abort_signal = _get_abort_signal(config)
         elicitation_manager: ElicitationManager | None = config.get(
             "configurable", {}
         ).get("elicitation_manager")
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
 
         # Cap timeout at 10 minutes
         timeout = min(timeout, 600)
@@ -562,6 +615,10 @@ Safety notes:
 
         # Execute the command
         try:
+            # Check abort before execution
+            if _check_aborted(abort_signal):
+                return "Error: Operation aborted."
+
             # For commands requiring password (sudo), use stdin to pipe the password
             if password and "sudo " in command.lower():
                 # Use sudo -S to read password from stdin
@@ -576,16 +633,21 @@ Safety notes:
                     stderr=asyncio.subprocess.PIPE,
                     cwd=working_dir,
                     env={**os.environ},
+                    start_new_session=True,  # Create new process group for proper cleanup
                 )
 
                 try:
-                    # Send password to stdin
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(input=f"{password}\n".encode()),
-                        timeout=timeout,
+                    # Send password to stdin with abort signal monitoring
+                    communicate_task = asyncio.create_task(
+                        process.communicate(input=f"{password}\n".encode())
                     )
+                    stdout, stderr = await self._wait_with_abort(
+                        communicate_task, abort_signal, process, timeout
+                    )
+                except AbortedError:
+                    return "Error: Operation aborted."
                 except TimeoutError:
-                    process.kill()
+                    self._kill_process_tree(process)
                     return f"Error: Command timed out after {timeout}s"
             else:
                 process = await asyncio.create_subprocess_shell(
@@ -594,14 +656,19 @@ Safety notes:
                     stderr=asyncio.subprocess.PIPE,
                     cwd=working_dir,
                     env={**os.environ},
+                    start_new_session=True,  # Create new process group for proper cleanup
                 )
 
                 try:
-                    stdout, stderr = await asyncio.wait_for(
-                        process.communicate(), timeout=timeout
+                    # Monitor abort signal during command execution
+                    communicate_task = asyncio.create_task(process.communicate())
+                    stdout, stderr = await self._wait_with_abort(
+                        communicate_task, abort_signal, process, timeout
                     )
+                except AbortedError:
+                    return "Error: Operation aborted."
                 except TimeoutError:
-                    process.kill()
+                    self._kill_process_tree(process)
                     return f"Error: Command timed out after {timeout}s"
 
             result_parts = []
@@ -633,6 +700,82 @@ Safety notes:
 
         except (OSError, TimeoutError) as e:
             return f"Error executing command: {e}"
+
+    async def _wait_with_abort(
+        self,
+        task: asyncio.Task[tuple[bytes, bytes]],
+        abort_signal: asyncio.Event | None,
+        process: asyncio.subprocess.Process,
+        timeout: int,
+    ) -> tuple[bytes, bytes]:
+        """Wait for a task with abort signal and timeout support.
+
+        Args:
+            task: The asyncio task to wait for.
+            abort_signal: Optional abort signal event.
+            process: The subprocess to kill if aborted.
+            timeout: Timeout in seconds.
+
+        Returns:
+            The result of the task (stdout, stderr).
+
+        Raises:
+            AbortedError: If the operation was aborted.
+            TimeoutError: If the operation timed out.
+        """
+        if abort_signal is None:
+            return await asyncio.wait_for(task, timeout=timeout)
+
+        abort_task = asyncio.create_task(abort_signal.wait())
+        timeout_task = asyncio.create_task(asyncio.sleep(timeout))
+
+        done, pending = await asyncio.wait(
+            [task, abort_task, timeout_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel pending tasks
+        for pending_task in pending:
+            pending_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending_task
+
+        # Check what completed first
+        if abort_task in done:
+            # Abort was signaled - kill process group
+            self._kill_process_tree(process)
+            raise AbortedError("Operation aborted")
+
+        if timeout_task in done:
+            # Timeout occurred - kill process group
+            self._kill_process_tree(process)
+            raise TimeoutError(f"Command timed out after {timeout}s")
+
+        # Task completed successfully
+        return task.result()
+
+    def _kill_process_tree(self, process: asyncio.subprocess.Process) -> None:
+        """Kill the process and all its children.
+
+        Uses process group kill on Unix/Linux to ensure all child processes
+        are terminated. On Windows, falls back to regular process kill.
+        """
+        if process.pid is None:
+            return
+
+        try:
+            if sys.platform != "win32":
+                # On Unix/Linux, kill the entire process group
+                # The process was started with start_new_session=True,
+                # so its PID is also the PGID
+                os.killpg(process.pid, signal.SIGKILL)
+            else:
+                # On Windows, just kill the process
+                # Windows doesn't have process groups in the same way
+                process.kill()
+        except (ProcessLookupError, OSError):
+            # Process already terminated
+            pass
 
     def _run(self, *args: Any, **kwargs: Any) -> str:
         """Sync version - not implemented."""
@@ -676,8 +819,13 @@ Supports text files only."""
 
         stream_writer = _get_stream_writer(config)
         tool_call_id = _get_tool_call_id(config)
-        args = {"path": path, "encoding": encoding}
+        abort_signal = _get_abort_signal(config)
 
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
+
+        args = {"path": path, "encoding": encoding}
         _emit_tool_call(stream_writer, tool_call_id, self.name, args)
 
         # Expand user home directory
@@ -811,9 +959,14 @@ Always requests user approval before writing."""
             ElicitationTimeoutError,
         )
 
+        abort_signal = _get_abort_signal(config)
         elicitation_manager: ElicitationManager | None = config.get(
             "configurable", {}
         ).get("elicitation_manager")
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
 
         # Expand user home directory
         expanded_path = str(Path(path).expanduser())
@@ -888,6 +1041,10 @@ Always requests user approval before writing."""
             except Exception as e:
                 logger.exception("Error getting confirmation via elicitation")
                 return f"Error getting confirmation: {e}"
+
+        # Check abort before writing
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
 
         # Write the file
         try:
@@ -1011,6 +1168,11 @@ Example for uvx-based server:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        abort_signal = _get_abort_signal(config)
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
 
         # Validate input
         if transport == "stdio" and command is None:
@@ -1062,9 +1224,6 @@ Example for uvx-based server:
 
             # Add to config
             current_config.mcp_servers[server_name] = new_server
-
-            # Save config
-            await manager.update_all_configs(current_config)
 
             # Trigger reload via HTTP API
             reload_status = await self._trigger_mcp_reload(
@@ -1209,6 +1368,11 @@ Example:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        abort_signal = _get_abort_signal(config)
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
 
         stream_writer(
             (
@@ -1347,9 +1511,14 @@ Example:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
+        abort_signal = _get_abort_signal(config)
         elicitation_manager: ElicitationManager | None = config.get(
             "configurable", {}
         ).get("elicitation_manager")
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "aborted"
 
         if elicitation_manager is None:
             logger.warning("No elicitation manager, auto-approving")
