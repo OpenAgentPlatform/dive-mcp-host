@@ -121,8 +121,6 @@ def _check_aborted(abort_signal: asyncio.Event | None) -> bool:
 class AbortedError(Exception):
     """Raised when an operation is aborted."""
 
-    pass
-
 
 def _get_httpd_base_url() -> str | None:
     """Get httpd base URL from runtime config."""
