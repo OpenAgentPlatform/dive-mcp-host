@@ -59,6 +59,7 @@ class InstallerToolLog(CustomEvent):
         "read_file",
         "add_mcp_server",
         "reload_mcp_server",
+        "install_mcp_instructions",
     ]
     """The tool that generated this log."""
 

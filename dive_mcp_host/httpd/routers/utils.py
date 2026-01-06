@@ -775,12 +775,7 @@ class ChatProcessor:
     )
 
     async def _stream_tool_calls_msg(self, message: AIMessage) -> None:
-        # Filter out installer agent's internal tools - they are sent as agent_tool_call
-        tool_calls = [
-            c
-            for c in message.tool_calls
-            if c["name"] not in self._INSTALLER_AGENT_TOOLS
-        ]
+        tool_calls = list(message.tool_calls)
         if not tool_calls:
             logger.debug("Skipping tool_calls - all are installer agent tools")
             return
@@ -796,14 +791,6 @@ class ChatProcessor:
         )
 
     async def _stream_tool_result_msg(self, message: ToolMessage) -> None:
-        # Skip installer agent's internal tools - they are sent as agent_tool_result
-        if message.name in self._INSTALLER_AGENT_TOOLS:
-            logger.debug(
-                "Skipping tool_result for installer agent tool: %s",
-                message.name,
-            )
-            return
-
         result = message.content
         with suppress(json.JSONDecodeError):
             if isinstance(result, list):

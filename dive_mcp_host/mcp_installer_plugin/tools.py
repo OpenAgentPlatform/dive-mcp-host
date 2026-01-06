@@ -31,6 +31,7 @@ from dive_mcp_host.mcp_installer_plugin.events import (
     AgentToolResult,
     InstallerToolLog,
 )
+from dive_mcp_host.mcp_installer_plugin.prompt import get_installer_system_prompt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -136,13 +137,13 @@ def _emit_tool_call(
     args: dict[str, Any],
 ) -> None:
     """Emit agent_tool_call event."""
-    if tool_call_id:
-        writer(
-            (
-                AgentToolCall.NAME,
-                AgentToolCall(tool_call_id=tool_call_id, name=name, args=args),
-            )
-        )
+    # if tool_call_id:
+    #     writer(
+    #         (
+    #             AgentToolCall.NAME,
+    #             AgentToolCall(tool_call_id=tool_call_id, name=name, args=args),
+    #         )
+    #     )
 
 
 def _emit_tool_result(
@@ -152,13 +153,13 @@ def _emit_tool_result(
     result: str,
 ) -> None:
     """Emit agent_tool_result event."""
-    if tool_call_id:
-        writer(
-            (
-                AgentToolResult.NAME,
-                AgentToolResult(tool_call_id=tool_call_id, name=name, result=result),
-            )
-        )
+    # if tool_call_id:
+    #     writer(
+    #         (
+    #             AgentToolResult.NAME,
+    #             AgentToolResult(tool_call_id=tool_call_id, name=name, result=result),
+    #         )
+    #     )
 
 
 class FetchInput(BaseModel):
@@ -1061,6 +1062,58 @@ Always requests user approval before writing."""
         raise NotImplementedError("Use async version")
 
 
+class InstallMCPInstructions(BaseTool):
+    """Tool for getting the MCP installation prompt."""
+
+    name: str = "install_mcp_instructions"
+    description: str = """Tool for getting the MCP installation prompt."""
+    args_schema: type[BaseModel] | None = None
+
+    async def _arun(
+        self,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+    ) -> str:
+        """Get the current MCP configuration."""
+        config = _ensure_config(config)
+
+        stream_writer = _get_stream_writer(config)
+        tool_call_id = _get_tool_call_id(config)
+        abort_signal = _get_abort_signal(config)
+
+        _emit_tool_call(stream_writer, tool_call_id, self.name, {})
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            result = "Error: Operation aborted."
+            _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+            return result
+
+        stream_writer(
+            (
+                InstallerToolLog.NAME,
+                InstallerToolLog(
+                    tool="install_mcp_instructions",
+                    action="Reading MCP installer system prompt",
+                    details={},
+                ),
+            )
+        )
+
+        try:
+            return get_installer_system_prompt()
+        except Exception as e:
+            logger.exception("Error reading MCP installer system prompt")
+            result = f"Error reading MCP installer system prompt: {e}"
+
+        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
+
+        return result
+
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        """Sync version - not implemented."""
+        raise NotImplementedError("Use async version")
+
+
 class InstallerGetMcpConfigTool(BaseTool):
     """Tool for getting the current MCP server configuration.
 
@@ -1659,14 +1712,14 @@ Example:
 def get_installer_tools() -> list[BaseTool]:
     """Get all installer agent tools."""
     return [
-        InstallerFetchTool(),
-        InstallerBashTool(),
-        InstallerReadFileTool(),
-        InstallerWriteFileTool(),
-        InstallerGetMcpConfigTool(),
-        InstallerAddMcpServerTool(),
-        InstallerReloadMcpServerTool(),
-        InstallerRequestConfirmationTool(),
+        # InstallerFetchTool(),
+        # InstallerBashTool(),
+        # InstallerReadFileTool(),
+        # InstallerWriteFileTool(),
+        # InstallerGetMcpConfigTool(),
+        # InstallerAddMcpServerTool(),
+        # InstallerReloadMcpServerTool(),
+        # InstallerRequestConfirmationTool(),
     ]
 
 
@@ -1685,4 +1738,10 @@ def get_local_tools() -> list[BaseTool]:
         InstallerBashTool(),
         InstallerReadFileTool(),
         InstallerWriteFileTool(),
+        # Install related tools
+        InstallMCPInstructions(),
+        InstallerGetMcpConfigTool(),
+        InstallerAddMcpServerTool(),
+        InstallerReloadMcpServerTool(),
+        InstallerRequestConfirmationTool(),
     ]
