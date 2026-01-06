@@ -23,18 +23,9 @@ class TestInstallerTools:
     """Tests for installer tools."""
 
     def test_get_installer_tools(self) -> None:
-        """Test that get_installer_tools returns all tools."""
+        """Test that get_installer_tools returns empty (installer agent removed)."""
         tools = get_installer_tools()
-        assert len(tools) == 8
-        tool_names = [t.name for t in tools]
-        assert "fetch" in tool_names
-        assert "bash" in tool_names
-        assert "read_file" in tool_names
-        assert "write_file" in tool_names
-        assert "get_mcp_config" in tool_names
-        assert "add_mcp_server" in tool_names
-        assert "reload_mcp_server" in tool_names
-        assert "request_confirmation" in tool_names
+        assert len(tools) == 0
 
     @pytest.mark.asyncio
     async def test_read_file_tool(self) -> None:
@@ -242,7 +233,8 @@ class TestInstallerAgent:
             model=mock_model, elicitation_manager=elicitation_manager
         )
         assert agent._graph is not None
-        assert len(agent.tools) == 8
+        # Installer agent tools are now empty (installer agent removed)
+        assert len(agent.tools) == 0
 
     @pytest.mark.asyncio
     async def test_agent_graph_structure(self) -> None:

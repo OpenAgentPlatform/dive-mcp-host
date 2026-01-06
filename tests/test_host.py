@@ -772,8 +772,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         await host.tools_initialized_event.wait()
 
         # Verify initial state
-        # echo, elicit, ignore tools + install_mcp_server
-        assert len(host.tools) == 4
+        # echo, elicit, ignore tools (installer tool removed)
+        assert len(host.tools) == 3
         assert len(host.mcp_tools) == 3  # only MCP tools
         assert isinstance(host.config.llm, LLMConfig)
         assert host.config.llm.configuration is None
@@ -788,13 +788,12 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         assert host.config.llm.model == "fake"
 
         # Verify tools were updated
-        # echo, elicit, ignore + fetch + install_mcp_server
-        assert len(host.tools) == 5
+        # echo, elicit, ignore + fetch (installer tool removed)
+        assert len(host.tools) == 4
         assert len(host.mcp_tools) == 4  # only MCP tools
         tool_names = [tool.name for tool in host.tools]
         assert "echo" in tool_names
         assert "fetch" in tool_names
-        assert "install_mcp_server" in tool_names
 
         # Test chat still works after reload
         async with host.chat() as chat:
@@ -808,8 +807,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         reloader_called = False
         await host.reload(new_config, mock_reloader)
         assert reloader_called
-        # echo, ignore, elicit + fetch + install_mcp_server
-        assert len(host.tools) == 5
+        # echo, ignore, elicit + fetch (installer tool removed)
+        assert len(host.tools) == 4
         assert len(host.mcp_tools) == 4
 
 

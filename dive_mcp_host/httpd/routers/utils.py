@@ -946,7 +946,6 @@ class ChatProcessor:
             tools=[],  # do not use tools
             system_prompt=title_prompt,
             volatile=True,
-            include_installer_tool=False,  # title generator should not have installer
         )
         try:
             async with chat:
