@@ -978,7 +978,7 @@ async def test_elicitation_stdio_accept(
                     break
             # Respond to the request
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(
+            await elicitation_manager.respond_to_request(
                 request_id, "accept", {"name": "TestUser", "confirmed": True}
             )
 
@@ -1021,7 +1021,7 @@ async def test_elicitation_stdio_decline(
                 if elicitation_manager._pending_requests:
                     break
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(request_id, "decline", None)
+            await elicitation_manager.respond_to_request(request_id, "decline", None)
 
         response_task = asyncio.create_task(respond_to_elicitation())
         result = await elicit_tool.ainvoke(
@@ -1061,7 +1061,7 @@ async def test_elicitation_stdio_cancel(
                 if elicitation_manager._pending_requests:
                     break
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(request_id, "cancel", None)
+            await elicitation_manager.respond_to_request(request_id, "cancel", None)
 
         response_task = asyncio.create_task(respond_to_elicitation())
         result = await elicit_tool.ainvoke(
@@ -1104,7 +1104,7 @@ async def test_elicitation_sse_accept(
                 if elicitation_manager._pending_requests:
                     break
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(
+            await elicitation_manager.respond_to_request(
                 request_id, "accept", {"name": "SSEUser", "confirmed": False}
             )
 
@@ -1149,7 +1149,7 @@ async def test_elicitation_streamable_accept(
                 if elicitation_manager._pending_requests:
                     break
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(
+            await elicitation_manager.respond_to_request(
                 request_id, "accept", {"name": "StreamUser", "confirmed": True}
             )
 
@@ -1191,7 +1191,7 @@ async def test_elicitation_local_sse_accept(
                 if elicitation_manager._pending_requests:
                     break
             request_id = next(iter(elicitation_manager._pending_requests.keys()))
-            elicitation_manager.respond_to_request(
+            await elicitation_manager.respond_to_request(
                 request_id, "accept", {"name": "LocalSSEUser", "confirmed": True}
             )
 

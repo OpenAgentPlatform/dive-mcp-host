@@ -414,7 +414,7 @@ async def respond_to_elicitation(
         ElicitationRespondResult: Result of the respond operation.
     """
     elicitation_manager = app.dive_host["default"].elicitation_manager
-    found = elicitation_manager.respond_to_request(
+    found = await elicitation_manager.respond_to_request(
         request_id=request.request_id,
         action=request.action,
         content=request.content,

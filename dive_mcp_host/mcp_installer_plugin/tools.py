@@ -27,10 +27,9 @@ from langgraph.config import get_config
 from pydantic import BaseModel, Field
 
 from dive_mcp_host.mcp_installer_plugin.events import (
-    AgentToolCall,
-    AgentToolResult,
     InstallerToolLog,
 )
+from dive_mcp_host.mcp_installer_plugin.prompt import get_installer_system_prompt
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -129,38 +128,6 @@ def _get_httpd_base_url() -> str | None:
     return get_httpd_base_url()
 
 
-def _emit_tool_call(
-    writer: Callable[[tuple[str, Any]], None],
-    tool_call_id: str | None,
-    name: str,
-    args: dict[str, Any],
-) -> None:
-    """Emit agent_tool_call event."""
-    if tool_call_id:
-        writer(
-            (
-                AgentToolCall.NAME,
-                AgentToolCall(tool_call_id=tool_call_id, name=name, args=args),
-            )
-        )
-
-
-def _emit_tool_result(
-    writer: Callable[[tuple[str, Any]], None],
-    tool_call_id: str | None,
-    name: str,
-    result: str,
-) -> None:
-    """Emit agent_tool_result event."""
-    if tool_call_id:
-        writer(
-            (
-                AgentToolResult.NAME,
-                AgentToolResult(tool_call_id=tool_call_id, name=name, result=result),
-            )
-        )
-
-
 class FetchInput(BaseModel):
     """Input schema for the fetch tool."""
 
@@ -202,15 +169,11 @@ The tool will request user approval for unfamiliar URLs."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
 
         # Check if already aborted
         if _check_aborted(abort_signal):
             return "Error: Operation aborted."
-
-        tool_args = {"url": url, "method": method, "headers": headers}
-        _emit_tool_call(stream_writer, tool_call_id, self.name, tool_args)
 
         # Perform the fetch
         stream_writer(
@@ -279,8 +242,6 @@ The tool will request user approval for unfamiliar URLs."""
 
         except httpx.HTTPError as e:
             result = f"Error fetching {url}: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -417,20 +378,9 @@ Safety notes:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         dry_run = _get_dry_run(config)
 
-        args = {
-            "command": command,
-            "working_dir": working_dir,
-            "timeout": timeout,
-            "requires_password": requires_password,
-            "is_high_risk": is_high_risk,
-        }
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
-
-        result = await self._execute_bash(
+        return await self._execute_bash(
             command=command,
             working_dir=working_dir,
             timeout=timeout,
@@ -441,10 +391,6 @@ Safety notes:
             dry_run=dry_run,
             config=config,
         )
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-
-        return result
 
     async def _execute_bash(
         self,
@@ -547,6 +493,7 @@ Safety notes:
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "decline":
@@ -593,6 +540,7 @@ Safety notes:
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "accept" and result.content:
@@ -816,15 +764,11 @@ Supports text files only."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
 
         # Check if already aborted
         if _check_aborted(abort_signal):
             return "Error: Operation aborted."
-
-        args = {"path": path, "encoding": encoding}
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
 
         # Expand user home directory
         expanded_path = str(Path(path).expanduser())
@@ -857,8 +801,6 @@ Supports text files only."""
 
         except OSError as e:
             result = f"Error reading file {path}: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -913,19 +855,9 @@ Always requests user approval before writing."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         dry_run = _get_dry_run(config)
 
-        args = {
-            "path": path,
-            "content": content[:200] + "..." if len(content) > 200 else content,
-            "encoding": encoding,
-            "create_dirs": create_dirs,
-        }
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
-
-        result = await self._execute_write(
+        return await self._execute_write(
             path=path,
             content=content,
             encoding=encoding,
@@ -934,10 +866,6 @@ Always requests user approval before writing."""
             dry_run=dry_run,
             config=config,
         )
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-
-        return result
 
     async def _execute_write(
         self,
@@ -1027,6 +955,7 @@ Always requests user approval before writing."""
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "decline":
@@ -1055,6 +984,54 @@ Always requests user approval before writing."""
 
         except OSError as e:
             return f"Error writing to file {path}: {e}"
+
+    def _run(self, *args: Any, **kwargs: Any) -> str:
+        """Sync version - not implemented."""
+        raise NotImplementedError("Use async version")
+
+
+class InstallMCPInstructions(BaseTool):
+    """Tool for getting the MCP installation prompt."""
+
+    name: str = "install_mcp_instructions"
+    description: str = """
+    Tool for getting the MCP installation instructions.
+    MUST call this tool before any MCP installation related stuff.
+    """
+    args_schema: type[BaseModel] | None = None
+
+    async def _arun(
+        self,
+        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+    ) -> str:
+        """Get the current MCP configuration."""
+        config = _ensure_config(config)
+
+        stream_writer = _get_stream_writer(config)
+        abort_signal = _get_abort_signal(config)
+
+        # Check if already aborted
+        if _check_aborted(abort_signal):
+            return "Error: Operation aborted."
+
+        stream_writer(
+            (
+                InstallerToolLog.NAME,
+                InstallerToolLog(
+                    tool="install_mcp_instructions",
+                    action="Reading MCP installer system prompt",
+                    details={},
+                ),
+            )
+        )
+
+        try:
+            return get_installer_system_prompt()
+        except Exception as e:
+            logger.exception("Error reading MCP installer system prompt")
+            result = f"Error reading MCP installer system prompt: {e}"
+
+        return result
 
     def _run(self, *args: Any, **kwargs: Any) -> str:
         """Sync version - not implemented."""
@@ -1093,16 +1070,11 @@ Returns a JSON object with all configured MCP servers, including:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, {})
 
         # Check if already aborted
         if _check_aborted(abort_signal):
-            result = "Error: Operation aborted."
-            _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-            return result
+            return "Error: Operation aborted."
 
         stream_writer(
             (
@@ -1132,8 +1104,6 @@ Returns a JSON object with all configured MCP servers, including:
         except Exception as e:
             logger.exception("Error reading MCP config")
             result = f"Error reading MCP configuration: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -1629,6 +1599,7 @@ Example:
             result = await elicitation_manager.request(
                 params=params,
                 writer=stream_writer,
+                abort_signal=abort_signal,
             )
 
             logger.info(
@@ -1658,16 +1629,7 @@ Example:
 
 def get_installer_tools() -> list[BaseTool]:
     """Get all installer agent tools."""
-    return [
-        InstallerFetchTool(),
-        InstallerBashTool(),
-        InstallerReadFileTool(),
-        InstallerWriteFileTool(),
-        InstallerGetMcpConfigTool(),
-        InstallerAddMcpServerTool(),
-        InstallerReloadMcpServerTool(),
-        InstallerRequestConfirmationTool(),
-    ]
+    return []
 
 
 def get_local_tools() -> list[BaseTool]:
@@ -1685,4 +1647,9 @@ def get_local_tools() -> list[BaseTool]:
         InstallerBashTool(),
         InstallerReadFileTool(),
         InstallerWriteFileTool(),
+        InstallerGetMcpConfigTool(),
+        InstallerAddMcpServerTool(),
+        InstallerReloadMcpServerTool(),
+        InstallerRequestConfirmationTool(),
+        InstallMCPInstructions(),
     ]

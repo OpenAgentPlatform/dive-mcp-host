@@ -86,10 +86,10 @@ class ToolManagerPlugin:
         Args:
             model: The LLM model to use for the installer agent.
         """
-        from dive_mcp_host.mcp_installer_plugin import install_mcp_server_tool
-
-        self._installer_tool = install_mcp_server_tool(model)
-        logger.info("Installer tool initialized")
+        # from dive_mcp_host.mcp_installer_plugin import install_mcp_server_tool
+        #
+        # self._installer_tool = install_mcp_server_tool(model)
+        # logger.info("Installer tool initialized")
 
     def setup_local_tools(self) -> None:
         """Setup local tools (fetch, bash, read_file, write_file).
@@ -147,13 +147,11 @@ class ToolManagerPlugin:
 
     def get_tools(
         self,
-        include_installer: bool = True,
         include_local_tools: bool = False,
     ) -> list[BaseTool]:
         """Get all registered tools.
 
         Args:
-            include_installer: Whether to include the installer tool.
             include_local_tools: Whether to include local tools (fetch, bash, etc.).
 
         Returns:
@@ -178,8 +176,8 @@ class ToolManagerPlugin:
                 )
 
         # Add installer tool if available and requested
-        if include_installer and self._installer_tool is not None:
-            tools.append(self._installer_tool)
+        # if include_installer and self._installer_tool is not None:
+        #     tools.append(self._installer_tool)
 
         # Add local tools if available and requested
         if include_local_tools and self._local_tools is not None:

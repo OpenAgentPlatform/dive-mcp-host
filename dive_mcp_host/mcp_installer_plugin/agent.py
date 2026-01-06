@@ -7,6 +7,8 @@ tool calls for fetch, bash, and filesystem operations.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -33,7 +35,6 @@ from dive_mcp_host.mcp_installer_plugin.prompt import get_installer_system_promp
 from dive_mcp_host.mcp_installer_plugin.tools import get_installer_tools
 
 if TYPE_CHECKING:
-    import asyncio
     from collections.abc import AsyncIterator, Callable, Sequence
 
     from langchain_core.language_models.chat_models import BaseChatModel
@@ -216,10 +217,36 @@ class InstallerAgent:
             )
         )
 
-        # Call the model
+        # Call the model with abort support
         logger.info("InstallerAgent._call_model() - calling model.ainvoke()")
         try:
-            response = await model_with_tools.ainvoke(messages, config)
+            model_task = asyncio.create_task(model_with_tools.ainvoke(messages, config))
+
+            # If abort signal exists, wait for either model or abort
+            if abort_signal is not None:
+                abort_task = asyncio.create_task(abort_signal.wait())
+                done, pending = await asyncio.wait(
+                    [model_task, abort_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+                # Check if aborted
+                if abort_task in done:
+                    logger.info("InstallerAgent._call_model() - ABORTED")
+                    return cast(
+                        InstallerAgentState, {"messages": [], "error": "Aborted"}
+                    )
+
+                response = model_task.result()
+            else:
+                response = await model_task
+
             logger.info(
                 "InstallerAgent._call_model() - model response received, "
                 "has_tool_calls: %s, content_length: %d",
@@ -345,6 +372,21 @@ class InstallerAgent:
                 config=config,
                 stream_mode="updates",
             ):
+                # Check abort signal between iterations
+                if abort_signal and abort_signal.is_set():
+                    logger.info("InstallerAgent.run() - ABORTED at iter %d", iteration)
+                    if stream_writer:
+                        stream_writer(
+                            (
+                                InstallerProgress.NAME,
+                                InstallerProgress(
+                                    phase="aborted",
+                                    message="Installation aborted by user.",
+                                ),
+                            )
+                        )
+                    return
+
                 iteration += 1
                 logger.info(
                     "InstallerAgent.run() - iteration %d, chunk keys: %s",
