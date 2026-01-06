@@ -546,6 +546,7 @@ Safety notes:
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "decline":
@@ -592,6 +593,7 @@ Safety notes:
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "accept" and result.content:
@@ -1026,6 +1028,7 @@ Always requests user approval before writing."""
                 result = await elicitation_manager.request(
                     params=params,
                     writer=stream_writer,
+                    abort_signal=abort_signal,
                 )
 
                 if result.action == "decline":
@@ -1683,6 +1686,7 @@ Example:
             result = await elicitation_manager.request(
                 params=params,
                 writer=stream_writer,
+                abort_signal=abort_signal,
             )
 
             logger.info(

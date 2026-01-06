@@ -1186,6 +1186,14 @@ class McpTool(BaseTool):
 
         sync_writer.background_tasks: set[asyncio.Task[None]] = set()  # type: ignore[attr-defined]
 
+        tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
+        chat_id = config.get("configurable", {}).get(
+            ConfigurableKey.THREAD_ID, "default"
+        )
+        abort_signal: asyncio.Event | None = config.get("configurable", {}).get(
+            ConfigurableKey.ABORT_SIGNAL, None
+        )
+
         async def elicitation_callback(
             context: RequestContext[ClientSession, Any],  # noqa: ARG001
             params: types.ElicitRequestParams,
@@ -1194,15 +1202,8 @@ class McpTool(BaseTool):
             return await self.mcp_server.elicitation_manager.request(
                 params=params,
                 writer=sync_writer,
+                abort_signal=abort_signal,
             )
-
-        tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
-        chat_id = config.get("configurable", {}).get(
-            ConfigurableKey.THREAD_ID, "default"
-        )
-        abort_signal: asyncio.Event | None = config.get("configurable", {}).get(
-            ConfigurableKey.ABORT_SIGNAL, None
-        )
 
         if not self.kwargs_arg and len(kwargs) == 1 and "kwargs" in kwargs:
             if isinstance(kwargs["kwargs"], str):
