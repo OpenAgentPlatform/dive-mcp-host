@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+from mcp.shared.auth import OAuthClientInformationFull, OAuthMetadata, OAuthToken
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -49,6 +49,11 @@ class BaseOAuthtokenStore(BaseTokenStore):
                 client_info=store.client_info.model_dump(by_alias=True, mode="json")
                 if store.client_info
                 else None,
+                oauth_metadata=store.oauth_metadata.model_dump(
+                    by_alias=True, mode="json"
+                )
+                if store.oauth_metadata
+                else None,
             )
             await session.execute(query)
             await session.commit()
@@ -76,6 +81,10 @@ class BaseOAuthtokenStore(BaseTokenStore):
             if oauth and oauth.client_info:
                 token_store.client_info = OAuthClientInformationFull.model_validate(
                     oauth.client_info
+                )
+            if oauth and oauth.oauth_metadata:
+                token_store.oauth_metadata = OAuthMetadata.model_validate(
+                    oauth.oauth_metadata
                 )
 
             token_store.update_method = lambda s: self._update(name, s)
