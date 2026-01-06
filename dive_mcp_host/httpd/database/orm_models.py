@@ -210,6 +210,7 @@ class OAuth(Base):
         client_id: Client ID.
         client_secret: Client secret.
         client_info: Client info.
+        oauth_metadata: OAuth server metadata.
     """
 
     __tablename__ = "oauth_credentials"
@@ -233,5 +234,8 @@ class OAuth(Base):
     client_id: Mapped[str | None] = mapped_column(Text())
     client_secret: Mapped[str | None] = mapped_column(Text())
     client_info: Mapped[dict | None] = mapped_column(
+        PGJSONB().with_variant(SQLiteJSON(), "sqlite")
+    )
+    oauth_metadata: Mapped[dict | None] = mapped_column(
         PGJSONB().with_variant(SQLiteJSON(), "sqlite")
     )
