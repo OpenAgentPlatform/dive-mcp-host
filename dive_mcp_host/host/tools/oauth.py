@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable, Hashable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -138,14 +139,21 @@ class TokenStore:
         default=None, exclude=True
     )
     oauth_metadata: OAuthMetadata | None = None
+    token_expiry_time: int | None = None
 
     async def get_tokens(self) -> OAuthToken | None:
         """Get the tokens for the client."""
+        if self.token_expiry_time is not None and self.tokens is not None:
+            self.tokens.expires_in = int(self.token_expiry_time - time.time())
         return self.tokens
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         """Set the tokens for the client."""
         self.tokens = tokens
+        if tokens.expires_in is not None:
+            self.token_expiry_time = int(time.time()) + tokens.expires_in
+        else:
+            self.token_expiry_time = None
         if self.update_method:
             await self.update_method(self)
 
