@@ -469,7 +469,7 @@ Safety notes:
         # Request user confirmation before executing the command
         if elicitation_manager is not None:
             confirm_message = (
-                f"The installer agent wants to execute the following command:\n\n"
+                f"The bash tool wants to execute the following command:\n\n"
                 f"```\n{command}\n```"
             )
             if is_high_risk:
@@ -933,7 +933,7 @@ Always requests user approval before writing."""
         if elicitation_manager is not None:
             operation = "overwrite" if file_exists else "create"
             confirm_message = (
-                f"The agent wants to {operation} the following file:\n\n"
+                f"The write_file tool wants to {operation} the following file:\n\n"
                 f"**Path:** `{path}`\n"
                 f"**Size:** {len(content)} bytes\n\n"
                 f"**Content:**\n```\n{content_preview}\n```"
