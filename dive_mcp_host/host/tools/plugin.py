@@ -147,13 +147,11 @@ class ToolManagerPlugin:
 
     def get_tools(
         self,
-        include_installer: bool = True,
         include_local_tools: bool = False,
     ) -> list[BaseTool]:
         """Get all registered tools.
 
         Args:
-            include_installer: Whether to include the installer tool.
             include_local_tools: Whether to include local tools (fetch, bash, etc.).
 
         Returns:

@@ -128,38 +128,6 @@ def _get_httpd_base_url() -> str | None:
     return get_httpd_base_url()
 
 
-def _emit_tool_call(
-    writer: Callable[[tuple[str, Any]], None],
-    tool_call_id: str | None,
-    name: str,
-    args: dict[str, Any],
-) -> None:
-    """Emit agent_tool_call event."""
-    # if tool_call_id:
-    #     writer(
-    #         (
-    #             AgentToolCall.NAME,
-    #             AgentToolCall(tool_call_id=tool_call_id, name=name, args=args),
-    #         )
-    #     )
-
-
-def _emit_tool_result(
-    writer: Callable[[tuple[str, Any]], None],
-    tool_call_id: str | None,
-    name: str,
-    result: str,
-) -> None:
-    """Emit agent_tool_result event."""
-    # if tool_call_id:
-    #     writer(
-    #         (
-    #             AgentToolResult.NAME,
-    #             AgentToolResult(tool_call_id=tool_call_id, name=name, result=result),
-    #         )
-    #     )
-
-
 class FetchInput(BaseModel):
     """Input schema for the fetch tool."""
 
@@ -201,15 +169,11 @@ The tool will request user approval for unfamiliar URLs."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
 
         # Check if already aborted
         if _check_aborted(abort_signal):
             return "Error: Operation aborted."
-
-        tool_args = {"url": url, "method": method, "headers": headers}
-        _emit_tool_call(stream_writer, tool_call_id, self.name, tool_args)
 
         # Perform the fetch
         stream_writer(
@@ -278,8 +242,6 @@ The tool will request user approval for unfamiliar URLs."""
 
         except httpx.HTTPError as e:
             result = f"Error fetching {url}: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -416,20 +378,9 @@ Safety notes:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         dry_run = _get_dry_run(config)
 
-        args = {
-            "command": command,
-            "working_dir": working_dir,
-            "timeout": timeout,
-            "requires_password": requires_password,
-            "is_high_risk": is_high_risk,
-        }
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
-
-        result = await self._execute_bash(
+        return await self._execute_bash(
             command=command,
             working_dir=working_dir,
             timeout=timeout,
@@ -440,10 +391,6 @@ Safety notes:
             dry_run=dry_run,
             config=config,
         )
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-
-        return result
 
     async def _execute_bash(
         self,
@@ -817,15 +764,11 @@ Supports text files only."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
 
         # Check if already aborted
         if _check_aborted(abort_signal):
             return "Error: Operation aborted."
-
-        args = {"path": path, "encoding": encoding}
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
 
         # Expand user home directory
         expanded_path = str(Path(path).expanduser())
@@ -858,8 +801,6 @@ Supports text files only."""
 
         except OSError as e:
             result = f"Error reading file {path}: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -914,19 +855,9 @@ Always requests user approval before writing."""
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         dry_run = _get_dry_run(config)
 
-        args = {
-            "path": path,
-            "content": content[:200] + "..." if len(content) > 200 else content,
-            "encoding": encoding,
-            "create_dirs": create_dirs,
-        }
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, args)
-
-        result = await self._execute_write(
+        return await self._execute_write(
             path=path,
             content=content,
             encoding=encoding,
@@ -935,10 +866,6 @@ Always requests user approval before writing."""
             dry_run=dry_run,
             config=config,
         )
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-
-        return result
 
     async def _execute_write(
         self,
@@ -1081,16 +1008,11 @@ class InstallMCPInstructions(BaseTool):
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, {})
 
         # Check if already aborted
         if _check_aborted(abort_signal):
-            result = "Error: Operation aborted."
-            _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-            return result
+            return "Error: Operation aborted."
 
         stream_writer(
             (
@@ -1108,8 +1030,6 @@ class InstallMCPInstructions(BaseTool):
         except Exception as e:
             logger.exception("Error reading MCP installer system prompt")
             result = f"Error reading MCP installer system prompt: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -1150,16 +1070,11 @@ Returns a JSON object with all configured MCP servers, including:
         config = _ensure_config(config)
 
         stream_writer = _get_stream_writer(config)
-        tool_call_id = _get_tool_call_id(config)
         abort_signal = _get_abort_signal(config)
-
-        _emit_tool_call(stream_writer, tool_call_id, self.name, {})
 
         # Check if already aborted
         if _check_aborted(abort_signal):
-            result = "Error: Operation aborted."
-            _emit_tool_result(stream_writer, tool_call_id, self.name, result)
-            return result
+            return "Error: Operation aborted."
 
         stream_writer(
             (
@@ -1189,8 +1104,6 @@ Returns a JSON object with all configured MCP servers, including:
         except Exception as e:
             logger.exception("Error reading MCP config")
             result = f"Error reading MCP configuration: {e}"
-
-        _emit_tool_result(stream_writer, tool_call_id, self.name, result)
 
         return result
 
@@ -1716,16 +1629,7 @@ Example:
 
 def get_installer_tools() -> list[BaseTool]:
     """Get all installer agent tools."""
-    return [
-        # InstallerFetchTool(),
-        # InstallerBashTool(),
-        # InstallerReadFileTool(),
-        # InstallerWriteFileTool(),
-        # InstallerGetMcpConfigTool(),
-        # InstallerAddMcpServerTool(),
-        # InstallerReloadMcpServerTool(),
-        # InstallerRequestConfirmationTool(),
-    ]
+    return []
 
 
 def get_local_tools() -> list[BaseTool]:
@@ -1743,7 +1647,6 @@ def get_local_tools() -> list[BaseTool]:
         InstallerBashTool(),
         InstallerReadFileTool(),
         InstallerWriteFileTool(),
-        # Install related tools
         InstallerGetMcpConfigTool(),
         InstallerAddMcpServerTool(),
         InstallerReloadMcpServerTool(),

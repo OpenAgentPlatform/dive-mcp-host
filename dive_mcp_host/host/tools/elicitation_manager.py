@@ -6,6 +6,7 @@ Manages elicitation requests and responses, bridging MCP servers and frontend.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +14,6 @@ from mcp import types
 from pydantic import BaseModel
 
 from dive_mcp_host.host.custom_events import ToolElicitationRequest
-import contextlib
 
 if TYPE_CHECKING:
     from collections.abc import Callable
