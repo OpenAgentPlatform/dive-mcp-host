@@ -179,7 +179,7 @@ class ElicitationManager:
         """
         return self._request_info.get(request_id)
 
-    def respond_to_request(
+    async def respond_to_request(
         self,
         request_id: str,
         action: str,
@@ -212,33 +212,7 @@ class ElicitationManager:
             content=content,
         )
 
-        # Set the result on the future. We try to detect if we're in the same
-        # event loop as the future, and if so, set the result directly.
-        # Otherwise, use call_soon_threadsafe to schedule it in the correct loop.
-        try:
-            future_loop = future.get_loop()
-            try:
-                current_loop = asyncio.get_running_loop()
-                if current_loop is future_loop:
-                    # Same loop, set directly
-                    future.set_result(result)
-                elif future_loop.is_running():
-                    # Different loop and it's running, use threadsafe call
-                    future_loop.call_soon_threadsafe(future.set_result, result)
-                else:
-                    # Future's loop is not running, set directly
-                    # This can happen in test scenarios where futures are created
-                    # in a different context than where they're resolved
-                    future.set_result(result)
-            except RuntimeError:
-                # No running loop (sync context), set directly
-                # This is safe because if we're in a sync context, there's no
-                # concurrent access to worry about
-                future.set_result(result)
-        except RuntimeError:
-            # Fallback if loop is closed
-            if not future.done():
-                future.set_result(result)
+        future.set_result(result)
 
         logger.debug(
             "Resolved elicitation request %s with action %s", request_id, action
