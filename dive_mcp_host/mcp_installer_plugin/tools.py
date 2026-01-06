@@ -27,8 +27,6 @@ from langgraph.config import get_config
 from pydantic import BaseModel, Field
 
 from dive_mcp_host.mcp_installer_plugin.events import (
-    AgentToolCall,
-    AgentToolResult,
     InstallerToolLog,
 )
 from dive_mcp_host.mcp_installer_plugin.prompt import get_installer_system_prompt
@@ -1066,7 +1064,10 @@ class InstallMCPInstructions(BaseTool):
     """Tool for getting the MCP installation prompt."""
 
     name: str = "install_mcp_instructions"
-    description: str = """Tool for getting the MCP installation prompt."""
+    description: str = """
+    Tool for getting the MCP installation instructions.
+    MUST call this tool before any MCP installation related stuff.
+    """
     args_schema: type[BaseModel] | None = None
 
     async def _arun(
@@ -1739,9 +1740,9 @@ def get_local_tools() -> list[BaseTool]:
         InstallerReadFileTool(),
         InstallerWriteFileTool(),
         # Install related tools
-        InstallMCPInstructions(),
         InstallerGetMcpConfigTool(),
         InstallerAddMcpServerTool(),
         InstallerReloadMcpServerTool(),
         InstallerRequestConfirmationTool(),
+        InstallMCPInstructions(),
     ]
