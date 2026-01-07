@@ -1,7 +1,7 @@
 import asyncio
-from os import environ
 import uuid
 from datetime import UTC, datetime
+from os import environ
 
 import pytest
 import pytest_asyncio
