@@ -704,12 +704,12 @@ class McpServer(ContextProtocol):
         Returns:
             The context manager for the session.
         """
+        self._stdio_elicitation_callback = elicitation_callback
 
         @asynccontextmanager
         async def _create(**_kwargs: Any) -> AsyncGenerator[ClientSession, None]:
             """Create new session."""
             # Set the elicitation callback for this tool call
-            self._stdio_elicitation_callback = elicitation_callback
             try:
                 async with self._stdio_client_watcher() as session:
                     await session.initialize()
