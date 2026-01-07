@@ -187,10 +187,15 @@ class DiveHostAPI(FastAPI):
         # ================================================
         config = await self.load_host_config()
         async with AsyncExitStack() as stack:
-            await stack.enter_async_context(self._plugin_manager)
-            await stack.enter_async_context(self._store)
-            default_host = DiveMcpHost(config, self._store, self._oauth_store)
-            await stack.enter_async_context(default_host)
+            try:
+                await stack.enter_async_context(self._plugin_manager)
+                await stack.enter_async_context(self._store)
+                default_host = DiveMcpHost(config, self._store, self._oauth_store)
+                await stack.enter_async_context(default_host)
+            except:
+                logger.exception("Dive Host initialize error")
+                raise
+
             self.dive_host = {"default": default_host}
 
             # Set httpd base URL for installer tools
