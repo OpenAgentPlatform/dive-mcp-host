@@ -1,6 +1,7 @@
 import asyncio
 import uuid
 from datetime import UTC, datetime
+from os import environ
 
 import pytest
 import pytest_asyncio
@@ -184,6 +185,7 @@ async def insert_dummy_data(sample_messages: dict[str, ORMMessage]):
 
 # Tests for BaseMessageStore methods
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_all_chats(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -242,6 +244,7 @@ async def test_get_all_chats(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_all_chats_no_user(
     message_store: BaseMessageStore,
     sample_chat_no_user: ORMChat,
@@ -269,6 +272,7 @@ async def test_get_all_chats_no_user(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_chat_with_messages(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -294,6 +298,7 @@ async def test_get_chat_with_messages(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_chat_with_messages_not_found(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -310,6 +315,7 @@ async def test_get_chat_with_messages_not_found(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_create_message(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -345,6 +351,7 @@ async def test_create_message(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_create_message_with_resource_usage(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -387,6 +394,7 @@ async def test_create_message_with_resource_usage(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_check_chat_exists(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -408,6 +416,7 @@ async def test_check_chat_exists(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_delete_chat(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -424,6 +433,7 @@ async def test_delete_chat(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_delete_messages_after(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -460,6 +470,7 @@ async def test_delete_messages_after(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_next_ai_message(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -483,6 +494,7 @@ async def test_get_next_ai_message(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_next_ai_message_error(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -501,6 +513,7 @@ async def test_get_next_ai_message_error(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_get_next_ai_message_not_found(
     message_store: BaseMessageStore,
     sample_chat: ORMChat,
@@ -537,6 +550,7 @@ async def postgresql_message_store(session: AsyncSession):
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_create_chat(
     postgresql_message_store: PostgreSQLMessageStore,
     sample_user: ORMUsers,
@@ -570,6 +584,7 @@ async def test_create_chat(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_create_chat_duplicate(
     postgresql_message_store: PostgreSQLMessageStore,
     sample_user: ORMUsers,
@@ -606,6 +621,7 @@ async def test_create_chat_duplicate(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_patch_chat(postgresql_message_store: PostgreSQLMessageStore):
     """Test if patch works."""
     chat = await postgresql_message_store.create_chat(

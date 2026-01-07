@@ -54,6 +54,7 @@ class BaseOAuthtokenStore(BaseTokenStore):
                 )
                 if store.oauth_metadata
                 else None,
+                token_expiry_time=store.token_expiry_time,
             )
             await session.execute(query)
             await session.commit()
@@ -86,6 +87,8 @@ class BaseOAuthtokenStore(BaseTokenStore):
                 token_store.oauth_metadata = OAuthMetadata.model_validate(
                     oauth.oauth_metadata
                 )
+            if oauth and oauth.token_expiry_time:
+                token_store.token_expiry_time = oauth.token_expiry_time
 
             token_store.update_method = lambda s: self._update(name, s)
             return token_store
@@ -104,4 +107,4 @@ class BaseOAuthtokenStore(BaseTokenStore):
         async with self._session_maker() as session:
             query = select(OAuth.name).where(OAuth.user_id == self._user_id)
             result = await session.scalars(query)
-            return result.all()
+            return list(result.all())
