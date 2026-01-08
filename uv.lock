@@ -551,6 +551,7 @@ dependencies = [
     { name = "alembic" },
     { name = "anyio" },
     { name = "asyncpg" },
+    { name = "dive-mcp-sdk" },
     { name = "fastapi" },
     { name = "httpx", extra = ["brotli", "http2", "socks", "zstd"] },
     { name = "langchain" },
@@ -565,7 +566,6 @@ dependencies = [
     { name = "langgraph-checkpoint-postgres" },
     { name = "langgraph-checkpoint-sqlite" },
     { name = "langgraph-prebuilt" },
-    { name = "mcp" },
     { name = "pillow" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
@@ -597,6 +597,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.15.2,<1.16" },
     { name = "anyio", specifier = ">=4.10.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
+    { name = "dive-mcp-sdk", specifier = ">=1.0.2" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "httpx", extras = ["brotli", "http2", "socks", "zstd"], specifier = ">=0.28.1" },
     { name = "langchain", specifier = ">=1.2.1" },
@@ -612,7 +613,6 @@ requires-dist = [
     { name = "langgraph-checkpoint-postgres", specifier = ">=3.0.2" },
     { name = "langgraph-checkpoint-sqlite", specifier = ">=3.0.1" },
     { name = "langgraph-prebuilt", specifier = ">=1.0.5" },
-    { name = "mcp", git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?rev=d32d1f7dba70277967e938856f2541d0e34a71d0" },
     { name = "pillow", specifier = ">=11.3.0" },
     { name = "pproxy", marker = "extra == 'dev'" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },
@@ -633,6 +633,31 @@ requires-dist = [
     { name = "websockets", specifier = ">=15.0.1" },
 ]
 provides-extras = ["clipboard", "dev"]
+
+[[package]]
+name = "dive-mcp-sdk"
+version = "1.0.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "httpx" },
+    { name = "httpx-sse" },
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "python-multipart" },
+    { name = "pywin32", marker = "sys_platform == 'win32'" },
+    { name = "sse-starlette" },
+    { name = "starlette" },
+    { name = "typing-extensions" },
+    { name = "typing-inspection" },
+    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d7/d0/7993ac0a53f28d51180d2da3448748a758d597539aad11f082f7d5e35e61/dive_mcp_sdk-1.0.2.tar.gz", hash = "sha256:c924fe97095afcb8b032e89b4e04c8c6e132052061389a77d2a4028c99cee868", size = 607889, upload-time = "2026-01-08T03:11:02.424Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/39/0715029ac9542442cc3527aaf2c043b2acc494fb46da9c1c55089d96df15/dive_mcp_sdk-1.0.2-py3-none-any.whl", hash = "sha256:6641f70c1811e5853737cf6a03699f766ee547d9d34f4befbffc4964d04c88fb", size = 233267, upload-time = "2026-01-08T03:11:00.208Z" },
+]
 
 [[package]]
 name = "docstring-parser"
@@ -1512,27 +1537,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/55/79/de6c16cc902f4fc372236926b0ce2ab7845268dcc30fb2fbb7f71b418631/marshmallow-3.26.2.tar.gz", hash = "sha256:bbe2adb5a03e6e3571b573f42527c6fe926e17467833660bebd11593ab8dfd57", size = 222095, upload-time = "2025-12-22T06:53:53.309Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/be/2f/5108cb3ee4ba6501748c4908b908e55f42a5b66245b4cfe0c99326e1ef6e/marshmallow-3.26.2-py3-none-any.whl", hash = "sha256:013fa8a3c4c276c24d26d84ce934dc964e2aa794345a0f8c7e5a7191482c8a73", size = 50964, upload-time = "2025-12-22T06:53:51.801Z" },
-]
-
-[[package]]
-name = "mcp"
-version = "0.0.1.dev702+d32d1f7"
-source = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git?rev=d32d1f7dba70277967e938856f2541d0e34a71d0#d32d1f7dba70277967e938856f2541d0e34a71d0" }
-dependencies = [
-    { name = "anyio" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
-    { name = "jsonschema" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "python-multipart" },
-    { name = "pywin32", marker = "sys_platform == 'win32'" },
-    { name = "sse-starlette" },
-    { name = "starlette" },
-    { name = "typing-extensions" },
-    { name = "typing-inspection" },
-    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
 
 [[package]]
