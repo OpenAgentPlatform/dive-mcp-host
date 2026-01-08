@@ -17,7 +17,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "fastapi>=0.116.1",
-    "mcp",
+    "dive-mcp-sdk>=1.0.2",
     "anyio>=4.10.0",
     "pydantic>=2.11.7",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
@@ -51,9 +51,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-
-[tool.uv.sources]
-mcp = { git = "https://github.com/OpenAgentPlatform/mcp-python-sdk.git", rev = "d32d1f7dba70277967e938856f2541d0e34a71d0" }
 
 [project.optional-dependencies]
 clipboard = []
