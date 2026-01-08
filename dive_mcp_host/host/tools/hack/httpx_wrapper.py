@@ -20,7 +20,7 @@ class AsyncClient:
     @classmethod
     def _get_or_create_client(
         cls,
-        key: str | None = None,
+        key: str,
         proxy: str | None = None,
         verify: bool = True,
     ) -> httpx.AsyncClient:
@@ -54,10 +54,10 @@ class AsyncClient:
     def __init__(
         self,
         *,
+        key: str,
         auth: httpx.Auth | None = None,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | float | None = None,
-        key: str | None = None,
         proxy: str | None = None,
         verify: bool = True,
     ) -> None:
