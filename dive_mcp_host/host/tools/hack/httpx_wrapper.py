@@ -1,18 +1,55 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 
 
 class AsyncClient:
-    """Wrapper. Uses global AsyncClient, created on first AsyncClient.
+    """Wrapper. Uses shared AsyncClients from a global pool.
 
-    Auth, header and timeout will be stored on creation and
-    set on runtime when calling any method.
+    Auth, headers and timeout are stored per-instance and applied at request time.
+
+    By default uses a shared global client. If proxy or verify=False is specified,
+    a separate client is created and cached by the provided key (typically MCP name).
     """
 
-    _global_client: httpx.AsyncClient | None = None
+    _default_client: ClassVar[httpx.AsyncClient | None] = None
+    _custom_clients: ClassVar[dict[str, httpx.AsyncClient]] = {}
+
+    @classmethod
+    def _get_or_create_client(
+        cls,
+        key: str | None = None,
+        proxy: str | None = None,
+        verify: bool = True,
+    ) -> httpx.AsyncClient:
+        """Get or create an httpx client.
+
+        Args:
+            key: Cache key for custom clients (e.g., MCP name).
+            proxy: Proxy URL for this client.
+            verify: Whether to verify SSL certificates.
+
+        Returns:
+            The shared default client, or a custom client for the given key.
+        """
+        # Use custom client if proxy or verify=False
+        if proxy or not verify:
+            if key is None:
+                msg = "key is required when using proxy or verify=False"
+                raise ValueError(msg)
+            if key not in cls._custom_clients:
+                kwargs: dict[str, Any] = {"follow_redirects": True, "verify": verify}
+                if proxy:
+                    kwargs["proxy"] = proxy
+                cls._custom_clients[key] = httpx.AsyncClient(**kwargs)
+            return cls._custom_clients[key]
+
+        # Use default client
+        if cls._default_client is None:
+            cls._default_client = httpx.AsyncClient(follow_redirects=True)
+        return cls._default_client
 
     def __init__(
         self,
@@ -20,31 +57,39 @@ class AsyncClient:
         auth: httpx.Auth | None = None,
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | float | None = None,
+        key: str | None = None,
+        proxy: str | None = None,
+        verify: bool = True,
     ) -> None:
         """Initialize the wrapper with instance-level settings.
 
         Args:
             auth: Authentication to apply to requests.
             headers: Headers to merge into each request.
-            timeout: Timeout to apply to requests.
-            **kwargs: Additional kwargs passed to the global client on creation.
+            timeout: Timeout to apply to requests (default 30s).
+            key: Cache key for custom client (e.g., MCP name). Required if
+                proxy or verify=False.
+            proxy: Proxy URL. If set, uses a separate cached client for this key.
+            verify: Whether to verify SSL. If False, uses a separate cached client.
         """
         self._auth = auth
         self._headers = headers or {}
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else httpx.Timeout(30.0)
+        self._key = key
+        self._proxy = proxy
+        self._verify = verify
 
-        # Create global client on first instantiation
-        if AsyncClient._global_client is None:
-            AsyncClient._global_client = httpx.AsyncClient()
+        # Ensure client exists
+        self._get_or_create_client(key=key, proxy=proxy, verify=verify)
 
     @property
     def _client(self) -> httpx.AsyncClient:
-        if AsyncClient._global_client is None:
-            AsyncClient._global_client = httpx.AsyncClient()
-        return AsyncClient._global_client
+        return self._get_or_create_client(
+            key=self._key, proxy=self._proxy, verify=self._verify
+        )
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to the global client."""
+        """Delegate attribute access to the underlying client."""
         return getattr(self._client, name)
 
     def _merge_kwargs(self, kwargs: dict[str, Any]) -> dict[str, Any]:
@@ -123,18 +168,28 @@ class AsyncClient:
         return await self._client.options(url, **self._merge_kwargs(kwargs))
 
     async def aclose(self) -> None:
-        """No-op for individual wrappers - global client stays open."""
+        """No-op for individual wrappers - clients are managed globally."""
 
     @classmethod
-    async def close_global(cls) -> None:
-        """Close the global client. Call this on application shutdown."""
-        if cls._global_client is not None:
-            await cls._global_client.aclose()
-            cls._global_client = None
+    async def close_all(cls) -> None:
+        """Close all clients (default and custom). Call on application shutdown."""
+        if cls._default_client is not None:
+            await cls._default_client.aclose()
+            cls._default_client = None
+        for client in cls._custom_clients.values():
+            await client.aclose()
+        cls._custom_clients.clear()
+
+    @classmethod
+    async def close_client(cls, key: str) -> None:
+        """Close and remove a specific custom client by key."""
+        if key in cls._custom_clients:
+            await cls._custom_clients[key].aclose()
+            del cls._custom_clients[key]
 
     async def __aenter__(self) -> "AsyncClient":
         """Enter async context."""
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        """Exit async context without closing global client."""
+        """Exit async context without closing clients."""

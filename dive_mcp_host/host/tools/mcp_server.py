@@ -759,6 +759,10 @@ class McpServer(ContextProtocol):
                         for key, value in self.config.headers.items()
                     },
                     timeout=timeout,
+                    proxy=str(self.config.proxy) if self.config.proxy else None,
+                    verify=self.config.verify
+                    if self.config.verify is not None
+                    else True,
                 ),
             )
         if self.config.transport == "websocket":
