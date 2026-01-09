@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, ClassVar
@@ -12,10 +13,23 @@ class AsyncClient:
 
     By default uses a shared global client. If proxy or verify=False is specified,
     a separate client is created and cached by the provided key (typically MCP name).
+
+    The wrapper is event-loop aware: if the event loop changes (e.g., between test
+    runs), cached clients bound to the old loop are discarded and new ones created.
     """
 
     _default_client: ClassVar[httpx.AsyncClient | None] = None
+    _default_client_loop: ClassVar[asyncio.AbstractEventLoop | None] = None
     _custom_clients: ClassVar[dict[str, httpx.AsyncClient]] = {}
+    _custom_clients_loops: ClassVar[dict[str, asyncio.AbstractEventLoop]] = {}
+
+    @classmethod
+    def _get_current_loop(cls) -> asyncio.AbstractEventLoop | None:
+        """Get the current running event loop, or None if not running."""
+        try:
+            return asyncio.get_running_loop()
+        except RuntimeError:
+            return None
 
     @classmethod
     def _get_or_create_client(
@@ -34,21 +48,41 @@ class AsyncClient:
         Returns:
             The shared default client, or a custom client for the given key.
         """
+        current_loop = cls._get_current_loop()
+
         # Use custom client if proxy or verify=False
         if proxy or not verify:
-            if key is None:
-                msg = "key is required when using proxy or verify=False"
-                raise ValueError(msg)
+            # Check if existing client is bound to a different (possibly closed) loop
+            if key in cls._custom_clients:
+                stored_loop = cls._custom_clients_loops.get(key)
+                if stored_loop is not current_loop:
+                    # Discard old client (don't close - loop may be closed)
+                    del cls._custom_clients[key]
+                    if key in cls._custom_clients_loops:
+                        del cls._custom_clients_loops[key]
+
             if key not in cls._custom_clients:
                 kwargs: dict[str, Any] = {"follow_redirects": True, "verify": verify}
                 if proxy:
                     kwargs["proxy"] = proxy
                 cls._custom_clients[key] = httpx.AsyncClient(**kwargs)
+                if current_loop is not None:
+                    cls._custom_clients_loops[key] = current_loop
             return cls._custom_clients[key]
 
         # Use default client
+        # Check if existing default client is bound to a different loop
+        if (
+            cls._default_client is not None
+            and cls._default_client_loop is not current_loop
+        ):
+            # Discard old client (don't close - loop may be closed)
+            cls._default_client = None
+            cls._default_client_loop = None
+
         if cls._default_client is None:
             cls._default_client = httpx.AsyncClient(follow_redirects=True)
+            cls._default_client_loop = current_loop
         return cls._default_client
 
     def __init__(
@@ -176,9 +210,11 @@ class AsyncClient:
         if cls._default_client is not None:
             await cls._default_client.aclose()
             cls._default_client = None
+            cls._default_client_loop = None
         for client in cls._custom_clients.values():
             await client.aclose()
         cls._custom_clients.clear()
+        cls._custom_clients_loops.clear()
 
     @classmethod
     async def close_client(cls, key: str) -> None:
@@ -186,6 +222,8 @@ class AsyncClient:
         if key in cls._custom_clients:
             await cls._custom_clients[key].aclose()
             del cls._custom_clients[key]
+            if key in cls._custom_clients_loops:
+                del cls._custom_clients_loops[key]
 
     async def __aenter__(self) -> "AsyncClient":
         """Enter async context."""

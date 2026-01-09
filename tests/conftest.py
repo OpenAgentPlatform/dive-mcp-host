@@ -10,6 +10,30 @@ import pytest_asyncio
 
 from dive_mcp_host.host.conf import LogConfig
 from dive_mcp_host.host.tools import ServerConfig
+from dive_mcp_host.host.tools.hack.httpx_wrapper import AsyncClient as WrappedAsyncClient
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_httpx_wrapper() -> AsyncGenerator[None, None]:
+    """Clean up shared httpx clients after each test.
+
+    The AsyncClient wrapper uses class-level client caching. When tests run
+    sequentially with function-scoped event loops, cached clients become
+    bound to closed event loops. This fixture ensures cleanup after each test.
+
+    The wrapper is also event-loop aware and will automatically discard clients
+    bound to different loops, so this cleanup is mostly for graceful shutdown.
+    """
+    yield
+    try:
+        await WrappedAsyncClient.close_all()
+    except RuntimeError:
+        # Event loop might be closing, just clear references
+        # The wrapper's event-loop awareness will handle this case
+        WrappedAsyncClient._default_client = None
+        WrappedAsyncClient._default_client_loop = None
+        WrappedAsyncClient._custom_clients.clear()
+        WrappedAsyncClient._custom_clients_loops.clear()
 
 
 @pytest.fixture
