@@ -595,7 +595,7 @@ async def execute_bash(
     if elicitation_manager is not None:
         confirm_message = (
             f"The bash tool wants to execute the following command:\n\n"
-            f"```\n{command}\n```"
+            f"```bash\n{command}\n```"
         )
         if is_high_risk:
             confirm_message += f"\n\n⚠️ **High Risk**: {', '.join(risk_reasons)}"
