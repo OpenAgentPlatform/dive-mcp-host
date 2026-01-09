@@ -445,12 +445,45 @@ class ChatProcessor:
         )
 
         start = time.time()
-        user_message, ai_message, current_messages, ttft = await self._process_chat(
-            chat_id,
-            query_message,
-            is_resend=regenerate_message_id is not None,
-            start_time=start,
-        )
+        try:
+            user_message, ai_message, current_messages, ttft = await self._process_chat(
+                chat_id,
+                query_message,
+                is_resend=regenerate_message_id is not None,
+                start_time=start,
+            )
+        except Exception as exc:
+            # Generate assistant message ID upfront for error recovery
+            placeholder_ai_message_id = str(uuid4())
+            # Send message_info even on error so client can retry
+            user_msg_id = (
+                query_message.id
+                if query_message and hasattr(query_message, "id")
+                else None
+            )
+            if user_msg_id:
+                # Create placeholder assistant message for retry support
+                async with self.app.db_sessionmaker() as session:
+                    db = self.app.msg_store(session)
+                    await db.create_message(
+                        NewMessage(
+                            chatId=chat_id,
+                            role=Role.ASSISTANT,
+                            messageId=placeholder_ai_message_id,
+                            content=f"<chat_error>{exc}</chat_error>",
+                        ),
+                    )
+                    await session.commit()
+                await self.stream.write(
+                    StreamMessage(
+                        type="message_info",
+                        content=MessageInfoContent(
+                            userMessageId=user_msg_id,
+                            assistantMessageId=placeholder_ai_message_id,
+                        ),
+                    )
+                )
+            raise
         end = time.time()
         if ai_message is None:
             if title_await:
