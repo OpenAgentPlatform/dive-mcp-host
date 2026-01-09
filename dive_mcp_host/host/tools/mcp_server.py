@@ -12,7 +12,6 @@ from contextlib import (
     asynccontextmanager,
     suppress,
 )
-from datetime import timedelta
 from json import JSONDecodeError
 from json import loads as json_loads
 from logging import getLogger
@@ -29,7 +28,7 @@ from langgraph.config import get_stream_writer
 from mcp import McpError, StdioServerParameters, types
 from mcp.client.auth import OAuthFlowError
 from mcp.client.sse import sse_client
-from mcp.client.streamable_http import streamablehttp_client
+from mcp.client.streamable_http import streamable_http_client
 from mcp.client.websocket import websocket_client
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
@@ -51,6 +50,7 @@ from dive_mcp_host.host.tools.hack import (
     create_mcp_http_client_factory,
     stdio_client,
 )
+from dive_mcp_host.host.tools.hack.httpx_wrapper import AsyncClient
 from dive_mcp_host.host.tools.local_http_server import local_http_server
 from dive_mcp_host.host.tools.log import LogBuffer, LogProxy
 from dive_mcp_host.host.tools.model_types import ChatID, ClientState
@@ -750,16 +750,21 @@ class McpServer(ContextProtocol):
                 auth=auth,
             )
         if self.config.transport in ("streamable"):
-            return streamablehttp_client(
+            return streamable_http_client(
                 url=self.config.url,
-                headers={
-                    key: value.get_secret_value()
-                    for key, value in self.config.headers.items()
-                },
-                timeout=timedelta(seconds=timeout),
-                httpx_client_factory=self._httpx_client_factory,
-                sse_read_timeout=timedelta(seconds=sse_read_timeout),
-                auth=auth,
+                http_client=AsyncClient(  # type: ignore
+                    auth=auth,
+                    headers={
+                        key: value.get_secret_value()
+                        for key, value in self.config.headers.items()
+                    },
+                    timeout=timeout,
+                    key=self.name,
+                    proxy=str(self.config.proxy) if self.config.proxy else None,
+                    verify=self.config.verify
+                    if self.config.verify is not None
+                    else True,
+                ),
             )
         if self.config.transport == "websocket":
             return websocket_client(

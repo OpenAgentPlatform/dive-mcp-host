@@ -10,6 +10,32 @@ import pytest_asyncio
 
 from dive_mcp_host.host.conf import LogConfig
 from dive_mcp_host.host.tools import ServerConfig
+from dive_mcp_host.host.tools.hack.httpx_wrapper import (
+    AsyncClient as WrappedAsyncClient,
+)
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_httpx_wrapper() -> AsyncGenerator[None, None]:
+    """Clean up shared httpx clients after each test.
+
+    The AsyncClient wrapper uses class-level client caching. When tests run
+    sequentially with function-scoped event loops, cached clients become
+    bound to closed event loops. This fixture ensures cleanup after each test.
+
+    The wrapper is also event-loop aware and will automatically discard clients
+    bound to different loops, so this cleanup is mostly for graceful shutdown.
+    """
+    yield
+    try:
+        await WrappedAsyncClient.close_all()
+    except RuntimeError:
+        # Event loop might be closing, just clear references
+        # The wrapper's event-loop awareness will handle this case
+        WrappedAsyncClient._default_client = None  # noqa: SLF001
+        WrappedAsyncClient._default_client_loop = None  # noqa: SLF001
+        WrappedAsyncClient._custom_clients.clear()  # noqa: SLF001
+        WrappedAsyncClient._custom_clients_loops.clear()  # noqa: SLF001
 
 
 @pytest.fixture
@@ -203,6 +229,35 @@ async def pproxy_server(
         else:
             raise RuntimeError("Failed to start pproxy server")
         yield f"localhost:{port}"
+    finally:
+        proc.send_signal(signal.SIGKILL)
+        await proc.wait()
+
+
+@pytest_asyncio.fixture
+async def echo_http_server(
+    unused_tcp_port_factory: Callable[[], int],
+) -> AsyncGenerator[str, None]:
+    """Start a simple echo HTTP server for testing the httpx wrapper."""
+    port = unused_tcp_port_factory()
+    proc = await asyncio.create_subprocess_exec(
+        "python3",
+        "-m",
+        "tests.servers.echo_httpd",
+        "--host=localhost",
+        f"--port={port}",
+    )
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get(f"http://localhost:{port}/echo")
+            break
+        except httpx.HTTPStatusError:
+            break
+        except:  # noqa: E722
+            await asyncio.sleep(0.1)
+    try:
+        yield f"http://localhost:{port}"
     finally:
         proc.send_signal(signal.SIGKILL)
         await proc.wait()
