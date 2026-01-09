@@ -1,3 +1,11 @@
+"""Reason: Bug in httpx async support on windows.
+
+Async requests become sync requests when each request uses their own AsyncClient.
+This only happens on windows...
+
+The workaround is to use the same AsyncClient when possible.
+"""
+
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
