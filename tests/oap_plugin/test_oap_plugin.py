@@ -1,16 +1,18 @@
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any
 
-import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from dive_mcp_host.httpd.app import create_app
 from dive_mcp_host.httpd.conf.httpd_service import ConfigLocation, ServiceManager
+from dive_mcp_host.httpd.conf.mcp_servers import Config, MCPServerConfig
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.oap_plugin.config_mcp_servers import MCPServerManagerPlugin
-from dive_mcp_host.oap_plugin.models import UserMcpConfig
+from dive_mcp_host.oap_plugin.config_mcp_servers import (
+    TOKEN_PLACEHOLDER,
+)
+from tests.helper import dict_subset
 from tests.httpd.routers.conftest import ConfigFileNames, config_files  # noqa: F401
 
 
@@ -43,472 +45,102 @@ async def test_client(
         yield client, app
 
 
-def test_oap_plugin(
-    test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
-):
+def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
     """Test the OAP plugin."""
     oap_token = "fake-token"  # noqa: S105
-
-    config = UserMcpConfig(
-        id="19181672830075666433",
-        name="Fake Mcp Server",
-        description="a fake mcp server, for testing",
-        transport="sse",
-        url="http://127.0.0.1:3260",
-        headers={},
-        plan="free",
-    )
-
-    async def mock_get_user_mcp(
-        self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
-    ) -> list[UserMcpConfig] | None:
-        """Mock the get_user_mcp method."""
-        if not self.device_token:
-            return None
-
-        return [config]
-
-    monkeypatch.setattr(
-        "dive_mcp_host.oap_plugin.config_mcp_servers.MCPServerManagerPlugin._get_user_mcp_configs",
-        mock_get_user_mcp,
-    )
-
     client, _ = test_client
+    echo_config = MCPServerConfig.model_validate(
+        {
+            "transport": "stdio",
+            "enabled": True,
+            "command": "python3",
+            "args": ["-m", "dive_mcp_host.host.tools.echo", "--transport=stdio"],
+            "env": {"NODE_ENV": "production"},
+            "url": None,
+            "extraData": None,
+            "proxy": None,
+            "headers": None,
+            "exclude_tools": [],
+            "initialTimeout": 10.0,
+            "toolCallTimeout": 600.0,
+        }
+    )
+    oap_extra_data = {
+        "oap": {
+            "id": "181672830075666436",
+            "planTag": "pro",
+            "description": "SearXNG is a ...",
+        }
+    }
+
+    oap_token_set = MCPServerConfig.model_validate(
+        {
+            "transport": "streamable",
+            "enabled": True,
+            "url": "https://proxy.oaphub.ai/v1/mcp/181672830075666436",
+            "extraData": oap_extra_data,
+            "headers": {"Authorization": f"Bearer {oap_token}"},
+            "exclude_tools": [],
+        }
+    )
+    oap_header_need_token = MCPServerConfig(
+        transport="streamable",
+        enabled=True,
+        url="https://proxy.oaphub.ai/v1/mcp/181672830075666436",
+        extraData=oap_extra_data,
+        headers={"Authorization": SecretStr(f"Bearer {TOKEN_PLACEHOLDER}")},
+    )
+    oap_env_need_token = MCPServerConfig(
+        transport="stdio",
+        command="python3",
+        args=["-m", "dive_mcp_host.host.tools.echo", "--transport=stdio"],
+        env={"OAP_MCP_TOKEN": TOKEN_PLACEHOLDER},
+        extraData=oap_extra_data,
+    )
+
+    # Get current config
     response = client.get("/api/config/mcpserver")
     assert response.status_code == 200
-
     servers = response.json()["config"]["mcpServers"]
     assert len(servers) == 1
+    assert dict_subset(servers, {"echo": echo_config.model_dump()})
 
-    # load mcp token
+    # Login
     response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
     assert response.status_code == 200
 
-    # get mcp server
+    # Add OAP MCP
+    config = Config(
+        mcpServers={
+            "echo": echo_config,
+            "oap_token_set": oap_token_set,
+            "oap_header_need_token": oap_header_need_token,
+            "oap_env_need_token": oap_env_need_token,
+        }
+    )
+    response = client.post("/api/config/mcpserver", json=config.model_dump())
+    assert response.status_code == 200
+
+    # Get mcp server, device token should be correct
     response = client.get("/api/config/mcpserver")
     assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    # disable oap mcp and check info is present
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            value["enabled"] = False
-
-    response = client.post(
-        "/api/config/mcpserver",
-        json={"mcpServers": servers},
+    new_config = Config.model_validate(response.json()["config"])
+    assert new_config.mcp_servers["echo"] == config.mcp_servers["echo"]
+    # No need to change
+    assert (
+        new_config.mcp_servers["oap_token_set"] == config.mcp_servers["oap_token_set"]
     )
-    assert response.status_code == 200
-
-    # get mcp server
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    # check oap mcp is disabled
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
-            assert value["enabled"] is False
-
-    # enable oap mcp
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            value["enabled"] = True
-
-    response = client.post(
-        "/api/config/mcpserver",
-        json={"mcpServers": servers},
+    # Headers should be set, becomes the same as the previous one
+    assert (
+        new_config.mcp_servers["oap_header_need_token"]
+        == config.mcp_servers["oap_token_set"]
     )
-    assert response.status_code == 200
-
-    # check oap mcp is enabled
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
-            assert value["enabled"] is True
-
-    # drop mcp token (logout)
-    response = client.delete(
-        "/api/plugins/oap-platform/auth",
+    # Env should be set
+    assert new_config.mcp_servers["oap_env_need_token"] == MCPServerConfig(
+        transport="stdio",
+        command="python3",
+        args=["-m", "dive_mcp_host.host.tools.echo", "--transport=stdio"],
+        env={"OAP_MCP_TOKEN": oap_token},
+        extraData=oap_extra_data,
+        headers=None,
     )
-    assert response.status_code == 200
-
-    # check oap mcp is disabled
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) == 1
-
-    # login again
-    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
-    assert response.status_code == 200
-
-    # get mcp server
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    config.name = "Fake Mcp Server (updated)"
-    # refresh mcp server
-    response = client.post(
-        "/api/plugins/oap-platform/config/refresh",
-    )
-    assert response.status_code == 200
-
-    # get mcp server
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert key == config.name
-            assert value["headers"] == {"Authorization": f"Bearer {oap_token}"}
-
-    config.auth_type = "oauth2"
-    # refresh mcp server
-    response = client.post(
-        "/api/plugins/oap-platform/config/refresh",
-    )
-    assert response.status_code == 200
-
-    # get mcp server
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert key == config.name
-            assert value["headers"] is None
-
-
-def test_oap_plugin_external_endpoint_http(
-    test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
-):
-    """Test the OAP plugin with external endpoint (HTTP/SSE)."""
-    oap_token = "fake-token"  # noqa: S105
-
-    config = UserMcpConfig(
-        id="19181672830075666433",
-        name="HubSpot MCP",
-        description="HubSpot MCP Server with external endpoint",
-        transport="sse",
-        url="http://127.0.0.1:3260",
-        headers={},
-        plan="free",
-        external_endpoint={
-            "url": "https://mcp.hubspot.com/",
-            "headers": {"Authorization": "Bearer ${HUBSPOT_ACCESS_TOKEN}"},
-            "protocol": "streamable",
-        },
-    )
-
-    async def mock_get_user_mcp(
-        self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
-    ) -> list[UserMcpConfig] | None:
-        """Mock the get_user_mcp method."""
-        if not self.device_token:
-            return None
-
-        return [config]
-
-    monkeypatch.setattr(
-        "dive_mcp_host.oap_plugin.config_mcp_servers.MCPServerManagerPlugin._get_user_mcp_configs",
-        mock_get_user_mcp,
-    )
-
-    client, _ = test_client
-
-    # Login with oap token
-    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
-    assert response.status_code == 200
-
-    # Get mcp server config
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    # Find the HubSpot MCP server
-    hubspot_server = None
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            hubspot_server = value
-            assert key == config.name
-            assert value["url"] == "https://mcp.hubspot.com/"
-            assert value["transport"] == "streamable"
-            assert value["headers"]["Authorization"] == "Bearer ${HUBSPOT_ACCESS_TOKEN}"
-            assert value["enabled"] is True
-            break
-
-    assert hubspot_server is not None
-
-    # Update the config with new external endpoint URL
-    from dive_mcp_host.oap_plugin.models import ExternalEndpointHttp
-
-    config.external_endpoint = ExternalEndpointHttp(
-        url="https://mcp.hubspot.com/v2/",
-        headers={"Authorization": "Bearer ${HUBSPOT_ACCESS_TOKEN}"},
-        protocol="streamable",
-    )
-
-    # Refresh mcp server
-    response = client.post("/api/plugins/oap-platform/config/refresh")
-    assert response.status_code == 200
-
-    # Get mcp server again
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert key == config.name
-            assert value["url"] == "https://mcp.hubspot.com/v2/"
-            assert value["transport"] == "streamable"
-            assert value["enabled"] is True
-
-
-def test_oap_plugin_external_endpoint_stdio(
-    test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
-):
-    """Test the OAP plugin with external endpoint (stdio/command)."""
-    oap_token = "fake-token"  # noqa: S105
-
-    config = UserMcpConfig(
-        id="19181672830075666434",
-        name="File Uploader MCP",
-        description="File uploader MCP Server with external endpoint",
-        transport="sse",
-        url="http://127.0.0.1:3261",
-        headers={},
-        plan="free",
-        external_endpoint={
-            "command": "npx",
-            "args": ["@oaphub/file-uploader-mcp"],
-            "env": {"OAP_CLIENT_KEY": "{{AccessToken}}"},
-            "protocol": "stdio",
-        },
-    )
-
-    async def mock_get_user_mcp(
-        self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
-    ) -> list[UserMcpConfig] | None:
-        """Mock the get_user_mcp method."""
-        if not self.device_token:
-            return None
-
-        return [config]
-
-    monkeypatch.setattr(
-        "dive_mcp_host.oap_plugin.config_mcp_servers.MCPServerManagerPlugin._get_user_mcp_configs",
-        mock_get_user_mcp,
-    )
-
-    client, _ = test_client
-
-    # Login with oap token
-    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
-    assert response.status_code == 200
-
-    # Get mcp server config
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) > 1
-
-    # Find the File Uploader MCP server
-    file_uploader_server = None
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            file_uploader_server = value
-            assert key == config.name
-            assert value["command"] == "npx"
-            assert value["args"] == ["@oaphub/file-uploader-mcp"]
-            assert value["env"]["OAP_CLIENT_KEY"] == oap_token  # Should be replaced
-            assert value["transport"] == "stdio"
-            assert value["enabled"] is True
-            break
-
-    assert file_uploader_server is not None
-
-    # Update the config with new external endpoint args
-    from dive_mcp_host.oap_plugin.models import ExternalEndpointCMD
-
-    config.external_endpoint = ExternalEndpointCMD(
-        command="npx",
-        args=["@oaphub/file-uploader-mcp", "--verbose"],
-        env={"OAP_CLIENT_KEY": "{{AccessToken}}"},
-        protocol="stdio",
-    )
-
-    # Refresh mcp server
-    response = client.post("/api/plugins/oap-platform/config/refresh")
-    assert response.status_code == 200
-
-    # Get mcp server again
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            assert key == config.name
-            assert value["command"] == "npx"
-            assert value["args"] == ["@oaphub/file-uploader-mcp", "--verbose"]
-            assert value["env"]["OAP_CLIENT_KEY"] == oap_token
-            assert value["transport"] == "stdio"
-            assert value["enabled"] is True
-
-
-def test_oap_plugin_external_endpoint_mixed(
-    test_client: tuple[TestClient, DiveHostAPI], monkeypatch: pytest.MonkeyPatch
-):
-    """Test the OAP plugin with multiple servers including external endpoints."""
-    oap_token = "fake-token"  # noqa: S105
-
-    configs = [
-        UserMcpConfig(
-            id="19181672830075666433",
-            name="HubSpot MCP",
-            description="HubSpot MCP Server with external endpoint",
-            transport="sse",
-            url="http://127.0.0.1:3260",
-            headers={},
-            plan="free",
-            external_endpoint={
-                "url": "https://mcp.hubspot.com/",
-                "headers": {"Authorization": "Bearer ${HUBSPOT_ACCESS_TOKEN}"},
-                "protocol": "streamable",
-            },
-        ),
-        UserMcpConfig(
-            id="19181672830075666434",
-            name="File Uploader MCP",
-            description="File uploader MCP Server with external endpoint",
-            transport="sse",
-            url="http://127.0.0.1:3261",
-            headers={},
-            plan="free",
-            external_endpoint={
-                "command": "npx",
-                "args": ["@oaphub/file-uploader-mcp"],
-                "env": {"OAP_CLIENT_KEY": "{{AccessToken}}"},
-                "protocol": "stdio",
-            },
-        ),
-        UserMcpConfig(
-            id="19181672830075666435",
-            name="Regular MCP",
-            description="Regular MCP Server without external endpoint",
-            transport="sse",
-            url="http://127.0.0.1:3262",
-            headers={},
-            plan="free",
-        ),
-    ]
-
-    async def mock_get_user_mcp(
-        self: MCPServerManagerPlugin, *args: Any, **kwargs: Any
-    ) -> list[UserMcpConfig] | None:
-        """Mock the get_user_mcp method."""
-        if not self.device_token:
-            return None
-
-        return configs
-
-    monkeypatch.setattr(
-        "dive_mcp_host.oap_plugin.config_mcp_servers.MCPServerManagerPlugin._get_user_mcp_configs",
-        mock_get_user_mcp,
-    )
-
-    client, _ = test_client
-
-    # Login with oap token
-    response = client.post("/api/plugins/oap-platform/auth", json={"token": oap_token})
-    assert response.status_code == 200
-
-    # Get mcp server config
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    assert len(servers) >= 3
-
-    # Verify all servers are configured correctly
-    found_hubspot = False
-    found_uploader = False
-    found_regular = False
-
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            if key == "HubSpot MCP":
-                found_hubspot = True
-                assert value["url"] == "https://mcp.hubspot.com/"
-                assert value["transport"] == "streamable"
-            elif key == "File Uploader MCP":
-                found_uploader = True
-                assert value["command"] == "npx"
-                assert value["args"] == ["@oaphub/file-uploader-mcp"]
-                assert value["env"]["OAP_CLIENT_KEY"] == oap_token
-                assert value["transport"] == "stdio"
-            elif key == "Regular MCP":
-                found_regular = True
-                assert value["url"] == "http://127.0.0.1:3262"
-                assert value["transport"] == "sse"
-                assert value["headers"]["Authorization"] == f"Bearer {oap_token}"
-
-    assert found_hubspot
-    assert found_uploader
-    assert found_regular
-
-    # Disable the HubSpot MCP and enable others
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            if key == "HubSpot MCP":
-                value["enabled"] = False
-            else:
-                value["enabled"] = True
-
-    response = client.post("/api/config/mcpserver", json={"mcpServers": servers})
-    assert response.status_code == 200
-
-    # Verify the settings are saved
-    response = client.get("/api/config/mcpserver")
-    assert response.status_code == 200
-
-    servers = response.json()["config"]["mcpServers"]
-    for key in servers:
-        value = servers[key]
-        if value["extraData"] and value["extraData"].get("oap"):
-            if key == "HubSpot MCP":
-                assert value["enabled"] is False
-            else:
-                assert value["enabled"] is True

@@ -18,8 +18,6 @@ from dive_mcp_host.httpd.conf.mcp_servers import (
 )
 from dive_mcp_host.oap_plugin.models import (
     BaseResponse,
-    ExternalEndpointCMD,
-    ExternalEndpointHttp,
     OAPConfig,
     UserMcpConfig,
 )
@@ -28,6 +26,7 @@ CONFIG_FILE = Path(DIVE_CONFIG_DIR, "oap_config.json")
 logger = logging.getLogger(__name__)
 
 MIN_REFRESH_INTERVAL = 60
+AUTH_HEADER_KEY = "Authorization"
 
 
 TOKEN_PLACEHOLDER = "{{AccessToken}}"  # noqa: S105
@@ -43,7 +42,7 @@ class MCPServerManagerPlugin:
         self._refresh_ts: float = 0
         self._http_client = httpx.AsyncClient(
             base_url=oap_root_url,
-            headers={"Authorization": f"Bearer {self.device_token}"}
+            headers={AUTH_HEADER_KEY: f"Bearer {self.device_token}"}
             if self.device_token
             else None,
         )
@@ -65,7 +64,6 @@ class MCPServerManagerPlugin:
 
     async def refresh(self, mcp_server_manager: MCPServerManager) -> None:
         """Refresh the MCP server configs."""
-        await self._get_user_mcp_configs(refresh=True)
         cfg = await mcp_server_manager.get_current_config()
         # we already merged the configuration in callback function
         assert cfg is not None
@@ -106,84 +104,25 @@ class MCPServerManagerPlugin:
         return config
 
     async def current_config_callback(self, config: Config) -> Config:
-        """Callback function for getting current config."""
-        mcp_servers = await self._get_user_mcp_configs()
-
-        # oap id and is enable or not
-        mcp_enabled = {}
+        """Find current OAP MCPs (ones with `extraData['oap']`).
+        Update the ones that uses OAP client key to the current self.device_token.
+        """  # noqa: D205
         for server in config.mcp_servers.values():
-            if oap := (server.extra_data or {}).get("oap"):
-                mcp_enabled[oap["id"]] = server.enabled
-
-        # remove oap mcp servers
-        # preserve old config, might be used to construct final output
-        old_oap: dict[str, MCPServerConfig] = {}
-        if mcp_servers is None or len(mcp_servers) > 0:
-            for key in config.mcp_servers.copy():
-                value = config.mcp_servers[key]
-                if value.extra_data and value.extra_data.get("oap"):
-                    old_oap[key] = config.mcp_servers.pop(key)
-
-        if mcp_servers is None:
-            return config
-
-        for server in mcp_servers:
-            old_config = old_oap.get(server.name)
-            enabled = mcp_enabled.get(server.id, True)
-            exclude_tools = old_config.exclude_tools if old_config else []
-            extra_data = {
-                "oap": {
-                    "id": server.id,
-                    "planTag": server.plan.lower(),
-                    "description": server.description,
-                }
-            }
-            if (
-                isinstance(server.external_endpoint, dict)
-                or server.external_endpoint is None
-            ):
-                headers = {k: SecretStr(v) for k, v in server.headers.items()}
-                if server.auth_type == "header":
-                    headers["Authorization"] = SecretStr(f"Bearer {self.device_token}")
-                new_config = MCPServerConfig(
-                    headers=headers,
-                    url=server.url,
-                    transport=server.transport,
-                    enabled=enabled,
-                    exclude_tools=exclude_tools,
-                    extraData=extra_data,
-                )
-            elif isinstance(server.external_endpoint, ExternalEndpointHttp):
-                headers = {
-                    k: SecretStr(self._replace_token_holder(v))
-                    for k, v in server.external_endpoint.headers.items()
-                }
-                new_config = MCPServerConfig(
-                    url=self._replace_token_holder(server.external_endpoint.url),
-                    transport=server.external_endpoint.protocol,
-                    headers=headers if headers else None,
-                    enabled=enabled,
-                    exclude_tools=exclude_tools,
-                    extraData=extra_data,
-                )
-            elif isinstance(server.external_endpoint, ExternalEndpointCMD):
-                new_config = MCPServerConfig(
-                    command=server.external_endpoint.command,
-                    args=server.external_endpoint.args.copy(),
-                    env={
+            if server.extra_data and server.extra_data.get("oap"):
+                if server.url:
+                    server.url = self._replace_token_holder(server.url)
+                if server.env:
+                    server.env = {
                         self._replace_token_holder(k): self._replace_token_holder(v)
-                        for k, v in server.external_endpoint.env.items()
-                    },
-                    transport="stdio",
-                    enabled=enabled,
-                    exclude_tools=exclude_tools,
-                    extraData=extra_data,
-                )
-            else:
-                logger.warning("unknown external endpoint type: %s", server.name)
-                new_config = None
-            if new_config:
-                config.mcp_servers[server.name] = new_config
+                        for k, v in server.env.items()
+                    }
+                if server.headers:
+                    server.headers = {
+                        self._replace_token_holder(k): SecretStr(
+                            self._replace_token_holder(v.get_secret_value())
+                        )
+                        for k, v in server.headers.items()
+                    }
         return config
 
     async def _send_api_request[T](
