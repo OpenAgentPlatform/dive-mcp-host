@@ -1609,7 +1609,7 @@ def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
     ai_messages = [m for m in messages if m["role"] == "assistant"]
     assert len(ai_messages) == 2
     for ai_msg in ai_messages:
-        assert "<chat_error>" in ai_msg["content"]
+        assert "<chat-error>" in ai_msg["content"]
 
     # Now retry ai1 - should still fail but user2 and ai2 should be deleted
     response = client.post(
@@ -1655,4 +1655,4 @@ def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
     assert messages[0]["messageId"] == user1_msg_id
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
-    assert "<chat_error>" in messages[1]["content"]
+    assert "<chat-error>" in messages[1]["content"]
