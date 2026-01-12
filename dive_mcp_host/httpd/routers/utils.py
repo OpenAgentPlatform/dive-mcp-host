@@ -470,7 +470,7 @@ class ChatProcessor:
                             chatId=chat_id,
                             role=Role.ASSISTANT,
                             messageId=placeholder_ai_message_id,
-                            content=f"<chat_error>{exc}</chat_error>",
+                            content=f"<chat-error>{exc}</chat-error>",
                         ),
                     )
                     await session.commit()
