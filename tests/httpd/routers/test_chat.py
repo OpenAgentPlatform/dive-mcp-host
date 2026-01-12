@@ -1532,3 +1532,127 @@ def test_chat_with_abort_tool_calls(test_client):
         assert "hihi" in response.text
         time.sleep(5)
         model.i = 0
+
+
+def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
+    """Test that chat error still sends message_info for client retry support.
+
+    This test verifies that when _process_chat raises an exception:
+    1. message_info is still sent in the stream with user and assistant message IDs
+    2. A placeholder assistant message is stored in the database
+    3. Retrying an earlier error message deletes subsequent messages
+    4. The retry still fails (error persists) but DB state is correct
+    """
+    client, app = test_client
+    test_chat_id = str(uuid.uuid4())
+
+    # Mock _process_chat to raise an error
+    async def mock_process_chat(self, *args, **kwargs):
+        raise RuntimeError("simulated error for retry test")
+
+    monkeypatch.setattr(
+        "dive_mcp_host.httpd.routers.utils.ChatProcessor._process_chat",
+        mock_process_chat,
+    )
+
+    # First message - will fail
+    response = client.post(
+        "/api/chat",
+        data={"chatId": test_chat_id, "message": "first message"},
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Capture message IDs from first failed chat
+    user1_msg_id = None
+    ai1_msg_id = None
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj.get("message"):
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "message_info":
+                user1_msg_id = inner_json["content"]["userMessageId"]
+                ai1_msg_id = inner_json["content"]["assistantMessageId"]
+            if inner_json["type"] == "error":
+                err_msg = inner_json["content"]["message"]
+                assert "simulated error for retry test" in err_msg
+
+    assert user1_msg_id is not None
+    assert ai1_msg_id is not None
+
+    # Second message - will also fail
+    response = client.post(
+        "/api/chat",
+        data={"chatId": test_chat_id, "message": "second message"},
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Capture message IDs from second failed chat
+    user2_msg_id = None
+    ai2_msg_id = None
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj.get("message"):
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "message_info":
+                user2_msg_id = inner_json["content"]["userMessageId"]
+                ai2_msg_id = inner_json["content"]["assistantMessageId"]
+
+    assert user2_msg_id is not None
+    assert ai2_msg_id is not None
+
+    # Verify DB has 4 messages: user1, ai1(error), user2, ai2(error)
+    response = client.get(f"/api/chat/{test_chat_id}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    messages = response_data["data"]["messages"]
+    assert len(messages) == 4, f"Expected 4 messages, got {len(messages)}"
+
+    # Verify both AI messages have error content
+    ai_messages = [m for m in messages if m["role"] == "assistant"]
+    assert len(ai_messages) == 2
+    for ai_msg in ai_messages:
+        assert "<chat_error>" in ai_msg["content"]
+
+    # Now retry ai1 - should still fail but user2 and ai2 should be deleted
+    response = client.post(
+        "/api/chat/retry",
+        json={
+            "chatId": test_chat_id,
+            "messageId": ai1_msg_id,
+        },
+    )
+    assert response.status_code == SUCCESS_CODE
+
+    # Verify retry still returns error
+    has_error = False
+    has_message_info = False
+    for json_obj in helper.extract_stream(response.text):
+        if json_obj.get("message"):
+            inner_json = json.loads(json_obj["message"])
+            if inner_json["type"] == "error":
+                has_error = True
+                err_msg = inner_json["content"]["message"]
+                assert "simulated error for retry test" in err_msg
+            if inner_json["type"] == "message_info":
+                has_message_info = True
+
+    assert has_error, "Retry should still fail"
+    assert has_message_info, "message_info should be sent on retry error"
+
+    # Verify DB now only has 2 messages: user1, ai1(new error placeholder)
+    # user2 and ai2 should be deleted
+    response = client.get(f"/api/chat/{test_chat_id}")
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    messages = response_data["data"]["messages"]
+
+    assert len(messages) == 2, f"Expected 2 messages after retry, got {len(messages)}"
+
+    # Verify user2 and ai2 are gone
+    message_ids = [m.get("messageId") for m in messages]
+    assert user2_msg_id not in message_ids, "user2 should be deleted"
+    assert ai2_msg_id not in message_ids, "ai2 should be deleted"
+
+    # Verify user1 still exists and new ai message has error
+    assert messages[0]["messageId"] == user1_msg_id
+    assert messages[0]["role"] == "user"
+    assert messages[1]["role"] == "assistant"
+    assert "<chat_error>" in messages[1]["content"]
