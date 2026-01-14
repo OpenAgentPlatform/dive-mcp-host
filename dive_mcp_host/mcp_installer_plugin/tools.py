@@ -393,6 +393,298 @@ class BashInput(BaseModel):
             "system modifications). This adds extra warning in confirmation.",
         ),
     ] = False
+    requires_confirmation: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Set to false for read-only commands that don't need user "
+            "confirmation (e.g., ls, cat, pwd, echo, grep). Write/update operations "
+            "like rm, mv, sed -i will still require confirmation even if set to false.",
+        ),
+    ] = True
+
+
+def _detect_write_command(command: str) -> tuple[bool, list[str]]:
+    """Detect if a command performs write/update operations.
+
+    Returns:
+        Tuple of (is_write_command, list of reasons).
+    """
+    reasons = []
+    command_lower = command.lower()
+    command_stripped = command.strip()
+
+    # Unix/Linux write commands
+    unix_write_commands = [
+        # File deletion
+        (r"\brm\s", "File deletion (rm)"),
+        (r"\brmdir\s", "Directory deletion (rmdir)"),
+        (r"\bunlink\s", "File deletion (unlink)"),
+        # File modification
+        (r"\bmv\s", "File move/rename (mv)"),
+        (r"\bcp\s", "File copy (cp)"),
+        (r"\binstall\s", "File install (install)"),
+        (r"\brsync\s", "File sync (rsync)"),
+        (r"\bscp\s", "Secure copy (scp)"),
+        # In-place editing
+        (r"\bsed\s+-i", "In-place edit (sed -i)"),
+        (r"\bsed\s+--in-place", "In-place edit (sed --in-place)"),
+        (r"\bawk\s+-i", "In-place edit (awk -i)"),
+        (r"\bpatch\s", "Apply patch (patch)"),
+        # Permission/ownership
+        (r"\bchmod\s", "Permission change (chmod)"),
+        (r"\bchown\s", "Ownership change (chown)"),
+        (r"\bchgrp\s", "Group change (chgrp)"),
+        # File creation
+        (r"\btouch\s", "File creation/modification (touch)"),
+        (r"\bmkdir\s", "Directory creation (mkdir)"),
+        (r"\bln\s", "Link creation (ln)"),
+        (r"\bmkfifo\s", "FIFO creation (mkfifo)"),
+        (r"\bmknod\s", "Node creation (mknod)"),
+        # File content writing
+        (r"\btee\s", "Write to file (tee)"),
+        (r"\btruncate\s", "File truncation (truncate)"),
+        (r"\bdd\s", "Disk/file operations (dd)"),
+        # Disk operations
+        (r"\bmkfs", "Filesystem creation (mkfs)"),
+        (r"\bfdisk\s", "Disk partitioning (fdisk)"),
+        (r"\bparted\s", "Disk partitioning (parted)"),
+        (r"\bformat\s", "Disk format (format)"),
+        # Archive extraction (creates files)
+        (r"\btar\s+.*-[xc]", "Archive operation (tar)"),
+        (r"\btar\s+.*--extract", "Archive extraction (tar)"),
+        (r"\btar\s+.*--create", "Archive creation (tar)"),
+        (r"\bunzip\s", "Archive extraction (unzip)"),
+        (r"\bgunzip\s", "Decompression (gunzip)"),
+        (r"\bbunzip2\s", "Decompression (bunzip2)"),
+        (r"\bxz\s+-d", "Decompression (xz)"),
+        (r"\b7z\s+[xea]", "Archive operation (7z)"),
+        # Git write operations
+        (r"\bgit\s+push", "Git push"),
+        (r"\bgit\s+commit", "Git commit"),
+        (r"\bgit\s+reset", "Git reset"),
+        (r"\bgit\s+checkout\s", "Git checkout"),
+        (r"\bgit\s+merge", "Git merge"),
+        (r"\bgit\s+rebase", "Git rebase"),
+        (r"\bgit\s+cherry-pick", "Git cherry-pick"),
+        (r"\bgit\s+revert", "Git revert"),
+        (r"\bgit\s+stash", "Git stash"),
+        (r"\bgit\s+clean", "Git clean"),
+        (r"\bgit\s+rm\s", "Git remove"),
+        (r"\bgit\s+mv\s", "Git move"),
+        # Package managers (install/remove)
+        (r"\bnpm\s+install", "Package install (npm)"),
+        (r"\bnpm\s+uninstall", "Package uninstall (npm)"),
+        (r"\bnpm\s+update", "Package update (npm)"),
+        (r"\byarn\s+add", "Package install (yarn)"),
+        (r"\byarn\s+remove", "Package remove (yarn)"),
+        (r"\bpnpm\s+add", "Package install (pnpm)"),
+        (r"\bpnpm\s+remove", "Package remove (pnpm)"),
+        (r"\bpip\s+install", "Package install (pip)"),
+        (r"\bpip\s+uninstall", "Package uninstall (pip)"),
+        (r"\buv\s+pip\s+install", "Package install (uv pip)"),
+        (r"\buv\s+add", "Package install (uv)"),
+        (r"\buv\s+remove", "Package remove (uv)"),
+        (r"\bcargo\s+install", "Package install (cargo)"),
+        (r"\bbrew\s+install", "Package install (brew)"),
+        (r"\bbrew\s+uninstall", "Package uninstall (brew)"),
+        (r"\bapt\s+install", "Package install (apt)"),
+        (r"\bapt\s+remove", "Package remove (apt)"),
+        (r"\bapt-get\s+install", "Package install (apt-get)"),
+        (r"\bapt-get\s+remove", "Package remove (apt-get)"),
+        (r"\byum\s+install", "Package install (yum)"),
+        (r"\byum\s+remove", "Package remove (yum)"),
+        (r"\bdnf\s+install", "Package install (dnf)"),
+        (r"\bdnf\s+remove", "Package remove (dnf)"),
+        (r"\bpacman\s+-S", "Package install (pacman)"),
+        (r"\bpacman\s+-R", "Package remove (pacman)"),
+        (r"\bgem\s+install", "Package install (gem)"),
+        (r"\bgo\s+install", "Package install (go)"),
+        # Docker operations
+        (r"\bdocker\s+rm\s", "Docker remove (docker rm)"),
+        (r"\bdocker\s+rmi\s", "Docker image remove (docker rmi)"),
+        (r"\bdocker\s+stop\s", "Docker stop (docker stop)"),
+        (r"\bdocker\s+kill\s", "Docker kill (docker kill)"),
+        (r"\bdocker\s+run\s", "Docker run (docker run)"),
+        (r"\bdocker\s+build\s", "Docker build (docker build)"),
+        (r"\bdocker\s+push\s", "Docker push (docker push)"),
+        (r"\bdocker\s+pull\s", "Docker pull (docker pull)"),
+        (r"\bdocker\s+compose\s+up", "Docker compose up"),
+        (r"\bdocker\s+compose\s+down", "Docker compose down"),
+        # Kubernetes operations
+        (r"\bkubectl\s+apply", "Kubernetes apply (kubectl)"),
+        (r"\bkubectl\s+delete", "Kubernetes delete (kubectl)"),
+        (r"\bkubectl\s+create", "Kubernetes create (kubectl)"),
+        (r"\bkubectl\s+patch", "Kubernetes patch (kubectl)"),
+        (r"\bkubectl\s+replace", "Kubernetes replace (kubectl)"),
+        (r"\bkubectl\s+set", "Kubernetes set (kubectl)"),
+        (r"\bkubectl\s+scale", "Kubernetes scale (kubectl)"),
+        (r"\bkubectl\s+rollout", "Kubernetes rollout (kubectl)"),
+        # Database operations
+        (
+            r"\bmysql\s+.*-e\s+['\"]?(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)",
+            "MySQL write operation",
+        ),
+        (
+            r"\bpsql\s+.*-c\s+['\"]?(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE)",
+            "PostgreSQL write operation",
+        ),
+        (r"\bmongosh?\s+.*--(eval|file)", "MongoDB operation"),
+        (r"\bredis-cli\s+.*(SET|DEL|FLUSHALL|FLUSHDB)", "Redis write operation"),
+        # Service management
+        (
+            r"\bsystemctl\s+(start|stop|restart|enable|disable)",
+            "Systemd service control",
+        ),
+        (r"\bservice\s+\w+\s+(start|stop|restart)", "Service control"),
+        # Process termination
+        (r"\bkill\s", "Process termination (kill)"),
+        (r"\bkillall\s", "Process termination (killall)"),
+        (r"\bpkill\s", "Process termination (pkill)"),
+        # Download to file
+        (r"\bwget\s+.*-O\s", "Download to file (wget -O)"),
+        (r"\bwget\s+.*--output-document", "Download to file (wget)"),
+        (r"\bcurl\s+.*-o\s", "Download to file (curl -o)"),
+        (r"\bcurl\s+.*--output\s", "Download to file (curl)"),
+        (r"\bcurl\s+.*-O\s", "Download to file (curl -O)"),
+        # Command execution (potentially dangerous - can execute arbitrary commands)
+        (r"\bxargs\s", "Command execution via xargs"),
+        (r"\bpython3?\s+-c\s", "Python code execution (python -c)"),
+        (r"\bpython3?\s+-m\s", "Python module execution (python -m)"),
+        (r"\bperl\s+-e\s", "Perl code execution (perl -e)"),
+        (r"\bruby\s+-e\s", "Ruby code execution (ruby -e)"),
+        (r"\bnode\s+-e\s", "Node.js code execution (node -e)"),
+        (r"\bbash\s+-c\s", "Shell command execution (bash -c)"),
+        (r"\bsh\s+-c\s", "Shell command execution (sh -c)"),
+        (r"\bzsh\s+-c\s", "Shell command execution (zsh -c)"),
+        (r"\beval\s", "Command evaluation (eval)"),
+        (r"\bexec\s", "Command execution (exec)"),
+        (r"\bsource\s", "Script sourcing (source)"),
+        (r"^\.", "Script sourcing (.)"),  # . script.sh
+        (r"\|\s*sh\b", "Piped shell execution (| sh)"),
+        (r"\|\s*bash\b", "Piped shell execution (| bash)"),
+        (r"\$\(", "Command substitution $()"),
+        (r"`[^`]+`", "Command substitution ``"),
+    ]
+
+    # Windows write commands
+    windows_write_commands = [
+        # File deletion
+        (r"\bdel\s", "File deletion (del)"),
+        (r"\berase\s", "File deletion (erase)"),
+        (r"\brd\s", "Directory deletion (rd)"),
+        (r"\brmdir\s", "Directory deletion (rmdir)"),
+        # File modification
+        (r"\bmove\s", "File move (move)"),
+        (r"\bcopy\s", "File copy (copy)"),
+        (r"\bxcopy\s", "File copy (xcopy)"),
+        (r"\brobocopy\s", "File copy (robocopy)"),
+        (r"\bren\s", "File rename (ren)"),
+        (r"\brename\s", "File rename (rename)"),
+        # Directory creation
+        (r"\bmd\s", "Directory creation (md)"),
+        (r"\bmkdir\s", "Directory creation (mkdir)"),
+        # File attributes
+        (r"\battrib\s", "Attribute change (attrib)"),
+        (r"\bicacls\s", "Permission change (icacls)"),
+        (r"\bcacls\s", "Permission change (cacls)"),
+        (r"\btakeown\s", "Ownership change (takeown)"),
+        # Registry
+        (r"\breg\s+add", "Registry add (reg add)"),
+        (r"\breg\s+delete", "Registry delete (reg delete)"),
+        (r"\breg\s+import", "Registry import (reg import)"),
+        (r"\bregedit\s+/s", "Registry edit (regedit)"),
+        # Disk operations
+        (r"\bformat\s", "Disk format (format)"),
+        (r"\bdiskpart", "Disk partitioning (diskpart)"),
+        (r"\bchkdsk\s+.*(/f|/r|/x)", "Disk repair (chkdsk)"),
+        # PowerShell write commands
+        (r"Remove-Item\s", "PowerShell remove (Remove-Item)"),
+        (r"New-Item\s", "PowerShell create (New-Item)"),
+        (r"Set-Content\s", "PowerShell write (Set-Content)"),
+        (r"Add-Content\s", "PowerShell append (Add-Content)"),
+        (r"Out-File\s", "PowerShell write (Out-File)"),
+        (r"Copy-Item\s", "PowerShell copy (Copy-Item)"),
+        (r"Move-Item\s", "PowerShell move (Move-Item)"),
+        (r"Rename-Item\s", "PowerShell rename (Rename-Item)"),
+        (r"Clear-Content\s", "PowerShell clear (Clear-Content)"),
+        (r"Set-ItemProperty\s", "PowerShell property set (Set-ItemProperty)"),
+        (r"Remove-ItemProperty\s", "PowerShell property remove (Remove-ItemProperty)"),
+        (r"New-ItemProperty\s", "PowerShell property create (New-ItemProperty)"),
+        (r"Set-Acl\s", "PowerShell ACL set (Set-Acl)"),
+        (r"Stop-Process\s", "PowerShell process stop (Stop-Process)"),
+        (r"Start-Process\s", "PowerShell process start (Start-Process)"),
+        (r"Stop-Service\s", "PowerShell service stop (Stop-Service)"),
+        (r"Start-Service\s", "PowerShell service start (Start-Service)"),
+        (r"Restart-Service\s", "PowerShell service restart (Restart-Service)"),
+        (r"Install-Module\s", "PowerShell module install (Install-Module)"),
+        (r"Uninstall-Module\s", "PowerShell module uninstall (Uninstall-Module)"),
+        (r"Install-Package\s", "PowerShell package install (Install-Package)"),
+        (r"Uninstall-Package\s", "PowerShell package uninstall (Uninstall-Package)"),
+        # Windows package managers
+        (r"\bwinget\s+install", "Package install (winget)"),
+        (r"\bwinget\s+uninstall", "Package uninstall (winget)"),
+        (r"\bwinget\s+upgrade", "Package upgrade (winget)"),
+        (r"\bchoco\s+install", "Package install (chocolatey)"),
+        (r"\bchoco\s+uninstall", "Package uninstall (chocolatey)"),
+        (r"\bscoop\s+install", "Package install (scoop)"),
+        (r"\bscoop\s+uninstall", "Package uninstall (scoop)"),
+        # Windows specific
+        (r"\bschtasks\s+/create", "Scheduled task create (schtasks)"),
+        (r"\bschtasks\s+/delete", "Scheduled task delete (schtasks)"),
+        (r"\bsc\s+create", "Service create (sc)"),
+        (r"\bsc\s+delete", "Service delete (sc)"),
+        (r"\bsc\s+stop", "Service stop (sc)"),
+        (r"\bsc\s+start", "Service start (sc)"),
+        (r"\bnet\s+stop", "Service stop (net)"),
+        (r"\bnet\s+start", "Service start (net)"),
+        (r"\bnet\s+user\s+\w+\s+", "User management (net user)"),
+        (r"\bnet\s+localgroup\s+.*/(add|delete)", "Group management (net localgroup)"),
+        (r"\bwmic\s+.*delete", "WMI delete (wmic)"),
+        (r"\bwmic\s+.*call", "WMI call (wmic)"),
+        (r"\btaskkill\s", "Process termination (taskkill)"),
+        # Command execution (potentially dangerous - can execute arbitrary commands)
+        (r"\bcmd\s+/c\s", "CMD command execution (cmd /c)"),
+        (r"\bcmd\.exe\s+/c\s", "CMD command execution (cmd.exe /c)"),
+        (r"\bpowershell\s+-c", "PowerShell command execution (powershell -c)"),
+        (r"\bpowershell\s+-Command", "PowerShell command execution"),
+        (r"\bpowershell\.exe\s+-c", "PowerShell command execution"),
+        (r"\bpwsh\s+-c", "PowerShell Core command execution (pwsh -c)"),
+        (r"Invoke-Expression\s", "PowerShell Invoke-Expression"),
+        (r"\biex\s", "PowerShell iex (Invoke-Expression)"),
+        (r"Invoke-Command\s", "PowerShell Invoke-Command"),
+        (r"\bfor\s+/f\s", "CMD for /f command execution"),
+        (r"\bforfiles\s", "CMD forfiles command execution"),
+        (r"\bwscript\s", "Windows Script Host (wscript)"),
+        (r"\bcscript\s", "Windows Script Host (cscript)"),
+        (r"\bmshta\s", "HTML Application Host (mshta)"),
+    ]
+
+    # Check for shell redirection (both Unix and Windows)
+    if ">" in command_stripped and not command_stripped.startswith("#"):
+        # Avoid matching -> or => which are not redirections
+        import re
+
+        if re.search(r"[^-=]>", command_stripped) or command_stripped.startswith(">"):
+            reasons.append("Output redirection to file (>)")
+
+    # Check Unix/Linux patterns
+    import re
+
+    for pattern, reason in unix_write_commands:
+        if re.search(pattern, command_lower):
+            if reason not in reasons:
+                reasons.append(reason)
+            break  # Stop after first match for performance
+
+    # Check Windows patterns
+    for pattern, reason in windows_write_commands:
+        if re.search(pattern, command, re.IGNORECASE):
+            if reason not in reasons:
+                reasons.append(reason)
+            break  # Stop after first match for performance
+
+    return len(reasons) > 0, reasons
 
 
 def _detect_high_risk_command(command: str) -> tuple[bool, list[str]]:
@@ -443,15 +735,21 @@ Parameters:
 - requires_password: Set true if command needs password (e.g., sudo). Will prompt user securely.
 - password_prompt: Message shown when prompting for password
 - is_high_risk: Set true for dangerous commands. Auto-detected for sudo, rm -rf, etc.
+- requires_confirmation: Set to false for read-only commands (e.g., ls, cat, pwd, grep, echo).
+  Write/update commands (rm, mv, sed -i, etc.) will still require confirmation even if false.
 
 Examples:
-- Simple check: bash(command="node --version")
+- Simple check: bash(command="node --version", requires_confirmation=false)
+- Read file: bash(command="cat /etc/hosts", requires_confirmation=false)
+- List files: bash(command="ls -la", requires_confirmation=false)
 - Install with npm: bash(command="npm install -g package", timeout=300)
+- Delete file: bash(command="rm file.txt")  # requires confirmation (write operation)
 - With sudo: bash(command="sudo apt install package", requires_password=true,
                password_prompt="Enter password for apt install", is_high_risk=true)
 
 Safety notes:
 - Commands with sudo are automatically marked as high-risk
+- Write/update operations always require user confirmation regardless of requires_confirmation
 - Avoid commands that could damage the system
 - Prefer package managers (uvx, npx) over manual installations"""
 )
@@ -493,6 +791,15 @@ async def bash(
             "system modifications). This adds extra warning in confirmation.",
         ),
     ] = False,
+    requires_confirmation: Annotated[
+        bool,
+        Field(
+            default=True,
+            description="Set to false for read-only commands that don't need user "
+            "confirmation (e.g., ls, cat, pwd, echo, grep). Write/update operations "
+            "like rm, mv, sed -i will still require confirmation even if set to false.",
+        ),
+    ] = True,
     config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
 ) -> str:
     """Execute a bash command.
@@ -512,6 +819,7 @@ async def bash(
         requires_password=requires_password,
         password_prompt=password_prompt,
         is_high_risk=is_high_risk,
+        requires_confirmation=requires_confirmation,
         stream_writer=stream_writer,
         dry_run=dry_run,
         config=config,
@@ -525,6 +833,7 @@ async def execute_bash(
     requires_password: bool,
     password_prompt: str | None,
     is_high_risk: bool,
+    requires_confirmation: bool,
     stream_writer: Callable[[tuple[str, Any]], None],
     dry_run: bool,
     config: RunnableConfig,
@@ -553,6 +862,15 @@ async def execute_bash(
     auto_high_risk, risk_reasons = _detect_high_risk_command(command)
     is_high_risk = is_high_risk or auto_high_risk
 
+    # Auto-detect write commands - these always require confirmation
+    is_write_command, write_reasons = _detect_write_command(command)
+
+    # Determine if confirmation is actually needed:
+    # - If requires_confirmation is True (default), always confirm
+    # - If requires_confirmation is False but it's a write command, still confirm
+    # - If requires_confirmation is False and not a write command, skip confirmation
+    needs_confirmation = requires_confirmation or is_write_command
+
     # Auto-detect if password is needed (sudo without -n flag)
     if "sudo " in command.lower() and "-n " not in command.lower():
         requires_password = True
@@ -569,12 +887,17 @@ async def execute_bash(
     if is_high_risk:
         log_details["high_risk"] = True
         log_details["risk_reasons"] = risk_reasons
+    if is_write_command:
+        log_details["is_write_command"] = True
+        log_details["write_reasons"] = write_reasons
 
     action_prefix = ""
     if dry_run:
         action_prefix = "[DRY RUN] "
     if is_high_risk:
         action_prefix += "[HIGH RISK] "
+    if is_write_command and not is_high_risk:
+        action_prefix += "[WRITE] "
 
     stream_writer(
         (
@@ -591,14 +914,16 @@ async def execute_bash(
     if dry_run:
         return f"[DRY RUN] Command would be executed: {command}\nSimulated success."
 
-    # Request user confirmation before executing the command
-    if elicitation_manager is not None:
+    # Request user confirmation before executing the command (if needed)
+    if needs_confirmation and elicitation_manager is not None:
         confirm_message = (
             f"The bash tool wants to execute the following command:\n\n"
             f"```bash\n{command}\n```"
         )
         if is_high_risk:
             confirm_message += f"\n\n⚠️ **High Risk**: {', '.join(risk_reasons)}"
+        elif is_write_command:
+            confirm_message += f"\n\n📝 **Write Operation**: {', '.join(write_reasons)}"
 
         confirm_schema = {
             "type": "object",
