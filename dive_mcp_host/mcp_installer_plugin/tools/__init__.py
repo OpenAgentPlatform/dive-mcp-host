@@ -10,8 +10,6 @@ from langchain_core.tools import BaseTool
 from dive_mcp_host.mcp_installer_plugin.tools.bash import (
     BashInput,
     InstallerBashTool,
-    _detect_high_risk_command,
-    _detect_write_command,
     bash,
     execute_bash,
     kill_process_tree,
@@ -59,6 +57,10 @@ from dive_mcp_host.mcp_installer_plugin.tools.mcp_server import (
     install_mcp_instructions,
     reload_mcp_server,
     trigger_mcp_reload,
+)
+from dive_mcp_host.mcp_installer_plugin.tools.patterns import (
+    _detect_high_risk_command,
+    _detect_write_command,
 )
 
 __all__ = [  # noqa: RUF022
