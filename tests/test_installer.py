@@ -195,7 +195,7 @@ class TestInstallerTools:
 
         # Mock httpx
         with patch(
-            "dive_mcp_host.mcp_installer_plugin.tools.httpx.AsyncClient"
+            "dive_mcp_host.mcp_installer_plugin.tools.fetch.httpx.AsyncClient"
         ) as mock_client:
             mock_response = MagicMock()
             mock_response.text = '{"name": "test-package"}'
