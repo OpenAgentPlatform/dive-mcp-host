@@ -1,4 +1,4 @@
-"""Tests for the MCP Server Installer Agent."""
+"""Tests for the MCP Server Installer Tools."""
 
 import tempfile
 from pathlib import Path
@@ -7,15 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
 from dive_mcp_host.mcp_installer_plugin import (
-    InstallerAgent,
     InstallerBashTool,
     InstallerFetchTool,
     InstallerReadFileTool,
     InstallerWriteFileTool,
     get_installer_tools,
-    install_mcp_server_tool,
 )
 
 
@@ -216,83 +213,3 @@ class TestInstallerTools:
                 config=config,
             )
             assert "test-package" in result
-
-
-class TestInstallerAgent:
-    """Tests for InstallerAgent."""
-
-    @pytest.mark.asyncio
-    async def test_agent_initialization(self) -> None:
-        """Test that the agent initializes correctly."""
-        # Mock model
-        mock_model = MagicMock()
-        mock_model.bind_tools = MagicMock(return_value=mock_model)
-
-        elicitation_manager = ElicitationManager()
-        agent = InstallerAgent(
-            model=mock_model, elicitation_manager=elicitation_manager
-        )
-        assert agent._graph is not None
-        # Installer agent tools are now empty (installer agent removed)
-        assert len(agent.tools) == 0
-
-    @pytest.mark.asyncio
-    async def test_agent_graph_structure(self) -> None:
-        """Test that the agent graph has the expected nodes."""
-        mock_model = MagicMock()
-        mock_model.bind_tools = MagicMock(return_value=mock_model)
-
-        elicitation_manager = ElicitationManager()
-        agent = InstallerAgent(
-            model=mock_model, elicitation_manager=elicitation_manager
-        )
-
-        # Check graph structure (confirm_install replaced by request_confirmation tool)
-        node_names = list(agent._graph.nodes.keys())
-        assert "call_model" in node_names
-        assert "tools" in node_names
-        # confirm_install removed, confirmation now via request_confirmation tool
-
-
-class TestInstallMcpServerTool:
-    """Tests for InstallMcpServerTool."""
-
-    def test_tool_creation(self) -> None:
-        """Test creating the install_mcp_server tool."""
-        tool = install_mcp_server_tool()
-        assert tool.name == "install_mcp_server"
-        assert tool.model is None
-
-    def test_tool_with_model(self) -> None:
-        """Test creating the tool with a model."""
-        mock_model = MagicMock()
-        tool = install_mcp_server_tool(mock_model)
-        assert tool.model is mock_model
-
-    def test_bind_model(self) -> None:
-        """Test binding a model to the tool."""
-        mock_model = MagicMock()
-        tool = install_mcp_server_tool()
-        tool.bind_model(mock_model)
-        assert tool.model is mock_model
-
-    @pytest.mark.asyncio
-    async def test_tool_without_model_returns_error(self) -> None:
-        """Test that the tool returns an error if no model is bound."""
-        tool = install_mcp_server_tool()
-        result = await tool._arun(
-            server_description="test-server",
-            config={},
-        )
-        assert "Error: No model configured" in result
-
-    @pytest.mark.asyncio
-    async def test_tool_without_elicitation_manager_returns_error(self) -> None:
-        """Test that the tool returns an error if no elicitation manager."""
-        mock_model = MagicMock()
-        tool = install_mcp_server_tool(mock_model)
-        result = await tool._arun(
-            server_description="test-server",
-            config={"configurable": {}},
-        )
-        assert "Error: No elicitation manager configured" in result
