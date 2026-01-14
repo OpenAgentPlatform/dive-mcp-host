@@ -11,11 +11,11 @@ user approval before performing installation actions.
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any
+from typing import Annotated
 
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
-from langchain_core.tools import BaseTool, InjectedToolArg, tool
-from pydantic import BaseModel, Field
+from langchain_core.tools import InjectedToolArg, tool
+from pydantic import Field
 
 from dive_mcp_host.mcp_installer_plugin.tools.common import (
     _check_aborted,
@@ -25,25 +25,6 @@ from dive_mcp_host.mcp_installer_plugin.tools.common import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class RequestConfirmationInput(BaseModel):
-    """Input schema for the request_confirmation tool."""
-
-    message: Annotated[
-        str,
-        Field(
-            description="The message to display to the user asking for confirmation. "
-            "Should be in the user's preferred language."
-        ),
-    ]
-    actions: Annotated[
-        list[str],
-        Field(
-            description="List of actions that will be performed if confirmed. "
-            "Each action should be a clear, concise description."
-        ),
-    ]
 
 
 @tool(
@@ -155,115 +136,3 @@ async def request_confirmation(
     except Exception as e:
         logger.exception("Elicitation error")
         return f"error: {e}"
-
-
-class InstallerRequestConfirmationTool(BaseTool):
-    """Tool for requesting user confirmation before performing actions.
-
-    This tool allows the installer agent to request explicit user approval
-    with a custom message in the user's preferred language.
-    """
-
-    name: str = "request_confirmation"
-    description: str = """Request user confirmation before performing installation actions.
-
-Use this tool BEFORE executing any installation commands, file writes, or server configurations.
-You MUST provide:
-1. A clear message explaining what you want to do (in the user's language)
-2. A list of specific actions that will be performed
-
-The user will see your message and can approve or reject the actions.
-If rejected, do NOT proceed with the actions.
-
-Example:
-  message: "I need to perform the following actions to install the MCP server. Do you approve?"
-  actions: ["Run command: npm install -g @anthropic/mcp-server", "Write config to mcp_config.json"]
-"""
-    args_schema: type[BaseModel] | None = RequestConfirmationInput
-
-    async def _arun(
-        self,
-        message: str,
-        actions: list[str],
-        config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
-    ) -> str:
-        """Request user confirmation.
-
-        Returns:
-            'approved' if user approves, 'rejected' if user rejects.
-        """
-        from mcp import types
-
-        from dive_mcp_host.host.tools.elicitation_manager import (
-            ElicitationManager,
-            ElicitationTimeoutError,
-        )
-
-        config = _ensure_config(config)
-
-        stream_writer = _get_stream_writer(config)
-        abort_signal = _get_abort_signal(config)
-        elicitation_manager: ElicitationManager | None = config.get(
-            "configurable", {}
-        ).get("elicitation_manager")
-
-        # Check if already aborted
-        if _check_aborted(abort_signal):
-            return "aborted"
-
-        if elicitation_manager is None:
-            logger.warning("No elicitation manager, auto-approving")
-            return "approved (no elicitation manager available)"
-
-        # Build the full message including actions list
-        # This ensures actions are always visible even if LLM provides minimal message
-        actions_text = "\n".join(f"• {action}" for action in actions)
-        full_message = f"{message}\n\n{actions_text}" if message else actions_text
-
-        # Empty schema - no form fields needed
-        # The Accept/Decline buttons in the UI are sufficient for confirmation
-        requested_schema = {
-            "type": "object",
-            "properties": {},
-        }
-
-        params = types.ElicitRequestFormParams(
-            message=full_message,
-            requestedSchema=requested_schema,
-        )
-
-        logger.info(
-            "InstallerRequestConfirmationTool._arun() - requesting confirmation for %d actions",
-            len(actions),
-        )
-
-        try:
-            result = await elicitation_manager.request(
-                params=params,
-                writer=stream_writer,
-                abort_signal=abort_signal,
-            )
-
-            logger.info(
-                "InstallerRequestConfirmationTool._arun() - result: action=%s, content=%s",
-                result.action,
-                result.content,
-            )
-
-            if result.action == "accept":
-                return "approved"
-            if result.action == "decline":
-                return "rejected"
-            # cancel
-            return "cancelled"
-
-        except ElicitationTimeoutError:
-            logger.warning("Elicitation timeout")
-            return "timeout"
-        except Exception as e:
-            logger.exception("Elicitation error")
-            return f"error: {e}"
-
-    def _run(self, *args: Any, **kwargs: Any) -> str:
-        """Sync version - not implemented."""
-        raise NotImplementedError("Use async version")
