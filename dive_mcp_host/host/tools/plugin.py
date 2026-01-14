@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from dive_mcp_host.mcp_installer_plugin.tools import get_local_tools
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -82,8 +84,6 @@ class ToolManagerPlugin:
         through the installer agent. They include built-in safety mechanisms
         like user confirmation for potentially dangerous operations.
         """
-        from dive_mcp_host.mcp_installer_plugin import get_local_tools
-
         self._local_tools = get_local_tools()
         logger.info("Local tools initialized: %d tools", len(self._local_tools))
 
