@@ -9,10 +9,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from dive_mcp_host.mcp_installer_plugin.tools import get_local_tools
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
 logger = logging.getLogger(__name__)
@@ -27,9 +28,6 @@ class ToolManagerPlugin:
     This plugin allows registration of additional tools that will be
     included in the ToolManager's langchain_tools() output.
 
-    It also manages:
-    - Installer tool for MCP server installation
-
     Example:
         plugin = ToolManagerPlugin()
 
@@ -39,15 +37,14 @@ class ToolManagerPlugin:
         # Or use callbacks for dynamic tool generation
         plugin.register_callback(lambda: [create_dynamic_tool()])
 
-        # Setup installer tool with model
-        plugin.setup_installer_tool(model)
+        # Setup local tools (fetch, bash, read_file, write_file)
+        plugin.setup_local_tools()
     """
 
     def __init__(self) -> None:
         """Initialize the ToolManagerPlugin."""
         self._tools: list[BaseTool] = []
         self._callbacks: list[tuple[Callable[[], list[BaseTool]], str]] = []
-        self._installer_tool: BaseTool | None = None
         self._local_tools: list[BaseTool] | None = None
         self._locale: str = "en"
         # Deprecated: kept for backwards compatibility
@@ -80,17 +77,6 @@ class ToolManagerPlugin:
         logger.info("Registered tool callback from plugin: %s", plugin_name)
         return True
 
-    def setup_installer_tool(self, model: BaseChatModel) -> None:
-        """Setup the installer tool with the given model.
-
-        Args:
-            model: The LLM model to use for the installer agent.
-        """
-        # from dive_mcp_host.mcp_installer_plugin import install_mcp_server_tool
-        #
-        # self._installer_tool = install_mcp_server_tool(model)
-        # logger.info("Installer tool initialized")
-
     def setup_local_tools(self) -> None:
         """Setup local tools (fetch, bash, read_file, write_file).
 
@@ -98,8 +84,6 @@ class ToolManagerPlugin:
         through the installer agent. They include built-in safety mechanisms
         like user confirmation for potentially dangerous operations.
         """
-        from dive_mcp_host.mcp_installer_plugin import get_local_tools
-
         self._local_tools = get_local_tools()
         logger.info("Local tools initialized: %d tools", len(self._local_tools))
 
@@ -140,11 +124,6 @@ class ToolManagerPlugin:
         """Get the MCP reload callback (deprecated)."""
         return self._mcp_reload_callback
 
-    @property
-    def installer_tool(self) -> BaseTool | None:
-        """Get the installer tool."""
-        return self._installer_tool
-
     def get_tools(
         self,
         include_local_tools: bool = False,
@@ -155,7 +134,7 @@ class ToolManagerPlugin:
             include_local_tools: Whether to include local tools (fetch, bash, etc.).
 
         Returns:
-            List of all tools from static registration, callbacks, installer,
+            List of all tools from static registration, callbacks,
             and optionally local tools.
         """
         tools = list(self._tools)
@@ -175,10 +154,6 @@ class ToolManagerPlugin:
                     "Error getting tools from callback plugin: %s", plugin_name
                 )
 
-        # Add installer tool if available and requested
-        # if include_installer and self._installer_tool is not None:
-        #     tools.append(self._installer_tool)
-
         # Add local tools if available and requested
         if include_local_tools and self._local_tools is not None:
             tools.extend(self._local_tools)
@@ -193,10 +168,7 @@ class ToolManagerPlugin:
     @property
     def tool_count(self) -> int:
         """Get the total number of registered tools."""
-        count = len(self._tools) + sum(len(cb()) for cb, _ in self._callbacks)
-        if self._installer_tool is not None:
-            count += 1
-        return count
+        return len(self._tools) + sum(len(cb()) for cb, _ in self._callbacks)
 
     def register_plugin(
         self,

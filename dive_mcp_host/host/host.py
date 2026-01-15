@@ -125,8 +125,6 @@ class DiveMcpHost(ContextProtocol):
             **self._config.llm.to_load_model_kwargs(),
         )
         self._model = model
-        # Initialize installer tool in the plugin
-        self._tool_plugin.setup_installer_tool(model)
         # Initialize local tools (fetch, bash, read_file, write_file)
         self._tool_plugin.setup_local_tools()
 
@@ -373,11 +371,6 @@ class DiveMcpHost(ContextProtocol):
     async def restart_mcp_server(self, name: str) -> McpServerInfo:
         """Restart MCP server."""
         return await self._tool_manager.restart_mcp_server(name)
-
-    @property
-    def installer_tool(self) -> BaseTool | None:
-        """Get the installer tool."""
-        return self._tool_plugin.installer_tool
 
     @property
     def local_tools(self) -> list[BaseTool] | None:
