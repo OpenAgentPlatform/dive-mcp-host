@@ -194,7 +194,7 @@ async def test_host_google_image_gen(
     if api_key := environ.get("GOOGLE_API_KEY"):
         config = HostConfig(
             llm=LLMConfig(
-                model="gemini-2.5-flash-image-preview",
+                model="gemini-2.5-flash-image",
                 model_provider="google-genai",
                 api_key=SecretStr(api_key),
                 configuration=LLMConfiguration(
