@@ -11,6 +11,7 @@ from pydantic import SecretStr, ValidationError
 from dive_mcp_host.env import DIVE_CONFIG_DIR
 from dive_mcp_host.httpd.conf.mcp_servers import (
     Config,
+    ExtraDataKey,
     MCPServerConfig,
     MCPServerManager,
 )
@@ -72,6 +73,33 @@ class MCPServerManagerPlugin:
     def update_all_config_callback(self, new_config: Config) -> Config:
         """Callback function for updating all configs."""
         return new_config
+
+    def builtin_mcp(self, config: Config) -> Config:
+        """Load builtin MCP."""
+        headers = {}
+        if self.device_token:
+            headers["Authorization"] = SecretStr(f"Bearer {self.device_token}")
+        config.mcp_servers["Search MCP"] = MCPServerConfig(
+            headers=headers,
+            url="https://proxy.oaphub.ai/v1/mcp/246152813338427392",
+            transport="streamable",
+            enabled=True,
+            extraData={ExtraDataKey.HIDE: True},
+        )
+
+        env = {}
+        if self.device_token:
+            env["OAP_CLIENT_KEY"] = self.device_token
+        config.mcp_servers["File Uploader"] = MCPServerConfig(
+            transport="stdio",
+            command="npx",
+            args=["@oaphub/file-uploader-mcp"],
+            enabled=True,
+            env=env,
+            extraData={ExtraDataKey.HIDE: True},
+        )
+
+        return config
 
     async def current_config_callback(self, config: Config) -> Config:
         """Callback function for getting current config."""
