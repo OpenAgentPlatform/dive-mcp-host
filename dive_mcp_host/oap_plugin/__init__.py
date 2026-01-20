@@ -26,8 +26,8 @@ def get_static_callbacks() -> dict[str, tuple[Callable[..., Any], str]]:
     handlers = OAPHttpHandlers(mcp_plugin, oap_store)
 
     return {
-        "builtin_mcp": (mcp_plugin.builtin_mcp, CurrentConfigHookName),
         "get_mcp_configs": (mcp_plugin.current_config_callback, CurrentConfigHookName),
+        "builtin_mcp": (mcp_plugin.builtin_mcp, CurrentConfigHookName),
         "update_all_configs": (
             mcp_plugin.update_all_config_callback,
             UpdateAllConfigsHookName,

@@ -79,7 +79,7 @@ class MCPServerManagerPlugin:
         headers = {}
         if self.device_token:
             headers["Authorization"] = SecretStr(f"Bearer {self.device_token}")
-        config.mcp_servers["Search_MCP"] = MCPServerConfig(
+        config.mcp_servers["Search MCP"] = MCPServerConfig(
             headers=headers,
             url="https://proxy.oaphub.ai/v1/mcp/246152813338427392",
             transport="streamable",
@@ -90,7 +90,7 @@ class MCPServerManagerPlugin:
         env = {}
         if self.device_token:
             env["OAP_CLIENT_KEY"] = self.device_token
-        config.mcp_servers["File_Uploader"] = MCPServerConfig(
+        config.mcp_servers["File Uploader"] = MCPServerConfig(
             transport="stdio",
             command="npx",
             args=["@oaphub/file-uploader-mcp"],
