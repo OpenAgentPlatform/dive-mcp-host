@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
 from dive_mcp_host.httpd.conf.mcp_servers import Config as McpServers
+from dive_mcp_host.httpd.conf.mcp_servers import ExtraDataKey, MCPServerConfig
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.server import DiveHostAPI
 
@@ -73,6 +74,15 @@ async def get_mcp_server(app: DiveHostAPI = Depends(get_app)):  # noqa: ANN201
     config = McpServers.model_validate(
         config.model_dump(by_alias=True, exclude_unset=True)
     )
+
+    # Remove hidden configs
+    servers: dict[str, MCPServerConfig] = {}
+    for name, conf in config.mcp_servers.items():
+        if conf.extra_data and conf.extra_data.get(ExtraDataKey.HIDE):
+            continue
+        servers[name] = conf
+    config.mcp_servers = servers
+
     result = ConfigResult(success=True, config=None).model_dump(exclude={"config"})
     result["config"] = config.model_dump(exclude_unset=True)
     return result

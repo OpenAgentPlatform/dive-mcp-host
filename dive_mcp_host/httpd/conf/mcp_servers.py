@@ -3,6 +3,7 @@ import logging
 import os
 from asyncio import iscoroutine
 from collections.abc import Callable, Coroutine
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -21,6 +22,12 @@ from dive_mcp_host.httpd.conf.misc import write_then_replace
 from dive_mcp_host.plugins.registry import HookInfo, PluginManager
 
 
+class ExtraDataKey(StrEnum):
+    """Special keys for extra data."""
+
+    HIDE = "hide"  # Do not return in get mcpconfig
+
+
 # Define necessary types for configuration
 class MCPServerConfig(BaseModel):
     """MCP Server configuration model."""
@@ -37,7 +44,9 @@ class MCPServerConfig(BaseModel):
     args: list[str] | None = Field(default_factory=list)
     env: dict[str, str] | None = Field(default_factory=dict)
     url: str | None = None
-    extra_data: dict[str, Any] | None = Field(default=None, alias="extraData")
+    extra_data: dict[str | ExtraDataKey, Any] | None = Field(
+        default=None, alias="extraData"
+    )
     proxy: ProxyUrl | None = None
     headers: dict[str, SecretStr] | None = Field(default_factory=dict)
     exclude_tools: list[str] = Field(default_factory=list)
