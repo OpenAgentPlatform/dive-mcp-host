@@ -1,6 +1,7 @@
 """MCP Server configuration management in OAP Plugin."""
 
 import logging
+import os
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -77,11 +78,14 @@ class MCPServerManagerPlugin:
     def builtin_mcp(self, config: Config) -> Config:
         """Load builtin MCP."""
         headers = {}
+        extra_url_query = "?access=guest"
         if self.device_token:
             headers["Authorization"] = SecretStr(f"Bearer {self.device_token}")
+            extra_url_query = ""
+
         config.mcp_servers["Search MCP"] = MCPServerConfig(
             headers=headers,
-            url="https://proxy.oaphub.ai/v1/mcp/246152813338427392",
+            url="https://proxy.oaphub.ai/v1/mcp/246152813338427392" + extra_url_query,
             transport="streamable",
             enabled=True,
             extraData={ExtraDataKey.HIDE: True},
@@ -92,7 +96,7 @@ class MCPServerManagerPlugin:
             env["OAP_CLIENT_KEY"] = self.device_token
         config.mcp_servers["File Uploader"] = MCPServerConfig(
             transport="stdio",
-            command="npx",
+            command=get_npx_path(),
             args=["@oaphub/file-uploader-mcp"],
             enabled=True,
             env=env,
@@ -245,3 +249,13 @@ def update_oap_token(token: str | None) -> None:
     config.auth_key = token
     with CONFIG_FILE.open("w") as f:
         f.write(config.model_dump_json())
+
+
+def get_npx_path() -> str:
+    """Get the npx executable path from environment variable or default to 'npx'."""
+    return os.environ.get("TOOL_NPX_PATH", "npx")
+
+
+def get_uvx_path() -> str:
+    """Get the uvx executable path from environment variable or default to 'uvx'."""
+    return os.environ.get("TOOL_UVX_PATH", "uvx")
