@@ -17,7 +17,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
     "fastapi>=0.116.1",
-    "dive-mcp-sdk>=1.0.2",
+    "dive-mcp-sdk>=1.0.3",
     "anyio>=4.10.0",
     "pydantic>=2.11.7",
     "pywin32>=310; sys_platform == 'win32' or platform_system == 'Windows'",
