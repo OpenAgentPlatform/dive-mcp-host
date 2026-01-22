@@ -78,11 +78,14 @@ class MCPServerManagerPlugin:
     def builtin_mcp(self, config: Config) -> Config:
         """Load builtin MCP."""
         headers = {}
+        extra_url_query = "?access=guest"
         if self.device_token:
             headers["Authorization"] = SecretStr(f"Bearer {self.device_token}")
+            extra_url_query = ""
+
         config.mcp_servers["Search MCP"] = MCPServerConfig(
             headers=headers,
-            url="https://proxy.oaphub.ai/v1/mcp/246152813338427392",
+            url="https://proxy.oaphub.ai/v1/mcp/246152813338427392" + extra_url_query,
             transport="streamable",
             enabled=True,
             extraData={ExtraDataKey.HIDE: True},
