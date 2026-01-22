@@ -597,7 +597,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.15.2,<1.16" },
     { name = "anyio", specifier = ">=4.10.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
-    { name = "dive-mcp-sdk", specifier = ">=1.0.2" },
+    { name = "dive-mcp-sdk", specifier = ">=1.0.3" },
     { name = "fastapi", specifier = ">=0.116.1" },
     { name = "httpx", extras = ["brotli", "http2", "socks", "zstd"], specifier = ">=0.28.1" },
     { name = "langchain", specifier = ">=1.2.1" },
@@ -636,7 +636,7 @@ provides-extras = ["clipboard", "dev"]
 
 [[package]]
 name = "dive-mcp-sdk"
-version = "1.0.2"
+version = "1.0.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -654,9 +654,9 @@ dependencies = [
     { name = "typing-inspection" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d7/d0/7993ac0a53f28d51180d2da3448748a758d597539aad11f082f7d5e35e61/dive_mcp_sdk-1.0.2.tar.gz", hash = "sha256:c924fe97095afcb8b032e89b4e04c8c6e132052061389a77d2a4028c99cee868", size = 607889, upload-time = "2026-01-08T03:11:02.424Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ef/e6/e4c406cf4a567598fb1dd29148835f0fbbb8f3693ed6e2a5eb500d547957/dive_mcp_sdk-1.0.3.tar.gz", hash = "sha256:6f543bd6a8da8e684ee499a537f5d11046a81aa7a87a3965a4f4fecc1059ce2d", size = 607919, upload-time = "2026-01-22T05:46:57.23Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/39/0715029ac9542442cc3527aaf2c043b2acc494fb46da9c1c55089d96df15/dive_mcp_sdk-1.0.2-py3-none-any.whl", hash = "sha256:6641f70c1811e5853737cf6a03699f766ee547d9d34f4befbffc4964d04c88fb", size = 233267, upload-time = "2026-01-08T03:11:00.208Z" },
+    { url = "https://files.pythonhosted.org/packages/d5/5d/56bef83bbc685d57591968c3f978abae2d437030464ebf508f58a2b144ea/dive_mcp_sdk-1.0.3-py3-none-any.whl", hash = "sha256:fc3006d67213c2b035cb7f4ce51fa94b8e67826581442f06c6e857e7598635e4", size = 233278, upload-time = "2026-01-22T05:46:54.957Z" },
 ]
 
 [[package]]
