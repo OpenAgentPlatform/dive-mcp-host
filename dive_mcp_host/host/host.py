@@ -289,14 +289,6 @@ class DiveMcpHost(ContextProtocol):
         return self._tool_manager.langchain_tools()
 
     @property
-    def mcp_tools(self) -> Sequence[BaseTool]:
-        """The MCP tools only (excluding built-in tools).
-
-        This property is read-only. Call `reload` to change the tools.
-        """
-        return self._tool_manager.langchain_tools()
-
-    @property
     def mcp_server_info(self) -> dict[str, McpServerInfo]:
         """Get information about active MCP servers.
 

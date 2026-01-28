@@ -772,9 +772,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         await host.tools_initialized_event.wait()
 
         # Verify initial state
-        # echo, elicit, ignore tools (installer tool removed)
-        assert len(host.tools) == 3
-        assert len(host.mcp_tools) == 3  # only MCP tools
+        # echo, elicit, ignore, raise_elicit, url_elicit tools
+        assert len(host.tools) == 5
         assert isinstance(host.config.llm, LLMConfig)
         assert host.config.llm.configuration is None
 
@@ -788,9 +787,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         assert host.config.llm.model == "fake"
 
         # Verify tools were updated
-        # echo, elicit, ignore + fetch (installer tool removed)
-        assert len(host.tools) == 4
-        assert len(host.mcp_tools) == 4  # only MCP tools
+        # echo, elicit, ignore, raise_elicit, url_elicit + fetch
+        assert len(host.tools) == 6
         tool_names = [tool.name for tool in host.tools]
         assert "echo" in tool_names
         assert "fetch" in tool_names
@@ -807,9 +805,8 @@ async def test_host_reload(echo_tool_stdio_config: dict[str, ServerConfig]) -> N
         reloader_called = False
         await host.reload(new_config, mock_reloader)
         assert reloader_called
-        # echo, ignore, elicit + fetch (installer tool removed)
-        assert len(host.tools) == 4
-        assert len(host.mcp_tools) == 4
+        # echo, elicit, ignore, raise_elicit, url_elicit + fetch
+        assert len(host.tools) == 6
 
 
 @pytest.mark.asyncio

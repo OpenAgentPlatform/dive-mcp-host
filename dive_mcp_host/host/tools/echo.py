@@ -6,7 +6,9 @@ from base64 import standard_b64encode
 from pathlib import Path
 from typing import Annotated
 
+from mcp import ServerSession, UrlElicitationRequiredError
 from mcp.server.fastmcp import Context, FastMCP, Icon
+from mcp.types import ElicitRequestURLParams
 from pydantic import BaseModel, Field
 from starlette.applications import Starlette
 
@@ -105,6 +107,40 @@ async def elicit(
         confirmed = result.data.confirmed
         return f"Hello, {name}! Confirmed: {confirmed}"
     return "No valid response received"
+
+
+RAISE_ELICIT_DESCRIPTION = """A tool that will raise UrlElicitationRequiredError."""
+
+
+@mcp.tool(name="raise_elicit", description=RAISE_ELICIT_DESCRIPTION)
+async def raise_elicit() -> str:
+    """Raise UrlElicitationRequiredError."""
+    elicitation_id = "xxx123xxx"
+    raise UrlElicitationRequiredError(
+        [
+            ElicitRequestURLParams(
+                mode="url",
+                message="Please open this url",
+                url="https://oaphub.ai",
+                elicitationId=elicitation_id,
+            )
+        ]
+    )
+
+
+URL_ELICIT_DESCRIPTION = """A tool that will send url elicitation."""
+
+
+@mcp.tool(name="url_elicit", description=URL_ELICIT_DESCRIPTION)
+async def url_elicit(ctx: Context[ServerSession, None]) -> str:
+    """Send url elicitation."""
+    elicitation_id = "xxx123xxx"
+    result = await ctx.elicit_url(
+        message="Please open this url",
+        url="https://oaphub.ai",
+        elicitation_id=elicitation_id,
+    )
+    return f"User {result.action} to open url"
 
 
 if __name__ == "__main__":
