@@ -49,8 +49,8 @@ dependencies = [
     "langgraph-prebuilt>=1.0.5",
     "httpx[brotli,http2,socks,zstd]>=0.28.1",
     "langchain>=1.2.1",
-    "langchain-core>=1.2.4",
     "langchain-google-genai>=4.1.2",
+    "langchain-core>=1.2.5",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -67,7 +67,6 @@ dev = [
     "pytest-integration",
     "pytest-subtests",
     "pytest-timeout",
-    "langchain-community",
     "ruff",
     "uvicorn",
 ]
