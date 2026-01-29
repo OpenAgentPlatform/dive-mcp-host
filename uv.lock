@@ -544,7 +544,6 @@ wheels = [
 
 [[package]]
 name = "dive-mcp-host"
-version = "0.9.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
