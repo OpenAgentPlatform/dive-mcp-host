@@ -6,6 +6,13 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from dive_mcp_host.host.tools.echo import (
+    ECHO_DESCRIPTION,
+    ELICIT_DESCRIPTION,
+    IGNORE_DESCRIPTION,
+    RAISE_ELICIT_DESCRIPTION,
+    URL_ELICIT_DESCRIPTION,
+)
 from dive_mcp_host.httpd.conf.mcp_servers import MCPServerConfig
 from dive_mcp_host.httpd.routers.config import SaveModelSettingsRequest
 from dive_mcp_host.httpd.routers.models import (
@@ -743,12 +750,20 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     "tools": [
                         {
                             "name": "echo",
-                            "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
+                            "description": ECHO_DESCRIPTION,
                         },
-                        {"name": "ignore", "description": "Do nothing."},
+                        {"name": "ignore", "description": IGNORE_DESCRIPTION},
                         {
                             "name": "elicit",
-                            "description": "A tool that requests user input via elicitation.\nIt prompts the user for their name and returns a greeting.",  # noqa: E501
+                            "description": ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "description": RAISE_ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "description": URL_ELICIT_DESCRIPTION,
                         },
                     ],
                     "description": "",
@@ -827,12 +842,20 @@ def test_tools_and_mcpserver_enable_status(test_client):
                     "tools": [
                         {
                             "name": "echo",
-                            "description": "A simple echo tool to verify if the MCP server is working properly.\nIt returns a characteristic response containing the input message.",  # noqa: E501
+                            "description": ECHO_DESCRIPTION,
                         },
-                        {"name": "ignore", "description": "Do nothing."},
+                        {"name": "ignore", "description": IGNORE_DESCRIPTION},
                         {
                             "name": "elicit",
-                            "description": "A tool that requests user input via elicitation.\nIt prompts the user for their name and returns a greeting.",  # noqa: E501
+                            "description": ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "description": RAISE_ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "description": URL_ELICIT_DESCRIPTION,
                         },
                     ],
                     "description": "",
@@ -871,6 +894,14 @@ def test_exclude_tools(test_client):
                         },
                         {
                             "name": "elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
                             "enabled": True,
                         },
                     ],
@@ -932,6 +963,14 @@ def test_exclude_tools(test_client):
                             "name": "elicit",
                             "enabled": True,
                         },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": True,
@@ -991,6 +1030,14 @@ def test_exclude_tools(test_client):
                             "name": "elicit",
                             "enabled": True,
                         },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": True,
@@ -1028,6 +1075,14 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                         },
                         {
                             "name": "elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
                             "enabled": True,
                         },
                     ],
@@ -1089,6 +1144,14 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                             "name": "elicit",
                             "enabled": True,
                         },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "enabled": True,
+                        },
                     ],
                     "description": "",
                     "enabled": False,
@@ -1146,6 +1209,14 @@ def test_exclude_tools_on_disabled_mcp(test_client):
                         },
                         {
                             "name": "elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "enabled": True,
+                        },
+                        {
+                            "name": "url_elicit",
                             "enabled": True,
                         },
                     ],

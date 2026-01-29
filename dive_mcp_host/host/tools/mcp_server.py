@@ -1254,6 +1254,62 @@ class McpTool(BaseTool):
                     if abort_signal:
                         abort_task = asyncio.create_task(_abort_task(tool_task))
                     result = await tool_task
+
+                except McpError as e:
+                    logger.warning(
+                        "got mcp error "
+                        "name: %s, tool: %s, tool_call_id: %s, request_id: %s, "
+                        "error: %s",
+                        self.toolkit_name,
+                        self.name,
+                        tool_call_id,
+                        current_request_id,
+                        str(e),
+                    )
+
+                    result = types.CallToolResult(
+                        content=[types.TextContent(type="text", text=str(e))],
+                        isError=True,
+                    )
+
+                    # {
+                    #     "elicitations": [
+                    #         {
+                    #             "mode": "url",
+                    #             "message": "Authorization required to connect to XXX",
+                    #             "url": "https://xxxx.example.com/oauth/authorize?elicit=xxx123xxx",
+                    #             "elicitationId": "xxx123xxx",
+                    #         }
+                    #     ]
+                    # }
+                    if (
+                        e.error.code == types.URL_ELICITATION_REQUIRED
+                        and isinstance(e.error.data, dict)
+                        and (elicitations := e.error.data.get("elicitations"))
+                        and isinstance(elicitations, list)
+                    ):
+                        logger.info(
+                            "got url elicitation required error, msg: %s,"
+                            " elicitations: %s",
+                            e.error.message,
+                            elicitations,
+                        )
+                        for elict in elicitations:
+                            url_elicit_param = (
+                                types.ElicitRequestURLParams.model_validate(elict)
+                            )
+                            resp = await self.mcp_server.elicitation_manager.request(
+                                params=url_elicit_param,
+                                writer=sync_writer,
+                                abort_signal=abort_signal,
+                            )
+
+                            text = f"User {resp.action} to open url, {url_elicit_param.url}"  # noqa: E501
+                            logger.info(text)
+                            result.content.append(
+                                types.TextContent(type="text", text=text)
+                            )
+
                 except asyncio.CancelledError:
                     logger.warning(
                         "tool call cancelled, "

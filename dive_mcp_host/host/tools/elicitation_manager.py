@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp import types
 from pydantic import BaseModel
@@ -79,8 +79,18 @@ class ElicitationManager:
         if timeout is None:
             timeout = self.DEFAULT_TIMEOUT
 
-        message = params.message
-        requested_schema: dict[str, Any] = params.requestedSchema  # type: ignore[assignment]
+        if params.mode == "url":
+            message = f"{params.message}.\nURL: {params.url}"
+        else:
+            message = params.message
+
+        if params.mode == "form":
+            requested_schema = params.requestedSchema
+        else:
+            requested_schema = {
+                "type": "object",
+                "properties": {},
+            }
 
         request_id, future = self.create_request(message, requested_schema)
 
@@ -182,7 +192,7 @@ class ElicitationManager:
     async def respond_to_request(
         self,
         request_id: str,
-        action: str,
+        action: Literal["accept", "decline", "cancel"],
         content: dict[str, Any] | None = None,
     ) -> bool:
         """Respond to an elicitation request.
@@ -208,7 +218,7 @@ class ElicitationManager:
 
         # Create ElicitResult based on action
         result = types.ElicitResult(
-            action=action,  # type: ignore[arg-type]
+            action=action,
             content=content,
         )
 

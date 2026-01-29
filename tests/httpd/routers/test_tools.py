@@ -12,6 +12,8 @@ from dive_mcp_host.host.tools.echo import (
     ECHO_DESCRIPTION,
     ELICIT_DESCRIPTION,
     IGNORE_DESCRIPTION,
+    RAISE_ELICIT_DESCRIPTION,
+    URL_ELICIT_DESCRIPTION,
 )
 from dive_mcp_host.host.tools.log import LogEvent, LogMsg
 from dive_mcp_host.host.tools.model_types import ClientState
@@ -92,6 +94,14 @@ def test_list_tools_no_mock(test_client):
                         {
                             "name": "elicit",
                             "description": ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "description": RAISE_ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "description": URL_ELICIT_DESCRIPTION,
                         },
                     ],
                 }
@@ -313,6 +323,14 @@ async def test_list_tools_with_missing_server_not_in_cache(
                         {
                             "name": "elicit",
                             "description": ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "raise_elicit",
+                            "description": RAISE_ELICIT_DESCRIPTION,
+                        },
+                        {
+                            "name": "url_elicit",
+                            "description": URL_ELICIT_DESCRIPTION,
                         },
                     ],
                 },
