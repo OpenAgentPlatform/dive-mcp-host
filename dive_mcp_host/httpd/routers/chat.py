@@ -2,7 +2,7 @@ from asyncio import TaskGroup
 from typing import TYPE_CHECKING, Annotated, TypeVar
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -42,11 +42,11 @@ class ChatList(BaseModel):
     normal: list[Chat] = Field(default_factory=list)
 
 
-@chat.get("/search")
+@chat.post("/search")
 async def search(
-    query: Annotated[str, Query(description="Text to search for")],
+    query: Annotated[str, Body(description="Text to search for")],
     max_words: Annotated[
-        int, Query(description="Max snippet length for title and content")
+        int, Body(description="Max snippet length for title and content")
     ] = 60,
     app: DiveHostAPI = Depends(get_app),
 ) -> DataResult[list[FTSResult]]:

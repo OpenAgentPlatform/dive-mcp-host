@@ -1802,7 +1802,7 @@ async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
 
     # Search for "quantum" — matches all 4 messages across chat1 and chat2,
     # but the API deduplicates by chat_id, so only 2 results should be returned.
-    response = client.get("/api/chat/search", params={"query": "quantum"})
+    response = client.post("/api/chat/search", json={"query": "quantum"})
     assert response.status_code == SUCCESS_CODE
     response_data = response.json()
     assert response_data["success"] is True
