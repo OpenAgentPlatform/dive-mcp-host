@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import DataResult
@@ -15,8 +15,6 @@ class Skill(BaseModel):
     """
 
     # NOTE: Temporary placement, should be defined where SkillManager is created
-    model_config = ConfigDict(populate_by_name=True)
-
     name: str = Field(
         min_length=1,
         max_length=64,
