@@ -82,6 +82,15 @@ class Message(BaseModel):
     model_config = ConfigDict(validate_by_name=True, validate_by_alias=True)
 
 
+class FTSResult(BaseModel):
+    """Full text search result."""
+
+    chat_id: str
+    message_id: str
+    title_snippet: str
+    content_snippet: str
+
+
 class ChatMessage(BaseModel):
     """Combines a chat with its associated messages."""
 

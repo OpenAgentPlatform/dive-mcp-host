@@ -1,10 +1,15 @@
 from datetime import UTC, datetime
 
+from sqlalchemy import column, func, literal_column, select, table
 from sqlalchemy.dialects.sqlite import insert
 
-from dive_mcp_host.httpd.database.models import Chat
-from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
+from dive_mcp_host.httpd.database.models import Chat, FTSResult
+from dive_mcp_host.httpd.database.msg_store.base import (
+    MIN_TRIGRAM_LENGTH,
+    BaseMessageStore,
+)
 from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
+from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
 from dive_mcp_host.httpd.database.orm_models import Users as ORMUsers
 
 
@@ -68,3 +73,81 @@ class SQLiteMessageStore(BaseMessageStore):
             starredAt=chat.starred_at,
             user_id=chat.user_id,
         )
+
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_words: int = 60,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search using SQLite FTS5.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_words: Maximum number of words in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by relevance.
+        """
+        if len(query) < MIN_TRIGRAM_LENGTH:
+            return await self._short_query_search(
+                query, user_id, max_words, start_sel, stop_sel
+            )
+
+        fts = table(
+            "message_fts",
+            column("rowid"),
+            column("rank"),
+            column("chat_id"),
+        )
+
+        stmt = (
+            select(
+                ORMMessage.message_id,
+                ORMMessage.chat_id,
+                func.highlight(
+                    literal_column("message_fts"),
+                    1,
+                    start_sel,
+                    stop_sel,
+                ).label("title_snippet"),
+                func.snippet(
+                    literal_column("message_fts"),
+                    2,
+                    start_sel,
+                    stop_sel,
+                    "...",
+                    max_words,
+                ).label("content_snippet"),
+            )
+            .select_from(fts)
+            .join(
+                ORMMessage,
+                literal_column("messages.rowid") == fts.c.rowid,
+            )
+            .join(
+                ORMChat,
+                ORMChat.id == ORMMessage.chat_id,
+            )
+            .where(literal_column("message_fts").match(query))
+            .order_by(fts.c.rank)
+        )
+
+        if user_id is not None:
+            stmt = stmt.where(ORMChat.user_id == user_id)
+
+        result = await self._session.execute(stmt)
+        return [
+            FTSResult(
+                chat_id=row.chat_id,
+                message_id=row.message_id,
+                title_snippet=row.title_snippet,
+                content_snippet=row.content_snippet,
+            )
+            for row in result.mappings()
+        ]

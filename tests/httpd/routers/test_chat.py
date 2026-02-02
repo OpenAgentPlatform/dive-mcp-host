@@ -4,12 +4,16 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolCall
 
+from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
+from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
 from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
@@ -1656,3 +1660,120 @@ def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
     assert "<chat-error>" in messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test the /api/chat/search endpoint filters duplicate chat results."""
+    client, app = test_client
+
+    # Setup: create 3 chats with 2 messages each directly in the database.
+    # Chat 1 and Chat 2 contain "quantum" in their messages.
+    # Chat 3 does not contain "quantum".
+    async with app.db_sessionmaker() as session:
+        chat1_id = str(uuid.uuid4())
+        session.add(
+            ORMChat(
+                id=chat1_id,
+                title="Physics Discussion",
+                created_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat1_id,
+                    role="user",
+                    content="Tell me about quantum computing",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat1_id,
+                    role="assistant",
+                    content="Quantum computing uses qubits for processing",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+
+        chat2_id = str(uuid.uuid4())
+        session.add(
+            ORMChat(
+                id=chat2_id,
+                title="Science Review",
+                created_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat2_id,
+                    role="user",
+                    content="Explain quantum entanglement",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat2_id,
+                    role="assistant",
+                    content="Quantum entanglement links particles together",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+
+        chat3_id = str(uuid.uuid4())
+        session.add(
+            ORMChat(
+                id=chat3_id,
+                title="Finance Report",
+                created_at=datetime.now(UTC),
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat3_id,
+                    role="user",
+                    content="What are the stock market trends",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat3_id,
+                    role="assistant",
+                    content="The market shows positive growth patterns",
+                    created_at=datetime.now(UTC),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+        await session.commit()
+
+    # Search for "quantum" — matches all 4 messages across chat1 and chat2,
+    # but the API deduplicates by chat_id, so only 2 results should be returned.
+    response = client.get("/api/chat/search", params={"query": "quantum"})
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert len(response_data["data"]) == 2
+
+    result_chat_ids = {r["chat_id"] for r in response_data["data"]}
+    assert chat1_id in result_chat_ids
+    assert chat2_id in result_chat_ids
+    assert chat3_id not in result_chat_ids

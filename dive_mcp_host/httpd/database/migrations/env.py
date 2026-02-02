@@ -1,7 +1,9 @@
 from logging.config import fileConfig
+from typing import Literal
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
+from sqlalchemy.schema import SchemaItem
 
 from dive_mcp_host.httpd.database.orm_models import Base
 
@@ -32,6 +34,24 @@ DATABASE_URL = (
 )
 
 
+def include_object(
+    _object: SchemaItem,
+    name: str | None,
+    type_: Literal[
+        "schema",
+        "table",
+        "column",
+        "index",
+        "unique_constraint",
+        "foreign_key_constraint",
+    ],
+    _reflected: bool,
+    _compair_to: SchemaItem | None,
+) -> bool:
+    """Exclude FTS virtual tables from autogenerate."""
+    return not (type_ == "table" and name and name.startswith("message_fts"))
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
 
@@ -49,6 +69,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -73,6 +94,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            include_object=include_object,
         )
 
         with context.begin_transaction():

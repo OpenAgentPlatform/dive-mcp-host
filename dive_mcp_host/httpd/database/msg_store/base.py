@@ -1,14 +1,16 @@
 import json
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, desc, exists, func, insert, select, update
+from sqlalchemy import delete, desc, exists, func, insert, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dive_mcp_host.httpd.database.models import (
     Chat,
     ChatMessage,
+    FTSResult,
     Message,
     NewMessage,
     QueryInput,
@@ -26,6 +28,43 @@ from .abstract import AbstractMessageStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+# Trigram tokenizer / tsquery requires at least 3 characters
+MIN_TRIGRAM_LENGTH = 3
+
+
+def _build_snippet(
+    content: str,
+    query: str,
+    max_words: int = 30,
+    start_sel: str = "<b>",
+    stop_sel: str = "</b>",
+) -> str:
+    """Build a highlighted snippet from content, similar to FTS5 snippet()."""
+    escaped = re.escape(query)
+    words = content.split()
+
+    first_match_idx = 0
+    for i, word in enumerate(words):
+        if re.search(escaped, word, re.IGNORECASE):
+            first_match_idx = i
+            break
+
+    start = max(0, first_match_idx - max_words // 2)
+    end = min(len(words), start + max_words)
+    snippet_text = " ".join(words[start:end])
+
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(words) else ""
+
+    highlighted = re.sub(
+        f"({escaped})",
+        lambda m: f"{start_sel}{m.group(1)}{stop_sel}",
+        snippet_text,
+        flags=re.IGNORECASE,
+    )
+
+    return f"{prefix}{highlighted}{suffix}"
 
 
 class BaseMessageStore(AbstractMessageStore):
@@ -521,6 +560,50 @@ class BaseMessageStore(AbstractMessageStore):
             resource_usage=resource_usage,
         )
 
+    async def _short_query_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_words: int = 60,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """ILIKE fallback for queries shorter than 3 characters."""
+        stmt = (
+            select(ORMMessage, ORMChat.title)
+            .join(ORMChat, ORMMessage.chat_id == ORMChat.id)
+            .where(
+                or_(
+                    ORMChat.title.ilike(f"%{query}%"),
+                    ORMMessage.content.ilike(f"%{query}%"),
+                )
+            )
+        )
+        if user_id is not None:
+            stmt = stmt.where(ORMChat.user_id == user_id)
+
+        result = await self._session.execute(stmt)
+        return [
+            FTSResult(
+                chat_id=row.Message.chat_id,
+                message_id=row.Message.message_id,
+                title_snippet=_build_snippet(
+                    row.title,
+                    query,
+                    start_sel=start_sel,
+                    stop_sel=stop_sel,
+                ),
+                content_snippet=_build_snippet(
+                    row.Message.content,
+                    query,
+                    max_words=max_words // 3,
+                    start_sel=start_sel,
+                    stop_sel=stop_sel,
+                ),
+            )
+            for row in result
+        ]
+
     async def update_message_resource_usage(
         self,
         message_id: str,
@@ -571,3 +654,27 @@ class BaseMessageStore(AbstractMessageStore):
                 total_run_time=resource_usage.total_run_time,
             )
             await self._session.execute(insert_query)
+
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_words: int = 60,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search on chat titles and message content.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_words: Maximum number of words in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by relevance.
+        """
+        raise NotImplementedError(
+            "The implementation of the method varies on different database."
+        )
