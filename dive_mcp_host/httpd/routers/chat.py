@@ -141,7 +141,6 @@ async def list_chat(
     return DataResult(success=True, message=None, data=result)
 
 
-<<<<<<< HEAD
 @chat.post(
     "",
     responses={200: CHAT_EVENT_STREAM},
@@ -162,34 +161,6 @@ async def create_chat(
     ] = None,
 ) -> StreamingResponse:
     """Create a new chat."""
-=======
-class _ChatMetadata(BaseModel):
-    skills_activate: list[str] = Field(description="List of skills to load")
-    skills_deactivate: list[str] = Field(description="List of skills to unload")
-
-
-@chat.post("")
-async def create_chat(
-    request: Request,
-    app: DiveHostAPI = Depends(get_app),
-    chat_id: Annotated[str | None, Form(alias="chatId")] = None,
-    message: Annotated[str | None, Form()] = None,
-    files: Annotated[list[UploadFile] | None, File()] = None,
-    filepaths: Annotated[list[str] | None, Form()] = None,
-    metadata: Annotated[_ChatMetadata | None, Form()] = None,
-) -> StreamingResponse:
-    """Create a new chat.
-
-    Args:
-        request (Request): The request object.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        chat_id (str | None): The ID of the chat to create.
-        message (str | None): The message to send.
-        files (list[UploadFile] | None): The files to upload.
-        filepaths (list[str] | None): The file paths to upload.
-        metadata (_ChatMetadata | None): Chat metadata.
-    """
->>>>>>> 3e535e9 (wip: skill related api definition and adjustments)
     if files is None:
         files = []
 
