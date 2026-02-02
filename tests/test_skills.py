@@ -9,7 +9,7 @@ from langgraph.graph.state import RunnableConfig
 
 from dive_mcp_host.mcp_installer_plugin.tools.skills import (
     _parse_skill_frontmatter,
-    install_skill,
+    dive_install_skill_from_content,
     read_skill,
     search_skills,
 )
@@ -258,7 +258,7 @@ class TestSearchSkills:
 
 
 class TestInstallSkill:
-    """Tests for the install_skill tool."""
+    """Tests for the dive_install_skill_from_content tool."""
 
     @pytest.mark.asyncio
     async def test_install_new_skill(self) -> None:
@@ -267,7 +267,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "my-skill",
                         "description": "A test skill",
@@ -291,7 +291,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "my-skill",
                         "description": "A test skill",
@@ -316,7 +316,7 @@ class TestInstallSkill:
             _write_skill(skill_dir, "existing-skill", VALID_SKILL)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "existing-skill",
                         "description": "New description",
@@ -336,7 +336,7 @@ class TestInstallSkill:
             _write_skill(skill_dir, "existing-skill", VALID_SKILL)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "existing-skill",
                         "description": "Updated description",
@@ -359,7 +359,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "../escape",
                         "description": "Bad skill",
@@ -380,7 +380,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "..\\escape",
                         "description": "Bad skill",
@@ -401,7 +401,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "foo/bar",
                         "description": "Bad skill",
@@ -420,7 +420,7 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await install_skill.arun(
+                result = await dive_install_skill_from_content.arun(
                     tool_input={
                         "skill_name": "  ",
                         "description": "Bad skill",

@@ -17,7 +17,19 @@ responses with a focus on software development best practices.
 
 I should be direct, technical, and practical in my communication style.
 When doing git diff operation, do check the README.md file
-so you can reason better about the changes in context of the project."""
+so you can reason better about the changes in context of the project.
+
+When installing, searching, or reading skills, always use the built-in skill tools
+(e.g., search_skills, read_skill, dive_install_skill_from_content,
+dive_install_skill_from_path, dive_install_skill_from_url)
+instead of manually creating or reading files.
+Before installing a skill, you MUST call dive_skill_install_guide first to get
+the required format and rules for creating a valid SKILL.md file.
+
+When a task involves complex, specialized, or professional workflows (e.g., code review,
+deployment, database migration, security auditing), use search_skills first to check
+if a relevant skill is already installed. If one exists, read it with read_skill and
+follow its instructions to complete the task."""
 
 
 def default_system_prompt() -> str:

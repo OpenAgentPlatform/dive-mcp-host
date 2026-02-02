@@ -4,11 +4,12 @@ Skills are directories containing a SKILL.md file with YAML frontmatter
 (name, description) and markdown instructions.
 """
 
-# ruff: noqa: PLR2004
+# ruff: noqa: PLR2004, PLR0911
 
 from __future__ import annotations
 
 import logging
+import shutil
 from typing import TYPE_CHECKING, Annotated
 
 if TYPE_CHECKING:
@@ -33,6 +34,24 @@ def _get_skill_dir() -> Path:
     from dive_mcp_host.env import DIVE_SKILL_DIR
 
     return DIVE_SKILL_DIR
+
+
+def _to_github_raw_url(url: str) -> str:
+    """Convert a GitHub blob URL to a raw.githubusercontent.com URL.
+
+    Converts URLs like:
+      https://github.com/user/repo/blob/main/path/SKILL.md
+    To:
+      https://raw.githubusercontent.com/user/repo/main/path/SKILL.md
+
+    Non-GitHub URLs are returned unchanged.
+    """
+    import re
+
+    match = re.match(r"https?://github\.com/([^/]+/[^/]+)/blob/(.+)", url)
+    if match:
+        return f"https://raw.githubusercontent.com/{match.group(1)}/{match.group(2)}"
+    return url
 
 
 def _parse_skill_frontmatter(content: str) -> dict[str, str]:
@@ -139,6 +158,7 @@ async def search_skills(
     skill_dir = _get_skill_dir()
 
     if not skill_dir.exists():
+        skill_dir.mkdir(parents=True, exist_ok=True)
         return "No skills installed."
 
     results: list[str] = []
@@ -187,6 +207,71 @@ async def search_skills(
 
 
 @tool(
+    description="""Get the guidelines and prompt for installing a skill.
+
+Call this tool BEFORE installing any skill. It returns the required format
+and rules for creating a valid SKILL.md file, including frontmatter structure
+and content expectations.
+
+Example:
+  dive_skill_install_guide()
+"""
+)
+async def dive_skill_install_guide(
+    config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+) -> str:
+    """Return skill installation guidelines."""
+    config = _ensure_config(config)
+    abort_signal = _get_abort_signal(config)
+
+    if _check_aborted(abort_signal):
+        return "Error: Operation aborted."
+
+    return """\
+## Skill Installation Guide
+
+A skill is a SKILL.md file stored in its own directory under the skill directory.
+
+### SKILL.md Format
+
+The file MUST start with YAML frontmatter enclosed by `---` delimiters:
+
+```markdown
+---
+name: Human-Readable Skill Name
+description: A short summary of what this skill does.
+---
+
+## Instructions
+
+The body of the skill in markdown. This is the actual prompt/instructions
+that will be used when the skill is invoked.
+```
+
+### Rules
+
+1. **Frontmatter is required**: Must contain at least `name` and `description`.
+2. **`name`**: A human-readable display name for the skill.
+3. **`description`**: A concise summary (one or two sentences).
+4. **Body**: The markdown content after the frontmatter. This is the skill's \
+actual instructions/prompt.
+5. **`skill_name`** (directory name): Use lowercase kebab-case \
+(e.g., `code-review`, `git-commit`). Must not contain `/`, `\\`, or `..`.
+6. **Overwrite**: Existing skills will NOT be overwritten unless you explicitly \
+set `overwrite=True`.
+
+### Available Install Methods (in order of preference)
+
+1. **`dive_install_skill_from_path`**: Copy a local SKILL.md file by path. \
+Use this when the user already has a SKILL.md file on disk.
+2. **`dive_install_skill_from_url`**: Download a SKILL.md file from a URL. \
+Use this when the user provides a link to a SKILL.md file.
+3. **`dive_install_skill_from_content`**: Provide name, description, and content \
+directly. Use this only as a last resort when no file or URL is available.
+"""
+
+
+@tool(
     description="""Install a new skill by creating a SKILL.md file.
 
 Creates a skill directory with a SKILL.md file containing the provided content.
@@ -196,14 +281,14 @@ Will refuse to overwrite an existing skill unless overwrite=True.
 Validates skill_name against path traversal characters (/, \\, ..).
 
 Example:
-  install_skill(
+  dive_install_skill_from_content(
     skill_name="code-review",
     description="Reviews code for best practices",
     content="Detailed instructions for code review...",
   )
 """
 )
-async def install_skill(
+async def dive_install_skill_from_content(
     skill_name: Annotated[
         str,
         Field(description="Directory name for the skill (e.g., 'code-review')."),
@@ -274,5 +359,164 @@ async def install_skill(
         target_dir.mkdir(parents=True, exist_ok=True)
         skill_file.write_text(full_content, encoding="utf-8")
         return f"Successfully installed skill '{skill_name}'."
+    except OSError as e:
+        return f"Error installing skill '{skill_name}': {e}"
+
+
+@tool(
+    description="""Install a skill from a local SKILL.md file path.
+
+Copies the SKILL.md file from the given path into the skill directory.
+Only requires the file path and a skill name.
+
+Will refuse to overwrite an existing skill unless overwrite=True.
+Validates skill_name against path traversal characters (/, \\, ..).
+
+Example:
+  dive_install_skill_from_path(
+    skill_name="code-review",
+    skill_path="/home/user/my-skills/SKILL.md",
+  )
+"""
+)
+async def dive_install_skill_from_path(
+    skill_name: Annotated[
+        str,
+        Field(description="Directory name for the skill (e.g., 'code-review')."),
+    ],
+    skill_path: Annotated[
+        str,
+        Field(description="Absolute path to the SKILL.md file to copy."),
+    ],
+    overwrite: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Whether to overwrite an existing skill.",
+        ),
+    ] = False,
+    config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+) -> str:
+    """Install a skill by copying a SKILL.md file from a local path."""
+    from pathlib import Path
+
+    config = _ensure_config(config)
+    abort_signal = _get_abort_signal(config)
+
+    if _check_aborted(abort_signal):
+        return "Error: Operation aborted."
+
+    # Validate skill_name against path traversal
+    if "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        return "Error: Invalid skill name. Must not contain '/', '\\', or '..'."
+
+    if not skill_name.strip():
+        return "Error: Skill name must not be empty."
+
+    source = Path(skill_path)
+
+    if not source.exists():
+        return f"Error: Source file '{skill_path}' not found."
+    if not source.is_file():
+        return f"Error: Source path '{skill_path}' is not a file."
+
+    skill_dir = _get_skill_dir()
+    target_dir = skill_dir / skill_name
+    target_file = target_dir / "SKILL.md"
+
+    if target_file.exists() and not overwrite:
+        return (
+            f"Error: Skill '{skill_name}' already exists. "
+            "Set overwrite=True to replace it."
+        )
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target_file)
+        return f"Successfully installed skill '{skill_name}' from '{skill_path}'."
+    except OSError as e:
+        return f"Error installing skill '{skill_name}': {e}"
+
+
+@tool(
+    description="""Install a skill by downloading a SKILL.md file from a URL.
+
+Fetches the SKILL.md content from the given URL and saves it into the skill directory.
+Only requires the URL and a skill name.
+
+Will refuse to overwrite an existing skill unless overwrite=True.
+Validates skill_name against path traversal characters (/, \\, ..).
+
+Example:
+  dive_install_skill_from_url(
+    skill_name="code-review",
+    url="https://example.com/skills/code-review/SKILL.md",
+  )
+"""
+)
+async def dive_install_skill_from_url(
+    skill_name: Annotated[
+        str,
+        Field(description="Directory name for the skill (e.g., 'code-review')."),
+    ],
+    url: Annotated[
+        str,
+        Field(description="URL to download the SKILL.md file from."),
+    ],
+    overwrite: Annotated[
+        bool,
+        Field(
+            default=False,
+            description="Whether to overwrite an existing skill.",
+        ),
+    ] = False,
+    config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
+) -> str:
+    """Install a skill by downloading a SKILL.md file from a URL."""
+    import httpx
+
+    config = _ensure_config(config)
+    abort_signal = _get_abort_signal(config)
+
+    if _check_aborted(abort_signal):
+        return "Error: Operation aborted."
+
+    # Validate skill_name against path traversal
+    if "/" in skill_name or "\\" in skill_name or ".." in skill_name:
+        return "Error: Invalid skill name. Must not contain '/', '\\', or '..'."
+
+    if not skill_name.strip():
+        return "Error: Skill name must not be empty."
+
+    # Convert GitHub blob URLs to raw content URLs
+    url = _to_github_raw_url(url)
+
+    skill_dir = _get_skill_dir()
+    target_dir = skill_dir / skill_name
+    target_file = target_dir / "SKILL.md"
+
+    if target_file.exists() and not overwrite:
+        return (
+            f"Error: Skill '{skill_name}' already exists. "
+            "Set overwrite=True to replace it."
+        )
+
+    try:
+        async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content = response.text
+    except httpx.HTTPStatusError as e:
+        return f"Error downloading skill from '{url}': HTTP {e.response.status_code}"
+    except httpx.RequestError as e:
+        return f"Error downloading skill from '{url}': {e}"
+
+    if not content.strip():
+        return f"Error: Downloaded content from '{url}' is empty."
+
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        target_file.write_text(content, encoding="utf-8")
+        return f"Successfully installed skill '{skill_name}' from '{url}'."
     except OSError as e:
         return f"Error installing skill '{skill_name}': {e}"
