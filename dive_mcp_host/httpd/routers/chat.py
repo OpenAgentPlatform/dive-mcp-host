@@ -1,7 +1,8 @@
+from asyncio import TaskGroup
 from typing import TYPE_CHECKING, Annotated, TypeVar
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -70,6 +71,36 @@ async def search(
         result.append(match)
 
     return DataResult(success=True, message=None, data=result)
+
+
+@chat.post("/bulk-delete")
+async def bulk_delete(
+    chat_ids: Annotated[list[str], Body()],
+    app: DiveHostAPI = Depends(get_app),
+    dive_user: "DiveUser" = Depends(get_dive_user),
+) -> ResultResponse:
+    """Delete a specific chat by ID.
+
+    Args:
+        chat_ids (list[str]): List of chat id to delete.
+        app (DiveHostAPI): The DiveHostAPI instance.
+        dive_user (DiveUser): The DiveUser instance.
+
+    Returns:
+        ResultResponse: Result of the delete operation.
+    """
+    async with app.db_sessionmaker() as session:
+        await app.msg_store(session).bulk_delete(
+            chat_ids=chat_ids,
+            user_id=dive_user["user_id"],
+        )
+        await session.commit()
+
+    async with TaskGroup() as group:
+        for chat in chat_ids:
+            group.create_task(app.dive_host["default"].delete_thread(chat))
+
+    return ResultResponse(success=True, message=None)
 
 
 @chat.get("/list")
@@ -335,34 +366,3 @@ async def abort_chat(
         raise UserInputError("Chat not found")
 
     return ResultResponse(success=True, message="Chat abort signal sent successfully")
-
-
-@chat.post("/search")
-async def search(
-    query: str = Field(description="Text to search for."),
-    max_words: int = Field(
-        default=60, description="Max length for title and message content snippet."
-    ),
-    app: DiveHostAPI = Depends(get_app),
-) -> DataResult[list[FTSResult]]:
-    """Full text search on chat title and message.
-
-    Returns a list of search results sorted by relevance.
-
-    If a chat has more than one relevant message,
-    only the best match will be returned.
-    """
-    async with app.db_sessionmaker() as session:
-        matches = await app.msg_store(session).full_text_search(
-            query=query, max_words=max_words, start_sel="", stop_sel=""
-        )
-
-    result: list[FTSResult] = []
-    existing_chat: set[str] = set()
-    for match in matches:
-        if match.chat_id in existing_chat:
-            continue
-        existing_chat.add(match.chat_id)
-        result.append(match)
-
-    return DataResult(success=True, message=None, data=result)

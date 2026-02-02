@@ -202,6 +202,41 @@ def test_delete_chat(test_client):
     assert response_data["success"] is True
 
 
+def test_bulk_delete_chat(test_client):
+    """Test the /api/chat/bulk-delete endpoint."""
+    client, app = test_client
+
+    # Create three chats
+    chat_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for chat_id in chat_ids:
+        response = client.post(
+            "/api/chat", data={"message": "Hello, world!", "chatId": chat_id}
+        )
+        assert response.status_code == SUCCESS_CODE
+
+    # Verify all three chats exist in the list
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    listed_ids = {c["id"] for c in response.json()["data"]["normal"]}
+    for chat_id in chat_ids:
+        assert chat_id in listed_ids
+
+    # Bulk delete the first two chats
+    ids_to_delete = chat_ids[:2]
+    response = client.post("/api/chat/bulk-delete", json=ids_to_delete)
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+
+    # Verify only the third chat (and the conftest chat) remain
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    remaining_ids = {c["id"] for c in response.json()["data"]["normal"]}
+    for deleted_id in ids_to_delete:
+        assert deleted_id not in remaining_ids
+    assert chat_ids[2] in remaining_ids
+
+
 def test_abort_chat(test_client):
     """Test the /api/chat/{chat_id}/abort endpoint."""
     client, app = test_client

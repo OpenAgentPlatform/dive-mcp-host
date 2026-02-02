@@ -383,6 +383,22 @@ class BaseMessageStore(AbstractMessageStore):
         )
         await self._session.execute(query)
 
+    async def bulk_delete(
+        self, chat_ids: list[str], user_id: str | None = None
+    ) -> None:
+        """Bulk delete chat from the database.
+
+        Args:
+            chat_ids: A list of chat id.
+            user_id: User ID or fingerprint, depending on the prefix.
+        """
+        query = (
+            delete(ORMChat)
+            .where(ORMChat.id.in_(chat_ids))
+            .where(ORMChat.user_id == user_id)
+        )
+        await self._session.execute(query)
+
     async def delete_messages_after(
         self,
         chat_id: str,
