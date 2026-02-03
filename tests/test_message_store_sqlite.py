@@ -201,6 +201,82 @@ async def test_full_text_search_by_title(
 
 
 @pytest.mark.asyncio
+async def test_full_text_search_chinese(
+    store: SQLiteMessageStore,
+    session: AsyncSession,
+):
+    """Test FTS with Chinese text in title and content."""
+    chat = ORMChat(
+        id="fts-zh",
+        title="中文測試",
+        created_at=datetime.now(UTC),
+    )
+    session.add(chat)
+    await session.flush()
+
+    msg1 = ORMMessage(
+        message_id="fts-zh-msg-1",
+        chat_id="fts-zh",
+        role=Role.USER,
+        content="這是一句話",
+        created_at=datetime.now(UTC),
+        files="",
+    )
+    msg2 = ORMMessage(
+        message_id="fts-zh-msg-2",
+        chat_id="fts-zh",
+        role=Role.ASSISTANT,
+        content="這是比較長的一句話...重複重複" * 100,
+        created_at=datetime.now(UTC),
+        files="",
+    )
+    session.add_all([msg1, msg2])
+    await session.flush()
+
+    # Short Chinese query (< 3 chars) uses ILIKE fallback
+    results = await store.full_text_search("一句", max_length=30)
+    assert len(results) == 2
+    assert results[0].message_id == "fts-zh-msg-1"
+    assert results[0].content_snippet == "這是<b>一句</b>話"
+    assert results[0].msg_created_at is not None
+    assert results[1].message_id == "fts-zh-msg-2"
+    assert (
+        results[1].content_snippet
+        == "這是比較長的<b>一句</b>話...重複重複這是比較長的<b>一句</b>話...重複..."
+    )
+
+    # Longer Chinese query (>= 3 chars) uses FTS5
+    results = await store.full_text_search("一句話", max_length=30)
+    assert len(results) == 2
+    assert results[0].message_id == "fts-zh-msg-1"
+    assert results[0].content_snippet == "這是<b>一句話</b>"
+    assert results[0].msg_created_at is not None
+    assert results[1].message_id == "fts-zh-msg-2"
+    assert (
+        results[1].content_snippet
+        == "這是比較長的<b>一句話</b>...重複重複這是比較長的<b>一句話</b>...重複重複..."
+    )
+
+    # Search by Chinese title
+    results = await store.full_text_search("中文測試", max_length=30)
+    assert len(results) == 2
+    assert results[0].message_id == "fts-zh-msg-1"
+    assert results[0].title_snippet == "<b>中文測試</b>"
+    assert results[0].content_snippet == "這是一句話"
+    assert results[0].msg_created_at is not None
+    assert results[1].title_snippet == "<b>中文測試</b>"
+    assert results[1].message_id == "fts-zh-msg-2"
+    assert (
+        results[1].content_snippet
+        == "這是比較長的一句話...重複重複這是比較長的一句話...重複重複..."
+    )
+
+    # No match
+    results = await store.full_text_search("不會找到")
+    assert len(results) == 0
+
+
+@pytest.mark.asyncio
 async def test_sqlite_fts_message_triggers(
     store: SQLiteMessageStore,
     session: AsyncSession,
