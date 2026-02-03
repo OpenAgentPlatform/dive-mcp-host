@@ -31,6 +31,12 @@ class ResultResponse(BaseModel):
     message: str | None = None
 
 
+class DataResult[T](ResultResponse):
+    """Generic result that extends ResultResponse with a data field."""
+
+    data: T
+
+
 class McpServerError(BaseModel):
     """Represents an error from an MCP server."""
 
@@ -332,3 +338,14 @@ class SortBy(StrEnum):
 
     CHAT = "chat"
     MESSAGE = "msg"
+
+
+# OpenAPI doc
+EVENT_STREAM = {
+    "description": "Real-time event stream",
+    "content": {
+        "text/event-stream": {
+            "schema": {"type": "string", "example": "data: message content\n\n"}
+        }
+    },
+}

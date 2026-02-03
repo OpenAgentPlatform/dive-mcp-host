@@ -1,6 +1,7 @@
 from logging import getLogger
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from dive_mcp_host.httpd.conf.mcp_servers import Config as McpServers
@@ -57,11 +58,7 @@ class SaveModelSettingsRequest(BaseModel):
 
 @config.get("/mcpserver", responses={200: {"model": ConfigResult[McpServers]}})
 async def get_mcp_server(app: DiveHostAPI = Depends(get_app)):  # noqa: ANN201
-    """Get MCP server configurations.
-
-    Returns:
-        ConfigResult[McpServers]: Configuration for MCP servers.
-    """
+    """Get MCP server configurations."""
     config = await app.mcp_server_config_manager.get_current_config()
     if config is None:
         logger.warning("MCP server configuration not found")
@@ -95,18 +92,12 @@ async def get_mcp_server(app: DiveHostAPI = Depends(get_app)):  # noqa: ANN201
 async def post_mcp_server(
     new_config: McpServers,
     app: DiveHostAPI = Depends(get_app),
-    force: bool = False,
+    force: Annotated[
+        bool,
+        Query(description="If true, reload all MCP servers even if unchanged"),
+    ] = False,
 ) -> SaveConfigResult:
-    """Save MCP server configurations.
-
-    Args:
-        new_config (McpServers): The server configurations to save.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        force (bool): If True, reload all mcp servers even if they are not changed.
-
-    Returns:
-        SaveConfigResult: Result of the save operation with any errors.
-    """
+    """Save MCP server configurations."""
     # Update conifg
     if not await app.mcp_server_config_manager.update_all_configs(new_config):
         raise ValueError("Failed to update MCP server configurations")
@@ -136,11 +127,7 @@ async def post_mcp_server(
 async def get_model(
     app: DiveHostAPI = Depends(get_app),
 ) -> ConfigResult["ModelFullConfigs"]:
-    """Get current model configuration.
-
-    Returns:
-        ConfigResult[ModelConfig]: Current model configuration.
-    """
+    """Get current model configuration."""
     if app.model_config_manager.full_config is None:
         logger.warning("Model configuration not found")
         return ConfigResult(
@@ -156,15 +143,7 @@ async def post_model(
     model_settings: SaveModelSettingsRequest,
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
-    """Save model settings for a specific provider.
-
-    Args:
-        model_settings (SaveModelSettingsRequest): The model settings to save.
-        app (DiveHostAPI): The DiveHostAPI instance.
-
-    Returns:
-        ResultResponse: Result of the save operation.
-    """
+    """Save model settings for a specific provider."""
     app.model_config_manager.save_single_settings(
         provider=model_settings.provider,
         upload_model_settings=model_settings.model_settings,
@@ -187,15 +166,7 @@ async def post_model_embedding(
     embed_config: EmbedConfig,
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
-    """Save embedding model settings.
-
-    Args:
-        embed_config (EmbedConfig): The embedding model settings to save.
-        app (DiveHostAPI): The DiveHostAPI instance.
-
-    Returns:
-        ResultResponse: Result of the save operation.
-    """
+    """Save embedding model settings."""
     app.model_config_manager.save_embed_settings(embed_config)
 
     # Reload model config
@@ -214,15 +185,7 @@ async def post_model_replace_all(
     model_config: "ModelFullConfigs",
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
-    """Replace all model configurations.
-
-    Args:
-        model_config (ModelConfig): The complete model configuration to use.
-        app (DiveHostAPI): The DiveHostAPI instance.
-
-    Returns:
-        ResultResponse: Result of the replace operation.
-    """
+    """Replace all model configurations."""
     app.model_config_manager.replace_all_settings(model_config)
     if not app.model_config_manager.initialize():
         raise ValueError("Failed to reload model configuration")
@@ -236,11 +199,7 @@ async def post_model_replace_all(
 
 @config.get("/model/interface")
 async def get_model_interface() -> InterfaceResult:
-    """Get model interface definition.
-
-    Returns:
-        InterfaceResult: Model interface definition.
-    """
+    """Get model interface definition."""
     return InterfaceResult(
         success=True,
         interface=ModelInterfaceDefinition(
@@ -279,11 +238,7 @@ async def get_model_interface() -> InterfaceResult:
 
 @config.get("/customrules")
 async def get_custom_rules(app: DiveHostAPI = Depends(get_app)) -> RulesResult:
-    """Get custom rules configuration.
-
-    Returns:
-        RulesResult: Custom rules as a string.
-    """
+    """Get custom rules configuration."""
     custom_rules = app.prompt_config_manager.load_custom_rules()
     return RulesResult(success=True, rules=custom_rules)
 
@@ -293,11 +248,7 @@ async def post_custom_rules(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
-    """Save custom rules configuration.
-
-    Returns:
-        ResultResponse: Result of the save operation.
-    """
+    """Save custom rules configuration."""
     raw_rules = await request.body()
     rules = raw_rules.decode("utf-8")
     app.prompt_config_manager.write_custom_rules(rules)
