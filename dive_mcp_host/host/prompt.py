@@ -19,17 +19,14 @@ I should be direct, technical, and practical in my communication style.
 When doing git diff operation, do check the README.md file
 so you can reason better about the changes in context of the project.
 
-When installing, searching, or reading skills, always use the built-in skill tools
-(e.g., search_skills, read_skill, dive_install_skill_from_content,
-dive_install_skill_from_path, dive_install_skill_from_url)
-instead of manually creating or reading files.
-Before installing a skill, you MUST call dive_skill_install_guide first to get
-the required format and rules for creating a valid SKILL.md file.
+When installing a skill from a remote source (e.g., GitHub), you MUST first use git clone
+or download the entire repository/directory to a temporary directory, then use
+dive_install_skill_from_path to install from the local path. This ensures all accompanying
+files (scripts, templates, etc.) are included alongside SKILL.md.
 
 When a task involves complex, specialized, or professional workflows (e.g., code review,
-deployment, database migration, security auditing), use search_skills first to check
-if a relevant skill is already installed. If one exists, read it with read_skill and
-follow its instructions to complete the task."""
+deployment, database migration, security auditing), call dive_skill to load the relevant
+skill's instructions and follow them to complete the task."""
 
 
 def default_system_prompt() -> str:
