@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
+from logging import getLogger
 
 from sqlalchemy import column, func, literal_column, select, table
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import OperationalError
 
 from dive_mcp_host.httpd.database.models import Chat, FTSResult
 from dive_mcp_host.httpd.database.msg_store.base import (
@@ -11,6 +13,8 @@ from dive_mcp_host.httpd.database.msg_store.base import (
 from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
 from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
 from dive_mcp_host.httpd.database.orm_models import Users as ORMUsers
+
+logger = getLogger(__name__)
 
 
 class SQLiteMessageStore(BaseMessageStore):
@@ -99,61 +103,68 @@ class SQLiteMessageStore(BaseMessageStore):
                 query, user_id, max_length, start_sel, stop_sel
             )
 
-        fts = table(
-            "message_fts",
-            column("rowid"),
-            column("rank"),
-            column("chat_id"),
-        )
+        try:
+            fts = table(
+                "message_fts",
+                column("rowid"),
+                column("rank"),
+                column("chat_id"),
+            )
 
-        stmt = (
-            select(
-                ORMMessage.message_id,
-                ORMMessage.chat_id,
-                ORMMessage.created_at,
-                ORMChat.updated_at.label("chat_updated_at"),
-                func.snippet(
-                    literal_column("message_fts"),
-                    1,
-                    start_sel,
-                    stop_sel,
-                    "...",
-                    max_length,
-                ).label("title_snippet"),
-                func.snippet(
-                    literal_column("message_fts"),
-                    2,
-                    start_sel,
-                    stop_sel,
-                    "...",
-                    max_length,
-                ).label("content_snippet"),
+            stmt = (
+                select(
+                    ORMMessage.message_id,
+                    ORMMessage.chat_id,
+                    ORMMessage.created_at,
+                    ORMChat.updated_at.label("chat_updated_at"),
+                    func.snippet(
+                        literal_column("message_fts"),
+                        1,
+                        start_sel,
+                        stop_sel,
+                        "...",
+                        max_length,
+                    ).label("title_snippet"),
+                    func.snippet(
+                        literal_column("message_fts"),
+                        2,
+                        start_sel,
+                        stop_sel,
+                        "...",
+                        max_length,
+                    ).label("content_snippet"),
+                )
+                .select_from(fts)
+                .join(
+                    ORMMessage,
+                    literal_column("messages.rowid") == fts.c.rowid,
+                )
+                .join(
+                    ORMChat,
+                    ORMChat.id == ORMMessage.chat_id,
+                )
+                .where(literal_column("message_fts").match(query))
+                .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
             )
-            .select_from(fts)
-            .join(
-                ORMMessage,
-                literal_column("messages.rowid") == fts.c.rowid,
-            )
-            .join(
-                ORMChat,
-                ORMChat.id == ORMMessage.chat_id,
-            )
-            .where(literal_column("message_fts").match(query))
-            .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
-        )
 
-        if user_id is not None:
-            stmt = stmt.where(ORMChat.user_id == user_id)
+            if user_id is not None:
+                stmt = stmt.where(ORMChat.user_id == user_id)
 
-        result = await self._session.execute(stmt)
-        return [
-            FTSResult(
-                chat_id=row.chat_id,
-                message_id=row.message_id,
-                title_snippet=row.title_snippet,
-                content_snippet=row.content_snippet,
-                msg_created_at=row.created_at,
-                chat_updated_at=row.chat_updated_at,
+            result = await self._session.execute(stmt)
+            return [
+                FTSResult(
+                    chat_id=row.chat_id,
+                    message_id=row.message_id,
+                    title_snippet=row.title_snippet,
+                    content_snippet=row.content_snippet,
+                    msg_created_at=row.created_at,
+                    chat_updated_at=row.chat_updated_at,
+                )
+                for row in result.mappings()
+            ]
+
+        except OperationalError:
+            logger.info("Fallback to LIKE search for query: %s", query)
+            return await self._like_query_search(
+                query, user_id, max_length, start_sel, stop_sel
             )
-            for row in result.mappings()
-        ]

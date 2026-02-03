@@ -302,6 +302,11 @@ async def test_full_text_search_chinese(
     results = await store.full_text_search("不會找到")
     assert len(results) == 0
 
+    # Try some weird input, make sure it doesn't break
+    await store.full_text_search("中文 +")
+    await store.full_text_search("中 + $% + # * @()!")
+    await store.full_text_search("# aa你好")
+
 
 @pytest.mark.asyncio
 async def test_sqlite_fts_message_triggers(
