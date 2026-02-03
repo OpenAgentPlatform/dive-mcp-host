@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from dive_mcp_host.httpd.database.models import Chat, ChatMessage, FTSResult, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
 from dive_mcp_host.httpd.routers.models import (
-    EVENT_STREAM,
+    CHAT_EVENT_STREAM,
     DataResult,
     ResultResponse,
     SortBy,
@@ -116,7 +116,7 @@ async def list_chat(
 
 @chat.post(
     "",
-    responses={200: EVENT_STREAM},
+    responses={200: CHAT_EVENT_STREAM},
     response_class=StreamingResponse,
 )
 async def create_chat(
@@ -187,7 +187,7 @@ ERROR_MSG_ID = "0"
 
 @chat.post(
     "/edit",
-    responses={200: EVENT_STREAM},
+    responses={200: CHAT_EVENT_STREAM},
     response_class=StreamingResponse,
 )
 async def edit_chat(
@@ -240,7 +240,7 @@ async def edit_chat(
 
 @chat.post(
     "/retry",
-    responses={200: EVENT_STREAM},
+    responses={200: CHAT_EVENT_STREAM},
     response_class=StreamingResponse,
 )
 async def retry_chat(

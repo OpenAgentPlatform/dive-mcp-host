@@ -1,3 +1,4 @@
+import json
 from enum import StrEnum
 from typing import Any, Literal, Self, TypeVar
 
@@ -340,12 +341,189 @@ class SortBy(StrEnum):
     MESSAGE = "msg"
 
 
-# OpenAPI doc
-EVENT_STREAM = {
-    "description": "Real-time event stream",
+# ==== For OpenAPI Doc ====
+
+
+# OpenAPI Doc - Helper to format SSE data
+def _sse(msg: StreamMessage) -> str:
+    data = json.dumps({"message": msg.model_dump_json(by_alias=True)})
+    return f"data: {data}\n\n"
+
+
+CHAT_EVENT_STREAM = {
+    "description": (
+        "Real-time event stream using Server-Sent Events (SSE) format. "
+        'Each event is sent as `data: {"message": "<json-encoded StreamMessage>"}\\n\\n`. '  # noqa: E501
+        "The stream ends with `data: [DONE]\\n\\n`."
+    ),
     "content": {
         "text/event-stream": {
-            "schema": {"type": "string", "example": "data: message content\n\n"}
+            "schema": {"type": "string"},
+            "examples": {
+                "text": {
+                    "summary": "AI response text chunks",
+                    "value": _sse(
+                        StreamMessage(
+                            type="text", content="Hello! How can I help you today?"
+                        )
+                    ),
+                },
+                "chat_info": {
+                    "summary": "Chat ID and title information",
+                    "value": _sse(
+                        StreamMessage(
+                            type="chat_info",
+                            content=ChatInfoContent(
+                                id="chat-abc123", title="New Conversation"
+                            ),
+                        )
+                    ),
+                },
+                "message_info": {
+                    "summary": "User and assistant message IDs",
+                    "value": _sse(
+                        StreamMessage(
+                            type="message_info",
+                            content=MessageInfoContent(
+                                userMessageId="msg-user-001",
+                                assistantMessageId="msg-asst-001",
+                            ),
+                        )
+                    ),
+                },
+                "tool_calls": {
+                    "summary": "Tool invocation requests from the AI",
+                    "value": _sse(
+                        StreamMessage(
+                            type="tool_calls",
+                            content=[
+                                ToolCallsContent(
+                                    name="search", arguments={"query": "weather today"}
+                                )
+                            ],
+                        )
+                    ),
+                },
+                "tool_result": {
+                    "summary": "Tool execution results",
+                    "value": _sse(
+                        StreamMessage(
+                            type="tool_result",
+                            content=ToolResultContent(
+                                name="search",
+                                result={"temperature": "72F", "condition": "sunny"},
+                            ),
+                        )
+                    ),
+                },
+                "tool_call_progress": {
+                    "summary": "Progress updates during tool execution",
+                    "value": _sse(
+                        StreamMessage(
+                            type="tool_call_progress",
+                            content=ToolCallProgress(
+                                progress=50,
+                                total=100,
+                                message="Processing...",
+                                tool_call_id="call-123",
+                            ),
+                        )
+                    ),
+                },
+                "error": {
+                    "summary": "Error messages",
+                    "value": _sse(
+                        StreamMessage(
+                            type="error",
+                            content=ErrorContent(
+                                message="Connection timeout", type="NetworkError"
+                            ),
+                        )
+                    ),
+                },
+                "interactive_auth": {
+                    "summary": "Authentication required for MCP server",
+                    "value": _sse(
+                        StreamMessage(
+                            type="interactive",
+                            content=InteractiveContent(
+                                type="authentication_required",
+                                content=AuthenticationRequiredContent(
+                                    server_name="github",
+                                    auth_url="https://github.com/login/oauth/authorize?...",
+                                ),
+                            ),
+                        )
+                    ),
+                },
+                "interactive_elicitation": {
+                    "summary": "User input request from MCP server",
+                    "value": _sse(
+                        StreamMessage(
+                            type="interactive",
+                            content=InteractiveContent(
+                                type="elicitation_request",
+                                content=ElicitationRequestContent(
+                                    request_id="req-456",
+                                    message="Please provide your API key",
+                                    requested_schema={
+                                        "type": "object",
+                                        "properties": {"api_key": {"type": "string"}},
+                                    },
+                                ),
+                            ),
+                        )
+                    ),
+                },
+                "token_usage": {
+                    "summary": "Token usage statistics",
+                    "value": _sse(
+                        StreamMessage(
+                            type="token_usage",
+                            content=TokenUsageContent(
+                                inputTokens=150,
+                                outputTokens=75,
+                                userToken=50,
+                                customPromptToken=0,
+                                systemPromptToken=100,
+                                timeToFirstToken=0.5,
+                                tokensPerSecond=25.0,
+                                modelName="gpt-4",
+                            ),
+                        )
+                    ),
+                },
+                "agent_tool_call": {
+                    "summary": "Sub-agent tool invocation",
+                    "value": _sse(
+                        StreamMessage(
+                            type="agent_tool_call",
+                            content=AgentToolCallContent(
+                                toolCallId="call-789",
+                                name="code_interpreter",
+                                args={"code": "print(2+2)"},
+                            ),
+                        )
+                    ),
+                },
+                "agent_tool_result": {
+                    "summary": "Sub-agent tool execution result",
+                    "value": _sse(
+                        StreamMessage(
+                            type="agent_tool_result",
+                            content=AgentToolResultContent(
+                                toolCallId="call-789",
+                                name="code_interpreter",
+                                result="4",
+                            ),
+                        )
+                    ),
+                },
+                "done": {
+                    "summary": "Stream completion signal",
+                    "value": "data: [DONE]\n\n",
+                },
+            },
         }
     },
 }
