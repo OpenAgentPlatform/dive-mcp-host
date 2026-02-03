@@ -52,10 +52,9 @@ async def search(
 ) -> DataResult[list[FTSResult]]:
     """Full text search on chat title and message.
 
-    Returns a list of search results sorted by relevance.
+    Returns a list of search results containing a chat title and message snippet.
 
-    If a chat has more than one relevant message,
-    only the best match will be returned.
+    Orderd by chat.updated_at DESC (Newest first), msg.created_at ASC (Oldest first)
     """
     async with app.db_sessionmaker() as session:
         matches = await app.msg_store(session).full_text_search(

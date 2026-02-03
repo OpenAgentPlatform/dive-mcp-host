@@ -1700,80 +1700,99 @@ def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
 @pytest.mark.asyncio
 async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
     """Test the /api/chat/search endpoint filters duplicate chat results."""
+    from datetime import timedelta
+
     client, app = test_client
 
     # Setup: create 3 chats with 2 messages each directly in the database.
     # Chat 1 and Chat 2 contain "quantum" in their messages.
     # Chat 3 does not contain "quantum".
+    # Use explicit timestamps to verify ordering:
+    # ORDER BY chats.updated_at DESC, messages.created_at ASC
+    base_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+
     async with app.db_sessionmaker() as session:
+        # Chat 1: older updated_at (should appear second in results)
         chat1_id = str(uuid.uuid4())
+        chat1_updated = base_time
+        chat1_msg1_id = str(uuid.uuid4())  # oldest message
+        chat1_msg2_id = str(uuid.uuid4())
         session.add(
             ORMChat(
                 id=chat1_id,
                 title="Physics Discussion",
-                created_at=datetime.now(UTC),
+                created_at=base_time,
+                updated_at=chat1_updated,
             )
         )
         await session.flush()
         session.add_all(
             [
                 ORMMessage(
-                    message_id=str(uuid.uuid4()),
+                    message_id=chat1_msg1_id,
                     chat_id=chat1_id,
                     role="user",
                     content="Tell me about quantum computing",
-                    created_at=datetime.now(UTC),
+                    created_at=base_time,
                     files="",
                 ),
                 ORMMessage(
-                    message_id=str(uuid.uuid4()),
+                    message_id=chat1_msg2_id,
                     chat_id=chat1_id,
                     role="assistant",
                     content="Quantum computing uses qubits for processing",
-                    created_at=datetime.now(UTC),
+                    created_at=base_time + timedelta(seconds=1),
                     files="",
                 ),
             ]
         )
         await session.flush()
 
+        # Chat 2: newer updated_at (should appear first in results)
         chat2_id = str(uuid.uuid4())
+        chat2_updated = base_time + timedelta(hours=1)
+        chat2_msg1_id = str(uuid.uuid4())  # oldest message
+        chat2_msg2_id = str(uuid.uuid4())
         session.add(
             ORMChat(
                 id=chat2_id,
                 title="Science Review",
-                created_at=datetime.now(UTC),
+                created_at=base_time + timedelta(minutes=30),
+                updated_at=chat2_updated,
             )
         )
         await session.flush()
         session.add_all(
             [
                 ORMMessage(
-                    message_id=str(uuid.uuid4()),
+                    message_id=chat2_msg1_id,
                     chat_id=chat2_id,
                     role="user",
                     content="Explain quantum entanglement",
-                    created_at=datetime.now(UTC),
+                    created_at=base_time + timedelta(minutes=30),
                     files="",
                 ),
                 ORMMessage(
-                    message_id=str(uuid.uuid4()),
+                    message_id=chat2_msg2_id,
                     chat_id=chat2_id,
                     role="assistant",
                     content="Quantum entanglement links particles together",
-                    created_at=datetime.now(UTC),
+                    created_at=base_time + timedelta(minutes=30, seconds=1),
                     files="",
                 ),
             ]
         )
         await session.flush()
 
+        # Chat 3: no quantum content
         chat3_id = str(uuid.uuid4())
+        chat3_time = base_time + timedelta(hours=2)
         session.add(
             ORMChat(
                 id=chat3_id,
                 title="Finance Report",
-                created_at=datetime.now(UTC),
+                created_at=chat3_time,
+                updated_at=chat3_time,
             )
         )
         await session.flush()
@@ -1784,7 +1803,7 @@ async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
                     chat_id=chat3_id,
                     role="user",
                     content="What are the stock market trends",
-                    created_at=datetime.now(UTC),
+                    created_at=chat3_time,
                     files="",
                 ),
                 ORMMessage(
@@ -1792,7 +1811,7 @@ async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
                     chat_id=chat3_id,
                     role="assistant",
                     content="The market shows positive growth patterns",
-                    created_at=datetime.now(UTC),
+                    created_at=chat3_time + timedelta(seconds=1),
                     files="",
                 ),
             ]
@@ -1812,3 +1831,18 @@ async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
     assert chat1_id in result_chat_ids
     assert chat2_id in result_chat_ids
     assert chat3_id not in result_chat_ids
+
+    # Verify results are ordered by chat.updated_at DESC
+    results = response_data["data"]
+    assert results[0]["chat_id"] == chat2_id, (
+        "Most recently updated chat should be first"
+    )
+    assert results[1]["chat_id"] == chat1_id, "Older updated chat should be second"
+
+    # Verify messages within results are ordered by created_at ASC
+    assert results[0]["message_id"] == chat2_msg1_id, (
+        "Chat2 should return the oldest matching message"
+    )
+    assert results[1]["message_id"] == chat1_msg1_id, (
+        "Chat1 should return the oldest matching message"
+    )
