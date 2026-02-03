@@ -104,7 +104,6 @@ class McpTool(BaseModel):
     icon: str
     status: str
     url: str | None = None
-    status: str
     error: str | None = None
     icons: list[Icon] | None = None
     has_credential: bool = False
