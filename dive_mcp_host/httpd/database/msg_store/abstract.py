@@ -177,7 +177,7 @@ class AbstractMessageStore(ABC):
         self,
         query: str,
         user_id: str | None = None,
-        max_words: int = 60,
+        max_length: int = 150,
         start_sel: str = "<b>",
         stop_sel: str = "</b>",
     ) -> list[FTSResult]:
@@ -186,7 +186,7 @@ class AbstractMessageStore(ABC):
         Args:
             query: Search query string.
             user_id: Optional user ID to filter results.
-            max_words: Maximum number of words in content snippet.
+            max_length: Maximum number of characters in content snippet.
             start_sel: Opening tag for highlighted matches.
             stop_sel: Closing tag for highlighted matches.
 

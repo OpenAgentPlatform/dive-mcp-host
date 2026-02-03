@@ -89,6 +89,7 @@ class FTSResult(BaseModel):
     message_id: str
     title_snippet: str
     content_snippet: str
+    msg_created_at: datetime
 
 
 class ChatMessage(BaseModel):

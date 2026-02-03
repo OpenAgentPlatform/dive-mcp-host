@@ -133,6 +133,7 @@ async def test_full_text_search(
     assert results[0].message_id == sample_data["chat1_msg1_id"]
     assert results[0].title_snippet == "<b>Test</b> Chat"
     assert results[0].content_snippet == "Hello, this is a <b>test</b> <b>message</b>"
+    assert results[0].msg_created_at is not None
 
     # Short query (< 3 chars) should use ILIKE fallback
     # "He" matches: msg1 ("Hello"), msg2 ("help"), msg4 ("the other")
@@ -142,10 +143,12 @@ async def test_full_text_search(
     assert results[0].message_id == sample_data["chat1_msg1_id"]
     assert results[0].title_snippet == "Test Chat"
     assert results[0].content_snippet == "<b>He</b>llo, this is a test message"
+    assert results[0].msg_created_at is not None
     assert results[1].chat_id == sample_data["chat1_id"]
     assert results[1].message_id == sample_data["chat1_msg2_id"]
     assert results[1].title_snippet == "Test Chat"
     assert results[1].content_snippet == "Sure, I can <b>he</b>lp you with that request"
+    assert results[1].msg_created_at is not None
     assert results[2].chat_id == sample_data["chat2_id"]
     assert results[2].message_id == sample_data["chat2_msg2_id"]
     assert results[2].title_snippet == "Science Discussion"
@@ -153,6 +156,7 @@ async def test_full_text_search(
         "Quantum entanglement links particles so measuring one affects"
         " t<b>he</b> ot<b>he</b>r"
     )
+    assert results[2].msg_created_at is not None
 
 
 @pytest.mark.asyncio

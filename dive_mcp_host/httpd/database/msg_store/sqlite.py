@@ -78,7 +78,7 @@ class SQLiteMessageStore(BaseMessageStore):
         self,
         query: str,
         user_id: str | None = None,
-        max_words: int = 60,
+        max_length: int = 150,
         start_sel: str = "<b>",
         stop_sel: str = "</b>",
     ) -> list[FTSResult]:
@@ -87,7 +87,7 @@ class SQLiteMessageStore(BaseMessageStore):
         Args:
             query: Search query string.
             user_id: Optional user ID to filter results.
-            max_words: Maximum number of words in content snippet.
+            max_length: Maximum number of characters in content snippet.
             start_sel: Opening tag for highlighted matches.
             stop_sel: Closing tag for highlighted matches.
 
@@ -95,8 +95,8 @@ class SQLiteMessageStore(BaseMessageStore):
             List of FTSResult objects sorted by relevance.
         """
         if len(query) < MIN_TRIGRAM_LENGTH:
-            return await self._short_query_search(
-                query, user_id, max_words, start_sel, stop_sel
+            return await self._like_query_search(
+                query, user_id, max_length, start_sel, stop_sel
             )
 
         fts = table(
@@ -110,11 +110,14 @@ class SQLiteMessageStore(BaseMessageStore):
             select(
                 ORMMessage.message_id,
                 ORMMessage.chat_id,
-                func.highlight(
+                ORMMessage.created_at,
+                func.snippet(
                     literal_column("message_fts"),
                     1,
                     start_sel,
                     stop_sel,
+                    "...",
+                    max_length,
                 ).label("title_snippet"),
                 func.snippet(
                     literal_column("message_fts"),
@@ -122,7 +125,7 @@ class SQLiteMessageStore(BaseMessageStore):
                     start_sel,
                     stop_sel,
                     "...",
-                    max_words,
+                    max_length,
                 ).label("content_snippet"),
             )
             .select_from(fts)
@@ -135,7 +138,7 @@ class SQLiteMessageStore(BaseMessageStore):
                 ORMChat.id == ORMMessage.chat_id,
             )
             .where(literal_column("message_fts").match(query))
-            .order_by(fts.c.rank)
+            .order_by(ORMMessage.created_at.asc())
         )
 
         if user_id is not None:
@@ -148,6 +151,7 @@ class SQLiteMessageStore(BaseMessageStore):
                 message_id=row.message_id,
                 title_snippet=row.title_snippet,
                 content_snippet=row.content_snippet,
+                msg_created_at=row.created_at,
             )
             for row in result.mappings()
         ]

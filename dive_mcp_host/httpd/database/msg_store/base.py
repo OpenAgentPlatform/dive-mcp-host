@@ -36,27 +36,30 @@ MIN_TRIGRAM_LENGTH = 3
 def _build_snippet(
     content: str,
     query: str,
-    max_words: int = 30,
+    max_length: int = 150,
     start_sel: str = "<b>",
     stop_sel: str = "</b>",
 ) -> str:
     """Build a highlighted snippet from content, similar to FTS5 snippet()."""
     escaped = re.escape(query)
-    words = content.split()
 
-    first_match_idx = 0
-    for i, word in enumerate(words):
-        if re.search(escaped, word, re.IGNORECASE):
-            first_match_idx = i
-            break
+    # Find the position of the first match
+    match = re.search(escaped, content, re.IGNORECASE)
+    match_pos = match.start() if match else 0
 
-    start = max(0, first_match_idx - max_words // 2)
-    end = min(len(words), start + max_words)
-    snippet_text = " ".join(words[start:end])
+    # Extract a window of characters around the first match
+    half = max_length // 2
+    start = max(0, match_pos - half)
+    end = min(len(content), start + max_length)
+    # Re-adjust start if we hit the end of content
+    start = max(0, end - max_length)
+    snippet_text = content[start:end]
 
+    # Add ellipsis if truncated
     prefix = "..." if start > 0 else ""
-    suffix = "..." if end < len(words) else ""
+    suffix = "..." if end < len(content) else ""
 
+    # Highlight all occurrences of the query
     highlighted = re.sub(
         f"({escaped})",
         lambda m: f"{start_sel}{m.group(1)}{stop_sel}",
@@ -576,11 +579,11 @@ class BaseMessageStore(AbstractMessageStore):
             resource_usage=resource_usage,
         )
 
-    async def _short_query_search(
+    async def _like_query_search(
         self,
         query: str,
         user_id: str | None = None,
-        max_words: int = 60,
+        max_length: int = 150,
         start_sel: str = "<b>",
         stop_sel: str = "</b>",
     ) -> list[FTSResult]:
@@ -594,6 +597,7 @@ class BaseMessageStore(AbstractMessageStore):
                     ORMMessage.content.ilike(f"%{query}%"),
                 )
             )
+            .order_by(ORMMessage.created_at.asc())
         )
         if user_id is not None:
             stmt = stmt.where(ORMChat.user_id == user_id)
@@ -606,16 +610,18 @@ class BaseMessageStore(AbstractMessageStore):
                 title_snippet=_build_snippet(
                     row.title,
                     query,
+                    max_length=max_length,
                     start_sel=start_sel,
                     stop_sel=stop_sel,
                 ),
                 content_snippet=_build_snippet(
                     row.Message.content,
                     query,
-                    max_words=max_words // 3,
+                    max_length=max_length,
                     start_sel=start_sel,
                     stop_sel=stop_sel,
                 ),
+                msg_created_at=row.Message.created_at,
             )
             for row in result
         ]
@@ -675,7 +681,7 @@ class BaseMessageStore(AbstractMessageStore):
         self,
         query: str,
         user_id: str | None = None,
-        max_words: int = 60,
+        max_length: int = 150,
         start_sel: str = "<b>",
         stop_sel: str = "</b>",
     ) -> list[FTSResult]:
@@ -684,7 +690,7 @@ class BaseMessageStore(AbstractMessageStore):
         Args:
             query: Search query string.
             user_id: Optional user ID to filter results.
-            max_words: Maximum number of words in content snippet.
+            max_length: Maximum number of characters in content snippet.
             start_sel: Opening tag for highlighted matches.
             stop_sel: Closing tag for highlighted matches.
 

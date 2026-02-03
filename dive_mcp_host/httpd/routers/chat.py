@@ -45,9 +45,9 @@ class ChatList(BaseModel):
 @chat.post("/search")
 async def search(
     query: Annotated[str, Body(description="Text to search for")],
-    max_words: Annotated[
+    max_length: Annotated[
         int, Body(description="Max snippet length for title and content")
-    ] = 60,
+    ] = 150,
     app: DiveHostAPI = Depends(get_app),
 ) -> DataResult[list[FTSResult]]:
     """Full text search on chat title and message.
@@ -59,7 +59,7 @@ async def search(
     """
     async with app.db_sessionmaker() as session:
         matches = await app.msg_store(session).full_text_search(
-            query=query, max_words=max_words, start_sel="", stop_sel=""
+            query=query, max_length=max_length, start_sel="", stop_sel=""
         )
 
     result: list[FTSResult] = []
