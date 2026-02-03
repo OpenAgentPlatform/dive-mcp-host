@@ -9,9 +9,8 @@ from langgraph.graph.state import RunnableConfig
 
 from dive_mcp_host.mcp_installer_plugin.tools.skills import (
     _parse_skill_frontmatter,
-    dive_install_skill_from_content,
-    read_skill,
-    search_skills,
+    create_dive_skill_tool,
+    dive_install_skill_from_path,
 )
 
 MOCK_TARGET = "dive_mcp_host.mcp_installer_plugin.tools.skills._get_skill_dir"
@@ -100,42 +99,87 @@ class TestParseSkillFrontmatter:
         assert result == {}
 
 
-class TestReadSkill:
-    """Tests for the read_skill tool."""
+class TestDiveSkill:
+    """Tests for the dive_skill tool created by create_dive_skill_tool."""
 
-    @pytest.mark.asyncio
-    async def test_read_existing_skill(self) -> None:
-        """Test reading an existing skill."""
+    def test_load_existing_skill(self) -> None:
+        """Test loading an existing skill returns its content."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
             _write_skill(skill_dir, "code-review", VALID_SKILL)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await read_skill.arun(
-                    tool_input={"skill_name": "code-review"},
-                    config=_make_config(),
-                )
+                tool = create_dive_skill_tool()
+                result = tool.invoke({"skill_name": "code-review"})
 
             assert "Code Review" in result
             assert "Review the code carefully" in result
 
-    @pytest.mark.asyncio
-    async def test_read_nonexistent_skill(self) -> None:
-        """Test reading a skill that does not exist."""
+    def test_load_nonexistent_skill(self) -> None:
+        """Test loading a nonexistent skill returns error with available list."""
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+            _write_skill(skill_dir, "code-review", VALID_SKILL)
+
+            with patch(MOCK_TARGET, return_value=skill_dir):
+                tool = create_dive_skill_tool()
+                result = tool.invoke({"skill_name": "nonexistent"})
+
+            assert "Error" in result
+            assert "not found" in result
+            assert "code-review" in result
+
+    def test_load_nonexistent_skill_no_skills_installed(self) -> None:
+        """Test loading a nonexistent skill when no skills are installed."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await read_skill.arun(
-                    tool_input={"skill_name": "nonexistent"},
-                    config=_make_config(),
-                )
+                tool = create_dive_skill_tool()
+                result = tool.invoke({"skill_name": "nonexistent"})
 
             assert "Error" in result
             assert "not found" in result
+            assert "No skills are installed" in result
 
-    @pytest.mark.asyncio
-    async def test_read_truncates_large_content(self) -> None:
+    def test_dynamic_description_includes_skills(self) -> None:
+        """Test that the tool description lists installed skill names."""
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+            _write_skill(skill_dir, "code-review", VALID_SKILL)
+            _write_skill(skill_dir, "git-commit", GIT_COMMIT_SKILL)
+
+            with patch(MOCK_TARGET, return_value=skill_dir):
+                tool = create_dive_skill_tool()
+
+            assert "code-review" in tool.description
+            assert "git-commit" in tool.description
+            assert "<available_skills>" in tool.description
+            assert "Reviews code for best practices" in tool.description
+            assert "Helps write commit messages" in tool.description
+
+    def test_dynamic_description_empty_directory(self) -> None:
+        """Test that an empty skill directory produces the no-skills message."""
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+
+            with patch(MOCK_TARGET, return_value=skill_dir):
+                tool = create_dive_skill_tool()
+
+            assert "No skills are currently available" in tool.description
+            assert "<available_skills>" not in tool.description
+
+    def test_dynamic_description_nonexistent_directory(self) -> None:
+        """Test that a nonexistent skill directory produces the no-skills message."""
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp) / "nonexistent"
+
+            with patch(MOCK_TARGET, return_value=skill_dir):
+                tool = create_dive_skill_tool()
+
+            assert "No skills are currently available" in tool.description
+
+    def test_truncates_large_content(self) -> None:
         """Test that large skill content is truncated."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
@@ -143,184 +187,92 @@ class TestReadSkill:
             _write_skill(skill_dir, "big-skill", large_content)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await read_skill.arun(
-                    tool_input={"skill_name": "big-skill"},
-                    config=_make_config(),
-                )
+                tool = create_dive_skill_tool()
+                result = tool.invoke({"skill_name": "big-skill"})
 
             assert len(result) <= 100100
             assert "truncated" in result
 
-
-class TestSearchSkills:
-    """Tests for the search_skills tool."""
-
-    @pytest.mark.asyncio
-    async def test_search_all_skills(self) -> None:
-        """Test listing all installed skills."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
-            _write_skill(skill_dir, "code-review", VALID_SKILL)
-            _write_skill(
-                skill_dir,
-                "git-commit",
-                GIT_COMMIT_SKILL,
-            )
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={},
-                    config=_make_config(),
-                )
-
-            assert "code-review" in result
-            assert "git-commit" in result
-            assert "2" in result
-
-    @pytest.mark.asyncio
-    async def test_search_with_query_filter(self) -> None:
-        """Test filtering skills by query."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
-            _write_skill(skill_dir, "code-review", VALID_SKILL)
-            _write_skill(
-                skill_dir,
-                "git-commit",
-                GIT_COMMIT_SKILL,
-            )
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={"query": "git"},
-                    config=_make_config(),
-                )
-
-            assert "git-commit" in result
-            assert "code-review" not in result
-
-    @pytest.mark.asyncio
-    async def test_search_case_insensitive(self) -> None:
-        """Test that search is case-insensitive."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
-            _write_skill(skill_dir, "code-review", VALID_SKILL)
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={"query": "CODE"},
-                    config=_make_config(),
-                )
-
-            assert "code-review" in result
-
-    @pytest.mark.asyncio
-    async def test_search_empty_directory(self) -> None:
-        """Test searching in an empty skill directory."""
+    def test_tool_name(self) -> None:
+        """Test that the tool is named dive_skill."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={},
-                    config=_make_config(),
-                )
+                tool = create_dive_skill_tool()
 
-            assert "No skills installed" in result
-
-    @pytest.mark.asyncio
-    async def test_search_nonexistent_directory(self) -> None:
-        """Test searching when skill directory does not exist."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp) / "nonexistent"
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={},
-                    config=_make_config(),
-                )
-
-            assert "No skills installed" in result
-
-    @pytest.mark.asyncio
-    async def test_search_no_matching_query(self) -> None:
-        """Test searching with a query that matches nothing."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
-            _write_skill(skill_dir, "code-review", VALID_SKILL)
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await search_skills.arun(
-                    tool_input={"query": "zzz-nonexistent"},
-                    config=_make_config(),
-                )
-
-            assert "No skills found matching" in result
+            assert tool.name == "dive_skill"
 
 
 class TestInstallSkill:
-    """Tests for the dive_install_skill_from_content tool."""
+    """Tests for the dive_install_skill_from_path tool."""
 
     @pytest.mark.asyncio
-    async def test_install_new_skill(self) -> None:
-        """Test installing a new skill."""
+    async def test_install_from_directory(self) -> None:
+        """Test installing a skill from a directory copies all files."""
         with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
+            skill_dir = Path(tmp) / "installed"
+            skill_dir.mkdir()
+            source_dir = Path(tmp) / "source" / "my-skill"
+            source_dir.mkdir(parents=True)
+            (source_dir / "SKILL.md").write_text(VALID_SKILL, encoding="utf-8")
+            scripts_dir = source_dir / "scripts"
+            scripts_dir.mkdir()
+            (scripts_dir / "run.py").write_text("print('hi')", encoding="utf-8")
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "my-skill",
-                        "description": "A test skill",
-                        "content": "Do the thing.",
+                        "skill_path": str(source_dir),
                     },
                     config=_make_config(),
                 )
 
             assert "Successfully installed" in result
-            skill_file = skill_dir / "my-skill" / "SKILL.md"
-            assert skill_file.exists()
-
-            content = skill_file.read_text(encoding="utf-8")
-            assert "A test skill" in content
-            assert "Do the thing." in content
+            assert (skill_dir / "my-skill" / "SKILL.md").exists()
+            assert (skill_dir / "my-skill" / "scripts" / "run.py").exists()
 
     @pytest.mark.asyncio
-    async def test_install_with_display_name(self) -> None:
-        """Test installing a skill with a display name."""
+    async def test_install_from_skill_md_path(self) -> None:
+        """Test installing when given a SKILL.md file path directly."""
         with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
+            skill_dir = Path(tmp) / "installed"
+            skill_dir.mkdir()
+            source_dir = Path(tmp) / "source" / "my-skill"
+            source_dir.mkdir(parents=True)
+            (source_dir / "SKILL.md").write_text(VALID_SKILL, encoding="utf-8")
+            (source_dir / "helper.py").write_text("pass", encoding="utf-8")
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "my-skill",
-                        "description": "A test skill",
-                        "content": "Instructions here.",
-                        "display_name": "My Awesome Skill",
+                        "skill_path": str(source_dir / "SKILL.md"),
                     },
                     config=_make_config(),
                 )
 
             assert "Successfully installed" in result
-            path = skill_dir / "my-skill" / "SKILL.md"
-            content = path.read_text()
-            assert "My Awesome Skill" in content
+            assert (skill_dir / "my-skill" / "SKILL.md").exists()
+            assert (skill_dir / "my-skill" / "helper.py").exists()
 
     @pytest.mark.asyncio
-    async def test_install_reject_overwrite_without_flag(
-        self,
-    ) -> None:
+    async def test_install_reject_overwrite_without_flag(self) -> None:
         """Test that overwrite is rejected without the flag."""
         with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
+            skill_dir = Path(tmp) / "installed"
+            skill_dir.mkdir()
             _write_skill(skill_dir, "existing-skill", VALID_SKILL)
+            source_dir = Path(tmp) / "source" / "existing-skill"
+            source_dir.mkdir(parents=True)
+            (source_dir / "SKILL.md").write_text(VALID_SKILL, encoding="utf-8")
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "existing-skill",
-                        "description": "New description",
-                        "content": "New content.",
+                        "skill_path": str(source_dir),
                     },
                     config=_make_config(),
                 )
@@ -332,25 +284,49 @@ class TestInstallSkill:
     async def test_install_overwrite_with_flag(self) -> None:
         """Test overwriting an existing skill with the flag."""
         with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
+            skill_dir = Path(tmp) / "installed"
+            skill_dir.mkdir()
             _write_skill(skill_dir, "existing-skill", VALID_SKILL)
+            source_dir = Path(tmp) / "source" / "existing-skill"
+            source_dir.mkdir(parents=True)
+            new_content = "---\nname: Updated\ndescription: New\n---\n\nNew content."
+            (source_dir / "SKILL.md").write_text(new_content, encoding="utf-8")
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "existing-skill",
-                        "description": "Updated description",
-                        "content": "Updated content.",
+                        "skill_path": str(source_dir),
                         "overwrite": True,
                     },
                     config=_make_config(),
                 )
 
             assert "Successfully installed" in result
-            path = skill_dir / "existing-skill" / "SKILL.md"
-            content = path.read_text()
-            assert "Updated description" in content
-            assert "Updated content." in content
+            content = (skill_dir / "existing-skill" / "SKILL.md").read_text()
+            assert "New content." in content
+
+    @pytest.mark.asyncio
+    async def test_install_no_skill_md(self) -> None:
+        """Test that a directory without SKILL.md is rejected."""
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp) / "installed"
+            skill_dir.mkdir()
+            source_dir = Path(tmp) / "source" / "bad-skill"
+            source_dir.mkdir(parents=True)
+            (source_dir / "README.md").write_text("no skill here", encoding="utf-8")
+
+            with patch(MOCK_TARGET, return_value=skill_dir):
+                result = await dive_install_skill_from_path.arun(
+                    tool_input={
+                        "skill_name": "bad-skill",
+                        "skill_path": str(source_dir),
+                    },
+                    config=_make_config(),
+                )
+
+            assert "Error" in result
+            assert "No SKILL.md" in result
 
     @pytest.mark.asyncio
     async def test_install_path_traversal_slash(self) -> None:
@@ -359,11 +335,10 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "../escape",
-                        "description": "Bad skill",
-                        "content": "Evil content.",
+                        "skill_path": "/tmp",
                     },
                     config=_make_config(),
                 )
@@ -372,40 +347,16 @@ class TestInstallSkill:
             assert "Invalid skill name" in result
 
     @pytest.mark.asyncio
-    async def test_install_path_traversal_backslash(
-        self,
-    ) -> None:
+    async def test_install_path_traversal_backslash(self) -> None:
         """Test that path traversal with backslash is rejected."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "..\\escape",
-                        "description": "Bad skill",
-                        "content": "Evil content.",
-                    },
-                    config=_make_config(),
-                )
-
-            assert "Error" in result
-            assert "Invalid skill name" in result
-
-    @pytest.mark.asyncio
-    async def test_install_path_traversal_forward_slash(
-        self,
-    ) -> None:
-        """Test that forward slash in name is rejected."""
-        with tempfile.TemporaryDirectory() as tmp:
-            skill_dir = Path(tmp)
-
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
-                    tool_input={
-                        "skill_name": "foo/bar",
-                        "description": "Bad skill",
-                        "content": "Evil content.",
+                        "skill_path": "/tmp",
                     },
                     config=_make_config(),
                 )
@@ -420,11 +371,10 @@ class TestInstallSkill:
             skill_dir = Path(tmp)
 
             with patch(MOCK_TARGET, return_value=skill_dir):
-                result = await dive_install_skill_from_content.arun(
+                result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "  ",
-                        "description": "Bad skill",
-                        "content": "Content.",
+                        "skill_path": "/tmp",
                     },
                     config=_make_config(),
                 )
