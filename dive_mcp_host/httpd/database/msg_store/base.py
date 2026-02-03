@@ -589,7 +589,11 @@ class BaseMessageStore(AbstractMessageStore):
     ) -> list[FTSResult]:
         """ILIKE fallback for queries shorter than 3 characters."""
         stmt = (
-            select(ORMMessage, ORMChat.title)
+            select(
+                ORMMessage,
+                ORMChat.title,
+                ORMChat.updated_at.label("chat_updated_at"),
+            )
             .join(ORMChat, ORMMessage.chat_id == ORMChat.id)
             .where(
                 or_(
@@ -597,7 +601,7 @@ class BaseMessageStore(AbstractMessageStore):
                     ORMMessage.content.ilike(f"%{query}%"),
                 )
             )
-            .order_by(ORMMessage.created_at.asc())
+            .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
         )
         if user_id is not None:
             stmt = stmt.where(ORMChat.user_id == user_id)
@@ -622,6 +626,7 @@ class BaseMessageStore(AbstractMessageStore):
                     stop_sel=stop_sel,
                 ),
                 msg_created_at=row.Message.created_at,
+                chat_updated_at=row.chat_updated_at,
             )
             for row in result
         ]

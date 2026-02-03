@@ -52,11 +52,17 @@ async def store(session: AsyncSession):
 @pytest_asyncio.fixture
 async def sample_data(session: AsyncSession):
     """Create two chats with two messages each for FTS testing."""
+    from datetime import timedelta
+
+    base_time = datetime.now(UTC)
+
+    # chat1 is older (updated earlier)
     chat1_id = str(uuid.uuid4())
     chat1 = ORMChat(
         id=chat1_id,
         title="Test Chat",
-        created_at=datetime.now(UTC),
+        created_at=base_time,
+        updated_at=base_time,
     )
     session.add(chat1)
     await session.flush()
@@ -67,7 +73,7 @@ async def sample_data(session: AsyncSession):
         chat_id=chat1_id,
         role=Role.USER,
         content="Hello, this is a test message",
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=1),
         files="",
     )
     msg2_id = str(uuid.uuid4())
@@ -76,17 +82,19 @@ async def sample_data(session: AsyncSession):
         chat_id=chat1_id,
         role=Role.ASSISTANT,
         content="Sure, I can help you with that request",
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=2),
         files="",
     )
     session.add_all([msg1, msg2])
     await session.flush()
 
+    # chat2 is newer (updated later) - should appear first in results
     chat2_id = str(uuid.uuid4())
     chat2 = ORMChat(
         id=chat2_id,
         title="Science Discussion",
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=10),
+        updated_at=base_time + timedelta(seconds=10),
     )
     session.add(chat2)
     await session.flush()
@@ -97,7 +105,7 @@ async def sample_data(session: AsyncSession):
         chat_id=chat2_id,
         role=Role.USER,
         content="Explain quantum entanglement briefly",
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=11),
         files="",
     )
     msg4_id = str(uuid.uuid4())
@@ -106,7 +114,7 @@ async def sample_data(session: AsyncSession):
         chat_id=chat2_id,
         role=Role.ASSISTANT,
         content="Quantum entanglement links particles so measuring one affects the other",  # noqa: E501
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=12),
         files="",
     )
     session.add_all([msg3, msg4])
@@ -136,6 +144,7 @@ async def test_full_text_search(
     assert results[0].title_snippet == "Test Chat"
     assert results[0].content_snippet == "Hello, this is a <b>test message</b>"
     assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
 
 
 @pytest.mark.asyncio
@@ -146,26 +155,34 @@ async def test_full_text_search_short_query(
 ):
     """Test short query ILIKE fallback."""
     # "He" matches: msg1 ("Hello"), msg2 ("help"), msg4 ("the other")
+    # Results sorted by chat_updated_at DESC, then msg_created_at ASC
+    # chat2 is newer, so its message comes first
     results = await store.full_text_search("He")
     assert len(results) == 3
-    assert results[0].chat_id == sample_data["chat1_id"]
-    assert results[0].message_id == sample_data["chat1_msg1_id"]
-    assert results[0].title_snippet == "Test Chat"
-    assert results[0].content_snippet == "<b>He</b>llo, this is a test message"
-    assert results[0].msg_created_at is not None
-    assert results[1].chat_id == sample_data["chat1_id"]
-    assert results[1].message_id == sample_data["chat1_msg2_id"]
-    assert results[1].title_snippet == "Test Chat"
-    assert results[1].content_snippet == "Sure, I can <b>he</b>lp you with that request"
-    assert results[1].msg_created_at is not None
-    assert results[2].chat_id == sample_data["chat2_id"]
-    assert results[2].message_id == sample_data["chat2_msg2_id"]
-    assert results[2].title_snippet == "Science Discussion"
-    assert results[2].content_snippet == (
+    # First result: chat2 (newer) - msg4
+    assert results[0].chat_id == sample_data["chat2_id"]
+    assert results[0].message_id == sample_data["chat2_msg2_id"]
+    assert results[0].title_snippet == "Science Discussion"
+    assert results[0].content_snippet == (
         "Quantum entanglement links particles so measuring one affects"
         " t<b>he</b> ot<b>he</b>r"
     )
+    assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
+    # Second result: chat1 (older) - msg1
+    assert results[1].chat_id == sample_data["chat1_id"]
+    assert results[1].message_id == sample_data["chat1_msg1_id"]
+    assert results[1].title_snippet == "Test Chat"
+    assert results[1].content_snippet == "<b>He</b>llo, this is a test message"
+    assert results[1].msg_created_at is not None
+    assert results[1].chat_updated_at is not None
+    # Third result: chat1 (older) - msg2
+    assert results[2].chat_id == sample_data["chat1_id"]
+    assert results[2].message_id == sample_data["chat1_msg2_id"]
+    assert results[2].title_snippet == "Test Chat"
+    assert results[2].content_snippet == "Sure, I can <b>he</b>lp you with that request"
     assert results[2].msg_created_at is not None
+    assert results[2].chat_updated_at is not None
 
 
 @pytest.mark.asyncio
@@ -186,10 +203,12 @@ async def test_full_text_search_by_title(
     session: AsyncSession,
 ):
     """Test that searching by chat title returns results."""
+    now = datetime.now(UTC)
     chat = ORMChat(
         id="pg-fts-title-test",
         title="xyzzyplugh",
-        created_at=datetime.now(UTC),
+        created_at=now,
+        updated_at=now,
     )
     session.add(chat)
     await session.flush()
@@ -199,7 +218,7 @@ async def test_full_text_search_by_title(
         chat_id="pg-fts-title-test",
         role=Role.USER,
         content="some ordinary content here",
-        created_at=datetime.now(UTC),
+        created_at=now,
         files="",
     )
     session.add(msg)
@@ -210,6 +229,7 @@ async def test_full_text_search_by_title(
     assert results[0].chat_id == "pg-fts-title-test"
     assert results[0].title_snippet == "<b>xyzzyplugh</b>"
     assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
 
 
 @pytest.mark.asyncio
@@ -219,10 +239,14 @@ async def test_full_text_search_chinese(
     session: AsyncSession,
 ):
     """Test FTS with Chinese text in title and content."""
+    from datetime import timedelta
+
+    base_time = datetime.now(UTC)
     chat = ORMChat(
         id="fts-zh",
         title="中文測試",
-        created_at=datetime.now(UTC),
+        created_at=base_time,
+        updated_at=base_time,
     )
     session.add(chat)
     await session.flush()
@@ -232,7 +256,7 @@ async def test_full_text_search_chinese(
         chat_id="fts-zh",
         role=Role.USER,
         content="這是一句話",
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=1),
         files="",
     )
     msg2 = ORMMessage(
@@ -240,7 +264,7 @@ async def test_full_text_search_chinese(
         chat_id="fts-zh",
         role=Role.ASSISTANT,
         content="這是比較長的一句話...重複重複" * 100,
-        created_at=datetime.now(UTC),
+        created_at=base_time + timedelta(seconds=2),
         files="",
     )
     session.add_all([msg1, msg2])
@@ -252,6 +276,7 @@ async def test_full_text_search_chinese(
     assert results[0].message_id == "fts-zh-msg-1"
     assert results[0].content_snippet == "這是<b>一句</b>話"
     assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
     assert results[1].message_id == "fts-zh-msg-2"
     assert (
         results[1].content_snippet
@@ -264,6 +289,7 @@ async def test_full_text_search_chinese(
     assert results[0].message_id == "fts-zh-msg-1"
     assert results[0].content_snippet == "這是<b>一句話</b>"
     assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
     assert results[1].message_id == "fts-zh-msg-2"
     assert (
         results[1].content_snippet
@@ -277,6 +303,7 @@ async def test_full_text_search_chinese(
     assert results[0].title_snippet == "<b>中文測試</b>"
     assert results[0].content_snippet == "這是一句話"
     assert results[0].msg_created_at is not None
+    assert results[0].chat_updated_at is not None
     assert results[1].title_snippet == "<b>中文測試</b>"
     assert results[1].message_id == "fts-zh-msg-2"
     assert (
@@ -297,10 +324,12 @@ async def test_pg_fts_crud(
 ):
     """Test INSERT/UPDATE/DELETE reflected in search."""
     # INSERT
+    now = datetime.now(UTC)
     chat = ORMChat(
         id="pg-fts-crud",
         title="crud test",
-        created_at=datetime.now(UTC),
+        created_at=now,
+        updated_at=now,
     )
     session.add(chat)
     await session.flush()

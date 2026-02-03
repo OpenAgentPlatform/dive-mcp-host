@@ -111,6 +111,7 @@ class SQLiteMessageStore(BaseMessageStore):
                 ORMMessage.message_id,
                 ORMMessage.chat_id,
                 ORMMessage.created_at,
+                ORMChat.updated_at.label("chat_updated_at"),
                 func.snippet(
                     literal_column("message_fts"),
                     1,
@@ -138,7 +139,7 @@ class SQLiteMessageStore(BaseMessageStore):
                 ORMChat.id == ORMMessage.chat_id,
             )
             .where(literal_column("message_fts").match(query))
-            .order_by(ORMMessage.created_at.asc())
+            .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
         )
 
         if user_id is not None:
@@ -152,6 +153,7 @@ class SQLiteMessageStore(BaseMessageStore):
                 title_snippet=row.title_snippet,
                 content_snippet=row.content_snippet,
                 msg_created_at=row.created_at,
+                chat_updated_at=row.chat_updated_at,
             )
             for row in result.mappings()
         ]
