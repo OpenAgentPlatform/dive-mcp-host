@@ -12,16 +12,17 @@ from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolCall
 
+from dive_mcp_host.httpd.database.models import Role
 from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
 from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
-from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
+from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, ChatList, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
 
-from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message, NewMessage
 from dive_mcp_host.models.fake import FakeMessageToolModel
 from tests import helper
 
@@ -1846,3 +1847,38 @@ async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
     assert results[1]["message_id"] == chat1_msg1_id, (
         "Chat1 should return the oldest matching message"
     )
+
+
+@pytest.mark.asyncio
+async def test_pruge_chat(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test purge chat."""
+    client, app = test_client
+
+    chat_id = "chat1"
+    msg_id = "msg1"
+    async with app.db_sessionmaker() as session:
+        msg_store = app.msg_store(session)
+        await msg_store.create_chat(chat_id=chat_id, title="to be deleted")
+        await msg_store.create_message(
+            NewMessage(
+                content="to be deleted",
+                role=Role.USER,
+                messageId=msg_id,
+                chatId=chat_id,
+            )
+        )
+        await session.commit()
+
+    resp = client.get("/api/chat/list")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = DataResult[ChatList].model_validate_json(resp.content)
+    assert len(resp_data.data.normal) >= 1
+
+    resp = client.delete("/api/chat/purge")
+    assert resp.status_code == SUCCESS_CODE
+
+    resp = client.get("/api/chat/list")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = DataResult[ChatList].model_validate_json(resp.content)
+    assert len(resp_data.data.normal) == 0
+    assert len(resp_data.data.starred) == 0

@@ -1,4 +1,5 @@
 from asyncio import TaskGroup
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, TypeVar
 from uuid import uuid4
 
@@ -25,6 +26,8 @@ from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.middlewares.general import DiveUser
+
+logger = getLogger(__name__)
 
 chat = APIRouter(tags=["chat"])
 
@@ -76,6 +79,30 @@ async def bulk_delete(
 ) -> ResultResponse:
     """Delete multiple chats by their IDs."""
     async with app.db_sessionmaker() as session:
+        await app.msg_store(session).bulk_delete(
+            chat_ids=chat_ids,
+            user_id=dive_user["user_id"],
+        )
+        await session.commit()
+
+    async with TaskGroup() as group:
+        for chat in chat_ids:
+            group.create_task(app.dive_host["default"].delete_thread(chat))
+
+    return ResultResponse(success=True, message=None)
+
+
+@chat.delete("/purge")
+async def purge(
+    app: DiveHostAPI = Depends(get_app),
+    dive_user: "DiveUser" = Depends(get_dive_user),
+) -> ResultResponse:
+    """Delete ALL chats."""
+    chat_ids: list[str] = []
+
+    async with app.db_sessionmaker() as session:
+        chats = await app.msg_store(session).get_all_chats(user_id=dive_user["user_id"])
+        chat_ids = [c.id for c in chats]
         await app.msg_store(session).bulk_delete(
             chat_ids=chat_ids,
             user_id=dive_user["user_id"],
