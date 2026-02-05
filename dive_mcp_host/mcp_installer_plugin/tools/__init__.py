@@ -16,10 +16,6 @@ from dive_mcp_host.mcp_installer_plugin.tools.mcp_server import (
     install_mcp_instructions,
     reload_mcp_server,
 )
-from dive_mcp_host.mcp_installer_plugin.tools.skills import (
-    create_dive_skill_tool,
-    dive_install_skill_from_path,
-)
 
 
 def get_local_tools() -> list[BaseTool]:
@@ -42,6 +38,4 @@ def get_local_tools() -> list[BaseTool]:
         reload_mcp_server,
         request_confirmation,
         install_mcp_instructions,
-        create_dive_skill_tool(),
-        dive_install_skill_from_path,
     ]

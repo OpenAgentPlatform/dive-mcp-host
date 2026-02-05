@@ -7,13 +7,13 @@ from unittest.mock import patch
 import pytest
 from langgraph.graph.state import RunnableConfig
 
-from dive_mcp_host.mcp_installer_plugin.tools.skills import (
-    _parse_skill_frontmatter,
+from dive_mcp_host.skills import (
+    SkillManager,
     create_dive_skill_tool,
     dive_install_skill_from_path,
 )
 
-MOCK_TARGET = "dive_mcp_host.mcp_installer_plugin.tools.skills._get_skill_dir"
+INSTALL_MOCK_TARGET = "dive_mcp_host.skills.tools.get_skill_manager"
 
 
 def _make_config() -> RunnableConfig:
@@ -34,7 +34,7 @@ def _write_skill(skill_dir: Path, name: str, content: str) -> None:
 
 VALID_SKILL = """\
 ---
-name: Code Review
+name: code-review
 description: Reviews code for best practices
 ---
 
@@ -59,44 +59,8 @@ Body content.
 """
 
 GIT_COMMIT_SKILL = (
-    "---\nname: Git Commit\ndescription: Helps write commit messages\n---\n\nContent."
+    "---\nname: git-commit\ndescription: Helps write commit messages\n---\n\nContent."
 )
-
-
-class TestParseSkillFrontmatter:
-    """Tests for _parse_skill_frontmatter."""
-
-    def test_valid_frontmatter(self) -> None:
-        """Test parsing valid YAML frontmatter."""
-        result = _parse_skill_frontmatter(VALID_SKILL)
-        assert result["name"] == "Code Review"
-        assert result["description"] == "Reviews code for best practices"
-
-    def test_missing_frontmatter(self) -> None:
-        """Test parsing content without frontmatter."""
-        result = _parse_skill_frontmatter(SKILL_NO_FRONTMATTER)
-        assert result == {}
-
-    def test_invalid_yaml(self) -> None:
-        """Test parsing invalid YAML frontmatter."""
-        result = _parse_skill_frontmatter(SKILL_INVALID_YAML)
-        assert result == {}
-
-    def test_empty_content(self) -> None:
-        """Test parsing empty content."""
-        result = _parse_skill_frontmatter("")
-        assert result == {}
-
-    def test_no_closing_delimiter(self) -> None:
-        """Test parsing frontmatter without closing delimiter."""
-        result = _parse_skill_frontmatter("---\nname: test\n")
-        assert result == {}
-
-    def test_non_dict_frontmatter(self) -> None:
-        """Test parsing frontmatter that is not a dict."""
-        content = "---\n- item1\n- item2\n---\n"
-        result = _parse_skill_frontmatter(content)
-        assert result == {}
 
 
 class TestDiveSkill:
@@ -108,11 +72,11 @@ class TestDiveSkill:
             skill_dir = Path(tmp)
             _write_skill(skill_dir, "code-review", VALID_SKILL)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
-                result = tool.invoke({"skill_name": "code-review"})
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
+            result = tool.invoke({"skill_name": "code-review"})
 
-            assert "Code Review" in result
+            assert "## Instructions" in result
             assert "Review the code carefully" in result
 
     def test_load_nonexistent_skill(self) -> None:
@@ -121,9 +85,9 @@ class TestDiveSkill:
             skill_dir = Path(tmp)
             _write_skill(skill_dir, "code-review", VALID_SKILL)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
-                result = tool.invoke({"skill_name": "nonexistent"})
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
+            result = tool.invoke({"skill_name": "nonexistent"})
 
             assert "Error" in result
             assert "not found" in result
@@ -134,9 +98,9 @@ class TestDiveSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
-                result = tool.invoke({"skill_name": "nonexistent"})
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
+            result = tool.invoke({"skill_name": "nonexistent"})
 
             assert "Error" in result
             assert "not found" in result
@@ -149,8 +113,8 @@ class TestDiveSkill:
             _write_skill(skill_dir, "code-review", VALID_SKILL)
             _write_skill(skill_dir, "git-commit", GIT_COMMIT_SKILL)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
 
             assert "code-review" in tool.description
             assert "git-commit" in tool.description
@@ -163,8 +127,8 @@ class TestDiveSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
 
             assert "No skills are currently available" in tool.description
             assert "<available_skills>" not in tool.description
@@ -174,8 +138,8 @@ class TestDiveSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp) / "nonexistent"
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
 
             assert "No skills are currently available" in tool.description
 
@@ -183,12 +147,14 @@ class TestDiveSkill:
         """Test that large skill content is truncated."""
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
-            large_content = "---\nname: Big\ndescription: big\n---\n" + "x" * 200000
+            large_content = (
+                "---\nname: big-skill\ndescription: big\n---\n" + "x" * 200000
+            )
             _write_skill(skill_dir, "big-skill", large_content)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
-                result = tool.invoke({"skill_name": "big-skill"})
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
+            result = tool.invoke({"skill_name": "big-skill"})
 
             assert len(result) <= 100100
             assert "truncated" in result
@@ -198,8 +164,8 @@ class TestDiveSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
-                tool = create_dive_skill_tool()
+            manager = SkillManager(skill_dir)
+            tool = create_dive_skill_tool(manager)
 
             assert tool.name == "dive_skill"
 
@@ -220,7 +186,7 @@ class TestInstallSkill:
             scripts_dir.mkdir()
             (scripts_dir / "run.py").write_text("print('hi')", encoding="utf-8")
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "my-skill",
@@ -244,7 +210,7 @@ class TestInstallSkill:
             (source_dir / "SKILL.md").write_text(VALID_SKILL, encoding="utf-8")
             (source_dir / "helper.py").write_text("pass", encoding="utf-8")
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "my-skill",
@@ -268,7 +234,7 @@ class TestInstallSkill:
             source_dir.mkdir(parents=True)
             (source_dir / "SKILL.md").write_text(VALID_SKILL, encoding="utf-8")
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "existing-skill",
@@ -289,10 +255,10 @@ class TestInstallSkill:
             _write_skill(skill_dir, "existing-skill", VALID_SKILL)
             source_dir = Path(tmp) / "source" / "existing-skill"
             source_dir.mkdir(parents=True)
-            new_content = "---\nname: Updated\ndescription: New\n---\n\nNew content."
+            new_content = "---\nname: updated\ndescription: New\n---\n\nNew content."
             (source_dir / "SKILL.md").write_text(new_content, encoding="utf-8")
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "existing-skill",
@@ -316,7 +282,7 @@ class TestInstallSkill:
             source_dir.mkdir(parents=True)
             (source_dir / "README.md").write_text("no skill here", encoding="utf-8")
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "bad-skill",
@@ -334,7 +300,7 @@ class TestInstallSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "../escape",
@@ -352,7 +318,7 @@ class TestInstallSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "..\\escape",
@@ -370,7 +336,7 @@ class TestInstallSkill:
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
 
-            with patch(MOCK_TARGET, return_value=skill_dir):
+            with patch(INSTALL_MOCK_TARGET, return_value=SkillManager(skill_dir)):
                 result = await dive_install_skill_from_path.arun(
                     tool_input={
                         "skill_name": "  ",

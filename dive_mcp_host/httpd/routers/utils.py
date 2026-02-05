@@ -67,6 +67,7 @@ from dive_mcp_host.httpd.routers.models import (
     ToolResultContent,
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
+from dive_mcp_host.skills import SkillManager
 from dive_mcp_host.log import TRACE
 
 if TYPE_CHECKING:
@@ -339,6 +340,7 @@ class ChatProcessor:
         app: DiveHostAPI,
         request_state: State,
         stream: EventStreamContextManager,
+        skill_manager: SkillManager,
     ) -> None:
         """Initialize chat processor."""
         self.app = app
@@ -358,6 +360,7 @@ class ChatProcessor:
             if app.model_config_manager.full_config
             else False
         )
+        self.skill_manager = skill_manager
 
     async def handle_chat(
         self,
@@ -758,9 +761,11 @@ class ChatProcessor:
             chat_id=chat_id,
             user_id=dive_user.get("user_id") or "default",
             tools=tools,
+            extend_tools=self.skill_manager.get_tools(),
             system_prompt=prompt,
             disable_default_system_prompt=self.disable_dive_system_prompt,
             include_local_tools=self.enable_local_tools,
+            skill_manager=self.skill_manager,
         )
         async with AsyncExitStack() as stack:
             if chat_id:
@@ -1057,6 +1062,18 @@ class ChatProcessor:
     ) -> HumanMessage:
         """Convert query input to message."""
         content = []
+
+        # Check if text starts with a slash command
+        if query_input.text and query_input.text.startswith("/"):
+            # Parse skill name from slash command (e.g., "/commit some message")
+            parts = query_input.text[1:].split(maxsplit=1)
+            if parts:
+                skill_name = parts[0]
+                skill_content = self.skill_manager.get_skill_content(skill_name)
+                if skill_content:
+                    # Prepend skill content before the user's message
+                    content.append(TextContent.create(skill_content))
+
         if query_input.text:
             content.append(TextContent.create(query_input.text))
 

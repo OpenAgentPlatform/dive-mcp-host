@@ -30,6 +30,7 @@ from dive_mcp_host.host.prompt import default_system_prompt
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
+    from dive_mcp_host.skills import SkillManager
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         elicitation_manager: "ElicitationManager | None" = None,
         locale: str = "en",
         mcp_reload_callback: Callable[[], Any] | None = None,
+        skill_manager: "SkillManager | None" = None,
     ) -> None:
         """Initialize the chat.
 
@@ -66,6 +68,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
             elicitation_manager: The elicitation manager for tool approval requests.
             locale: Locale for user-facing messages (e.g., 'en', 'zh-TW').
             mcp_reload_callback: Callback to reload MCP servers (deprecated).
+            skill_manager: The skill manager for skill-related operations.
 
         The agent_factory is called only once to compile the agent.
         """
@@ -82,6 +85,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         self._elicitation_manager = elicitation_manager
         self._locale = locale
         self._mcp_reload_callback = mcp_reload_callback
+        self._skill_manager = skill_manager
 
     @property
     def active_agent(self) -> CompiledStateGraph:
@@ -94,6 +98,11 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
     def chat_id(self) -> str:
         """The chat ID of the chat."""
         return self._chat_id
+
+    @property
+    def skill_manager(self) -> "SkillManager | None":
+        """The skill manager of the chat."""
+        return self._skill_manager
 
     def abort(self) -> None:
         """Abort the running query."""

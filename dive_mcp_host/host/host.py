@@ -29,6 +29,8 @@ from dive_mcp_host.models import load_model
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
+    from dive_mcp_host.skills import SkillManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +136,7 @@ class DiveMcpHost(ContextProtocol):
         chat_id: str | None = None,
         user_id: str = "default",
         tools: Sequence[BaseTool] | None = None,
+        extend_tools: Sequence[BaseTool] | None = None,
         get_agent_factory_method: Callable[
             [
                 BaseChatModel,
@@ -148,6 +151,7 @@ class DiveMcpHost(ContextProtocol):
         tools_in_prompt: bool | None = None,
         volatile: bool = False,
         include_local_tools: bool = False,
+        skill_manager: "SkillManager | None" = None,
     ) -> Chat[T]:
         """Start or resume a chat.
 
@@ -155,12 +159,14 @@ class DiveMcpHost(ContextProtocol):
             chat_id: The chat ID to use for the chat.
             user_id: The user ID to use for the chat.
             tools: The tools to use for the chat.
+            extend_tools: Additional tools to extend the chat with.
             system_prompt: Use a custom system prompt for the chat.
             get_agent_factory_method: The method to get the agent factory.
             volatile: if True, the chat will not be saved.
             disable_default_system_prompt: disable default system prompt
             tools_in_prompt: if True, the tools will be passed in the prompt.
             include_local_tools: if True, include local tools (fetch, bash, etc.).
+            skill_manager: The skill manager for skill-related operations.
 
         If the chat ID is not provided, a new chat will be created.
         Customize the agent factory to use a different model or tools.
@@ -181,6 +187,10 @@ class DiveMcpHost(ContextProtocol):
             if include_local_tools and self._tool_plugin.local_tools is not None:
                 tools.extend(self._tool_plugin.local_tools)
 
+        # Add extend_tools if provided
+        if extend_tools:
+            tools.extend(extend_tools)
+
         if tools_in_prompt is None:
             tools_in_prompt = self._config.llm.tools_in_prompt
         agent_factory = get_agent_factory_method(
@@ -200,6 +210,7 @@ class DiveMcpHost(ContextProtocol):
             elicitation_manager=self.elicitation_manager,
             locale=self._tool_plugin.locale,
             mcp_reload_callback=self._tool_plugin.mcp_reload_callback,
+            skill_manager=skill_manager,
         )
 
     async def reload(

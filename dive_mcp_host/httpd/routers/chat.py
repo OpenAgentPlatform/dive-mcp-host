@@ -16,6 +16,8 @@ from dive_mcp_host.httpd.routers.models import (
     SortBy,
     UserInputError,
 )
+from dive_mcp_host.httpd.routers.skills import Skill
+from dive_mcp_host.skills import get_skill_manager
 from dive_mcp_host.httpd.routers.utils import (
     ChatProcessor,
     EventStreamContextManager,
@@ -175,7 +177,7 @@ async def create_chat(
 
     async def process() -> None:
         async with stream:
-            processor = ChatProcessor(app, request.state, stream)
+            processor = ChatProcessor(app, request.state, stream, get_skill_manager())
             await processor.handle_chat(chat_id, query_input, None)
 
     stream.add_task(process)
@@ -258,7 +260,7 @@ async def edit_chat(
 
     async def process() -> None:
         async with stream:
-            processor = ChatProcessor(app, request.state, stream)
+            processor = ChatProcessor(app, request.state, stream, get_skill_manager())
             await processor.handle_chat(chat_id, query_input, message_id)
 
     stream.add_task(process)
@@ -290,7 +292,7 @@ async def retry_chat(
 
     async def process() -> None:
         async with stream:
-            processor = ChatProcessor(app, request.state, stream)
+            processor = ChatProcessor(app, request.state, stream, get_skill_manager())
             await processor.handle_chat(chat_id, None, message_id)
 
     stream.add_task(process)

@@ -15,6 +15,7 @@ from dive_mcp_host.httpd.conf.prompt import PromptKey
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, ContentHandler
 from dive_mcp_host.httpd.server import DiveHostAPI
 from dive_mcp_host.httpd.store.manager import StoreManager
+from dive_mcp_host.skills import get_skill_manager
 from tests.httpd.routers.conftest import config_files  # noqa: F401
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ async def processor(server: DiveHostAPI) -> ChatProcessor:
 
     state = State()
     state.dive_user = {"user_id": "default"}
-    return ChatProcessor(server, state, EmptyStream())  # type: ignore
+    return ChatProcessor(server, state, EmptyStream(), get_skill_manager())  # type: ignore
 
 
 class EmptyStream:

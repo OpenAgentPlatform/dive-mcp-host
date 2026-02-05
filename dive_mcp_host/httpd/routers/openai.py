@@ -13,6 +13,7 @@ from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import ResultResponse, StreamMessage
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, EventStreamContextManager
 from dive_mcp_host.httpd.server import DiveHostAPI
+from dive_mcp_host.skills import get_skill_manager
 
 openai = APIRouter(tags=["openai"])
 
@@ -196,7 +197,7 @@ async def create_chat_completion(
     async def process() -> tuple[CompletionsMessageResp, CompletionsUsage]:
         async with stream:
             task = asyncio.create_task(abort_handler())
-            processor = ChatProcessor(app, request.state, stream)
+            processor = ChatProcessor(app, request.state, stream, get_skill_manager())
             result, usage = await processor.handle_chat_with_history(
                 chat_id,
                 None,
