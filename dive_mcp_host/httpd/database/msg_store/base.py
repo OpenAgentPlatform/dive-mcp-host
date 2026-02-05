@@ -3,7 +3,16 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, desc, exists, func, insert, or_, select, update
+from sqlalchemy import (
+    delete,
+    desc,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -588,20 +597,33 @@ class BaseMessageStore(AbstractMessageStore):
         stop_sel: str = "</b>",
     ) -> list[FTSResult]:
         """ILIKE fallback for queries shorter than 3 characters."""
+        # Subquery to get max message timestamp per chat
+        last_msg_subq = (
+            select(
+                ORMMessage.chat_id.label("chat_id"),
+                func.max(ORMMessage.created_at).label("last_message_at"),
+            )
+            .group_by(ORMMessage.chat_id)
+            .subquery("last_msg")
+        )
+
         stmt = (
             select(
                 ORMMessage,
                 ORMChat.title,
                 ORMChat.updated_at.label("chat_updated_at"),
+                last_msg_subq.c.last_message_at,
             )
             .join(ORMChat, ORMMessage.chat_id == ORMChat.id)
+            .join(last_msg_subq, last_msg_subq.c.chat_id == ORMMessage.chat_id)
             .where(
                 or_(
                     ORMChat.title.ilike(f"%{query}%"),
                     ORMMessage.content.ilike(f"%{query}%"),
                 )
             )
-            .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
+            .order_by(last_msg_subq.c.last_message_at.desc())
+            .order_by(ORMMessage.created_at.asc())
         )
         if user_id is not None:
             stmt = stmt.where(ORMChat.user_id == user_id)

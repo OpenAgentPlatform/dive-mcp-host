@@ -111,6 +111,16 @@ class SQLiteMessageStore(BaseMessageStore):
                 column("chat_id"),
             )
 
+            # Subquery to get max message timestamp per chat
+            last_msg_subq = (
+                select(
+                    ORMMessage.chat_id.label("chat_id"),
+                    func.max(ORMMessage.created_at).label("last_message_at"),
+                )
+                .group_by(ORMMessage.chat_id)
+                .subquery("last_msg")
+            )
+
             stmt = (
                 select(
                     ORMMessage.message_id,
@@ -133,6 +143,7 @@ class SQLiteMessageStore(BaseMessageStore):
                         "...",
                         max_length,
                     ).label("content_snippet"),
+                    last_msg_subq.c.last_message_at,
                 )
                 .select_from(fts)
                 .join(
@@ -143,8 +154,13 @@ class SQLiteMessageStore(BaseMessageStore):
                     ORMChat,
                     ORMChat.id == ORMMessage.chat_id,
                 )
+                .join(
+                    last_msg_subq,
+                    last_msg_subq.c.chat_id == ORMMessage.chat_id,
+                )
                 .where(literal_column("message_fts").match(query))
-                .order_by(ORMChat.updated_at.desc(), ORMMessage.created_at.asc())
+                .order_by(last_msg_subq.c.last_message_at.desc())
+                .order_by(ORMMessage.created_at.asc())
             )
 
             if user_id is not None:
