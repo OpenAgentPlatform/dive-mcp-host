@@ -10,15 +10,21 @@ from __future__ import annotations
 import logging
 import shutil
 from pathlib import Path
-from typing import Annotated
-
-from langchain_core.tools import BaseTool, InjectedToolArg, tool
-from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING, Annotated
 
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
+from langchain_core.tools import BaseTool, InjectedToolArg, StructuredTool, tool
+from langgraph.pregel.main import ensure_config
+from pydantic import BaseModel, Field
 
-from dive_mcp_host.skills.manager import SkillManager, get_skill_manager
-from dive_mcp_host.skills.models import Skill
+from dive_mcp_host.host.agents.agent_factory import get_abort_signal, get_skill_manager
+from dive_mcp_host.internal_tools.tools.common import (
+    check_aborted,
+)
+
+if TYPE_CHECKING:
+    from dive_mcp_host.skills.manager import SkillManager
+    from dive_mcp_host.skills.models import Skill
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +42,9 @@ def _build_dive_skill_description(skills: list[Skill]) -> str:
     lines = ["<available_skills>"]
     for skill in skills:
         lines.append("  <skill>")
-        lines.append(f"    <name>{skill.name}</name>")
-        if skill.description:
-            lines.append(f"    <description>{skill.description}</description>")
+        lines.append(f"    <name>{skill.meta.name}</name>")
+        if skill.meta.description:
+            lines.append(f"    <description>{skill.meta.description}</description>")
         lines.append("  </skill>")
     lines.append("</available_skills>")
 
@@ -60,27 +66,33 @@ def create_dive_skill_tool(manager: SkillManager) -> BaseTool:
     Returns:
         A BaseTool instance named 'dive_skill'.
     """
-    from langchain_core.tools import StructuredTool
-
     skills = manager.list_skills()
     description = _build_dive_skill_description(skills)
 
     def read_skill_content(skill_name: str) -> str:
         """Read a skill's content using the bound SkillManager."""
-        content = manager.get_skill_content(skill_name)
+        skill = manager.get_skill(skill_name)
 
-        if content is None:
+        if skill is None:
             installed = manager.list_skills()
             if installed:
-                available = ", ".join(s.name for s in installed)
-                return f"Error: Skill '{skill_name}' not found. Available skills: {available}"
+                available = ", ".join(s.meta.name for s in installed)
+                return (
+                    f"Error: Skill '{skill_name}' not found. "
+                    f"Available skills: {available}"
+                )
             return f"Error: Skill '{skill_name}' not found. No skills are installed."
 
+        content = skill.content
         if len(content) > 100000:
             content = content[:100000] + "\n... (truncated)"
 
-        base_dir = str(manager.skill_dir / skill_name)
-        return f"## Skill: {skill_name}\n\n**Base directory**: {base_dir}\n\n{content}"
+        return f"""
+## Skill: {skill_name}
+
+**Base directory**: {skill.base_dir}
+
+{content}"""
 
     return StructuredTool.from_function(
         func=read_skill_content,
@@ -134,16 +146,14 @@ async def dive_install_skill_from_path(
     config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
 ) -> str:
     """Install a skill by copying its entire directory from a local path."""
-    from dive_mcp_host.mcp_installer_plugin.tools.common import (
-        _check_aborted,
-        _ensure_config,
-        _get_abort_signal,
-    )
+    config = ensure_config(config)
+    abort_signal = get_abort_signal(config)
+    skill_manager = get_skill_manager(config)
 
-    config = _ensure_config(config)
-    abort_signal = _get_abort_signal(config)
+    if not skill_manager:
+        return "Error: SkillManager not loaded"
 
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Validate skill_name against path traversal
@@ -166,9 +176,7 @@ async def dive_install_skill_from_path(
     if not skill_md.exists():
         return f"Error: No SKILL.md found in '{skill_path}'."
 
-    manager = get_skill_manager()
-    target_dir = manager.skill_dir / skill_name
-
+    target_dir = skill_manager.skill_dir / skill_name
     if target_dir.exists() and not overwrite:
         return (
             f"Error: Skill '{skill_name}' already exists. "

@@ -11,7 +11,6 @@ get_mcp_config, add_mcp_server, reload_mcp_server, and install_mcp_instructions.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Annotated, Any
 
@@ -20,16 +19,15 @@ from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import InjectedToolArg, tool
 from pydantic import Field
 
-from dive_mcp_host.mcp_installer_plugin.events import InstallerToolLog
-from dive_mcp_host.mcp_installer_plugin.prompt import get_installer_system_prompt
-from dive_mcp_host.mcp_installer_plugin.tools.common import (
-    _check_aborted,
-    _ensure_config,
-    _get_abort_signal,
-    _get_httpd_base_url,
-    _get_mcp_reload_callback,
-    _get_stream_writer,
+from dive_mcp_host.host.agents.agent_factory import (
+    ensure_config,
+    get_abort_signal,
+    get_stream_writer,
 )
+from dive_mcp_host.internal_tools.events import InstallerToolLog
+from dive_mcp_host.internal_tools.prompt import get_installer_system_prompt
+from dive_mcp_host.internal_tools.runtime import get_httpd_base_url
+from dive_mcp_host.internal_tools.tools.common import check_aborted
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +42,13 @@ async def install_mcp_instructions(
     config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
 ) -> str:
     """Get the current MCP configuration."""
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     stream_writer(
@@ -93,13 +91,13 @@ async def get_mcp_config(
     """Get the current MCP configuration."""
     import json
 
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     stream_writer(
@@ -258,13 +256,13 @@ async def add_mcp_server(
     Note: User confirmation is handled by the confirm_install node in the graph,
     not by individual tools.
     """
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Validate input
@@ -358,7 +356,7 @@ async def trigger_mcp_reload(
         Status message for the reload operation, including any errors.
     """
     # First try HTTP API
-    httpd_base_url = _get_httpd_base_url()
+    httpd_base_url = get_httpd_base_url()
     if httpd_base_url:
         try:
             async with httpx.AsyncClient() as client:
@@ -405,19 +403,6 @@ async def trigger_mcp_reload(
             logger.warning("MCP reload via HTTP API failed: %s", e)
             return f" Note: Auto-reload failed ({e}), you may need to reload manually."
 
-    # Fallback to callback (deprecated)
-    reload_callback = _get_mcp_reload_callback(config)
-    if reload_callback:
-        try:
-            callback_result = reload_callback()
-            if asyncio.iscoroutine(callback_result):
-                await callback_result
-            logger.info("MCP reload callback executed successfully")
-            return " The server has been loaded and is now available."
-        except (OSError, RuntimeError) as e:
-            logger.warning("MCP reload callback failed: %s", e)
-            return f" Note: Auto-reload failed ({e}), you may need to reload manually."
-
     return " The server will be available after reloading."
 
 
@@ -444,13 +429,13 @@ async def reload_mcp_server(
     config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
 ) -> str:
     """Reload a specific MCP server."""
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     stream_writer(
@@ -464,7 +449,7 @@ async def reload_mcp_server(
         )
     )
 
-    httpd_base_url = _get_httpd_base_url()
+    httpd_base_url = get_httpd_base_url()
     if not httpd_base_url:
         return "Error: Cannot reload - no HTTP API available."
 

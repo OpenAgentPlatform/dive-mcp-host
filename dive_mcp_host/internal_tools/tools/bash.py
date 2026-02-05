@@ -25,16 +25,18 @@ from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import InjectedToolArg, tool
 from pydantic import Field
 
-from dive_mcp_host.mcp_installer_plugin.events import InstallerToolLog
-from dive_mcp_host.mcp_installer_plugin.tools.common import (
-    AbortedError,
-    _check_aborted,
-    _ensure_config,
-    _get_abort_signal,
-    _get_dry_run,
-    _get_stream_writer,
+from dive_mcp_host.host.agents.agent_factory import (
+    ensure_config,
+    get_abort_signal,
+    get_dry_run,
+    get_stream_writer,
 )
-from dive_mcp_host.mcp_installer_plugin.tools.patterns import (
+from dive_mcp_host.internal_tools.events import InstallerToolLog
+from dive_mcp_host.internal_tools.tools.common import (
+    AbortedError,
+    check_aborted,
+)
+from dive_mcp_host.internal_tools.tools.patterns import (
     _detect_high_risk_command,
     _detect_write_command,
 )
@@ -125,10 +127,10 @@ async def bash(
     Note: User confirmation is handled by the request_confirmation tool.
     Password input uses elicitation with password format.
     """
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    dry_run = _get_dry_run(config)
+    stream_writer = get_stream_writer(config)
+    dry_run = get_dry_run(config)
 
     return await execute_bash(
         command=command,
@@ -164,13 +166,13 @@ async def execute_bash(
         ElicitationTimeoutError,
     )
 
-    abort_signal = _get_abort_signal(config)
+    abort_signal = get_abort_signal(config)
     elicitation_manager: ElicitationManager | None = config.get("configurable", {}).get(
         "elicitation_manager"
     )
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Cap timeout at 10 minutes
@@ -328,7 +330,7 @@ async def execute_bash(
     # Execute the command
     try:
         # Check abort before execution
-        if _check_aborted(abort_signal):
+        if check_aborted(abort_signal):
             return "Error: Operation aborted."
 
         # For commands requiring password (sudo), use stdin to pipe the password

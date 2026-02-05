@@ -33,7 +33,11 @@ from mcp.client.websocket import websocket_client
 from pydantic import BaseModel, ConfigDict, ValidationError
 from pydantic_core import to_json
 
-from dive_mcp_host.host.agents.agent_factory import ConfigurableKey
+from dive_mcp_host.host.agents.agent_factory import (
+    get_abort_signal,
+    get_thread_id,
+    get_tool_call_id,
+)
 from dive_mcp_host.host.custom_events import (
     ToolAuthenticationRequired,
     ToolCallProgress,
@@ -1199,13 +1203,9 @@ class McpTool(BaseTool):
 
         sync_writer.background_tasks: set[asyncio.Task[None]] = set()  # type: ignore[attr-defined]
 
-        tool_call_id = config.get("metadata", {}).get("tool_call_id", "")
-        chat_id = config.get("configurable", {}).get(
-            ConfigurableKey.THREAD_ID, "default"
-        )
-        abort_signal: asyncio.Event | None = config.get("configurable", {}).get(
-            ConfigurableKey.ABORT_SIGNAL, None
-        )
+        tool_call_id = get_tool_call_id(config) or ""
+        chat_id = get_thread_id(config) or "default"
+        abort_signal = get_abort_signal(config)
 
         async def elicitation_callback(
             context: RequestContext[ClientSession, Any],  # noqa: ARG001

@@ -25,11 +25,10 @@ from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.oauth import BaseTokenStore, OAuthManager
 from dive_mcp_host.host.tools.plugin import ToolManagerPlugin
 from dive_mcp_host.models import load_model
+from dive_mcp_host.skills.manager import SkillManager
 
 if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
-
-    from dive_mcp_host.skills import SkillManager
 
 
 logger = logging.getLogger(__name__)
@@ -143,6 +142,7 @@ class DiveMcpHost(ContextProtocol):
                 Sequence[BaseTool] | ToolNode,
                 bool,
                 StoreManagerProtocol | None,
+                SkillManager | None,
             ],
             AgentFactory[T],
         ] = get_chat_agent_factory,
@@ -151,7 +151,7 @@ class DiveMcpHost(ContextProtocol):
         tools_in_prompt: bool | None = None,
         volatile: bool = False,
         include_local_tools: bool = False,
-        skill_manager: "SkillManager | None" = None,
+        skill_manager: SkillManager | None = None,
     ) -> Chat[T]:
         """Start or resume a chat.
 
@@ -198,6 +198,7 @@ class DiveMcpHost(ContextProtocol):
             tools,
             tools_in_prompt,
             self._store,
+            skill_manager,
         )
         return Chat(
             model=self._model,
@@ -209,7 +210,6 @@ class DiveMcpHost(ContextProtocol):
             checkpointer=None if volatile else self._checkpointer,
             elicitation_manager=self.elicitation_manager,
             locale=self._tool_plugin.locale,
-            mcp_reload_callback=self._tool_plugin.mcp_reload_callback,
             skill_manager=skill_manager,
         )
 
@@ -398,7 +398,7 @@ class DiveMcpHost(ContextProtocol):
     ) -> None:
         """Set the MCP reload callback (deprecated).
 
-        Deprecated: Use mcp_installer_plugin.set_httpd_base_url() for HTTP API reload.
+        Deprecated: Use internal_tools.set_httpd_base_url() for HTTP API reload.
 
         Args:
             callback: An async callback function that triggers MCP server reload.

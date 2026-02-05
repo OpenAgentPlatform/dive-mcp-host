@@ -67,8 +67,8 @@ from dive_mcp_host.httpd.routers.models import (
     ToolResultContent,
 )
 from dive_mcp_host.httpd.server import DiveHostAPI
-from dive_mcp_host.skills import SkillManager
 from dive_mcp_host.log import TRACE
+from dive_mcp_host.skills.manager import SkillManager
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
@@ -405,11 +405,11 @@ class ChatProcessor:
                 await db.create_chat(
                     chat_id, title, dive_user["user_id"], dive_user["user_type"]
                 )
-                if query_input:
+                if query_input and query_input.text:
                     title_await = asyncio.create_task(
                         self._generate_title(query_input.text)
                     )
-            elif regenerate_message_id:
+            elif regenerate_message_id and query_message and query_message.id:
                 await db.delete_messages_after(chat_id, query_message.id)
                 original_msg_exist = await db.lock_msg(
                     chat_id=chat_id,
@@ -417,7 +417,7 @@ class ChatProcessor:
                 )
                 if query_input and original_msg_exist:
                     await db.update_message_content(
-                        query_message.id,  # type: ignore
+                        query_message.id,
                         QueryInput(
                             text=query_input.text or "",
                             images=query_input.images or [],
@@ -426,13 +426,18 @@ class ChatProcessor:
                         ),
                     )
 
-            if query_input and not original_msg_exist:
+            if (
+                query_input
+                and not original_msg_exist
+                and query_message
+                and query_message.id
+            ):
                 await db.create_message(
                     NewMessage(
                         chatId=chat_id,
                         role=Role.USER,
                         messageId=query_message.id,
-                        content=query_input.text or "",  # type: ignore
+                        content=query_input.text or "",
                         files=(
                             (query_input.images or []) + (query_input.documents or [])
                         ),
@@ -1069,10 +1074,10 @@ class ChatProcessor:
             parts = query_input.text[1:].split(maxsplit=1)
             if parts:
                 skill_name = parts[0]
-                skill_content = self.skill_manager.get_skill_content(skill_name)
-                if skill_content:
+                skill = self.skill_manager.get_skill(skill_name)
+                if skill:
                     # Prepend skill content before the user's message
-                    content.append(TextContent.create(skill_content))
+                    content.append(TextContent.create(skill.content))
 
         if query_input.text:
             content.append(TextContent.create(query_input.text))

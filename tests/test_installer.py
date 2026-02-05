@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from langgraph.graph.state import RunnableConfig  # noqa: TC002
 
-from dive_mcp_host.mcp_installer_plugin.tools import bash, fetch
-from dive_mcp_host.mcp_installer_plugin.tools.file_ops import read_file, write_file
-from dive_mcp_host.mcp_installer_plugin.tools.patterns import _detect_high_risk_command
+from dive_mcp_host.internal_tools.tools import bash, fetch
+from dive_mcp_host.internal_tools.tools.file_ops import read_file, write_file
+from dive_mcp_host.internal_tools.tools.patterns import _detect_high_risk_command
 
 
 class TestInstallerTools:
@@ -192,7 +192,7 @@ class TestInstallerTools:
 
         # Mock httpx
         with patch(
-            "dive_mcp_host.mcp_installer_plugin.tools.fetch.httpx.AsyncClient"
+            "dive_mcp_host.internal_tools.tools.fetch.httpx.AsyncClient"
         ) as mock_client:
             mock_response = MagicMock()
             mock_response.text = '{"name": "test-package"}'
