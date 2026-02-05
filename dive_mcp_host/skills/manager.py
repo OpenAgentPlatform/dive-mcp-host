@@ -33,6 +33,7 @@ class SkillManager:
             skill_dir: Path to the directory containing skill folders.
         """
         self._skill_dir = skill_dir
+        self._skills_cache: list[Skill] | None = None
 
     @property
     def skill_dir(self) -> Path:
@@ -43,10 +44,14 @@ class SkillManager:
         """List all installed skills.
 
         Returns:
-            List of Skill objects for all valid installed skills.
+            List of Skill objects for all valid installed skills (cached after first call).
         """
+        if self._skills_cache is not None:
+            return self._skills_cache
+
         if not self._skill_dir.exists():
-            return []
+            self._skills_cache = []
+            return self._skills_cache
 
         skills: list[Skill] = []
         try:
@@ -60,7 +65,8 @@ class SkillManager:
         except OSError:
             pass
 
-        return skills
+        self._skills_cache = skills
+        return self._skills_cache
 
     def get_skill(self, skill_name: str) -> Skill | None:
         """Get a skill by name.
