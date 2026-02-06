@@ -150,6 +150,13 @@ For sse/websocket/streamable transport, provide:
 - url: The server URL
 - transport: 'sse', 'websocket', or 'streamable'
 
+Optional parameters for all transports:
+- headers: HTTP headers (e.g., for authentication)
+- proxy: Proxy URL (http or socks5)
+- exclude_tools: List of tool names to exclude from this server
+- initial_timeout: Timeout in seconds for initial connection (minimum 10, default 10)
+- tool_call_timeout: Timeout in seconds for tool calls (default 600)
+
 Example for npx-based server:
   server_name="yt-dlp"
   command="npx"
@@ -192,7 +199,7 @@ async def add_mcp_server(
         str | None,
         Field(
             default=None,
-            description="URL for sse/websocket transport.",
+            description="URL for sse/websocket/streamable transport.",
         ),
     ] = None,
     transport: Annotated[
@@ -209,6 +216,41 @@ async def add_mcp_server(
             description="Whether the server should be enabled.",
         ),
     ] = True,
+    headers: Annotated[
+        dict[str, str] | None,
+        Field(
+            default=None,
+            description="HTTP headers for the server (e.g., {'Authorization': 'Bearer token'}).",
+        ),
+    ] = None,
+    proxy: Annotated[
+        str | None,
+        Field(
+            default=None,
+            description="Proxy URL for outbound connections (http or socks5 protocol only).",
+        ),
+    ] = None,
+    exclude_tools: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="List of tool names to exclude from this MCP server.",
+        ),
+    ] = None,
+    initial_timeout: Annotated[
+        float | None,
+        Field(
+            default=None,
+            description="Timeout in seconds for initial MCP server connection (minimum 10, default 10).",
+        ),
+    ] = None,
+    tool_call_timeout: Annotated[
+        float | None,
+        Field(
+            default=None,
+            description="Timeout in seconds for tool call execution (default 600).",
+        ),
+    ] = None,
     config: Annotated[RunnableConfig | None, InjectedToolArg] = None,
 ) -> str:
     """Add an MCP server configuration.
@@ -264,14 +306,25 @@ async def add_mcp_server(
             current_config = Config()
 
         # Create new server config
-        new_server = MCPServerConfig(
-            transport=transport,  # type: ignore
-            enabled=enabled,
-            command=command,
-            args=arguments or [],
-            env=env or {},
-            url=url,
-        )
+        server_kwargs: dict[str, Any] = {
+            "transport": transport,
+            "enabled": enabled,
+            "command": command,
+            "args": arguments or [],
+            "env": env or {},
+            "url": url,
+        }
+        if headers is not None:
+            server_kwargs["headers"] = headers
+        if proxy is not None:
+            server_kwargs["proxy"] = proxy
+        if exclude_tools is not None:
+            server_kwargs["exclude_tools"] = exclude_tools
+        if initial_timeout is not None:
+            server_kwargs["initialTimeout"] = initial_timeout
+        if tool_call_timeout is not None:
+            server_kwargs["toolCallTimeout"] = tool_call_timeout
+        new_server = MCPServerConfig(**server_kwargs)  # type: ignore[arg-type]
 
         # Add to config
         current_config.mcp_servers[server_name] = new_server
