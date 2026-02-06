@@ -343,12 +343,14 @@ class McpServer(ContextProtocol):
         """
         async with self._cond:
             await self._cond.wait_for(
-                lambda: self._client_status
-                in [
-                    *states,
-                    ClientState.FAILED,
-                    ClientState.CLOSED,
-                ],
+                lambda: (
+                    self._client_status
+                    in [
+                        *states,
+                        ClientState.FAILED,
+                        ClientState.CLOSED,
+                    ]
+                ),
             )
             return self._client_status in states
 
@@ -614,8 +616,10 @@ class McpServer(ContextProtocol):
 
         async with self._cond:
             await self._cond.wait_for(
-                lambda: self._client_status
-                in [ClientState.RUNNING, ClientState.CLOSED, ClientState.FAILED]
+                lambda: (
+                    self._client_status
+                    in [ClientState.RUNNING, ClientState.CLOSED, ClientState.FAILED]
+                )
             )
 
     async def _stdio_teardown(self) -> None:
@@ -967,8 +971,10 @@ class McpServer(ContextProtocol):
                     )
                     async with self._cond:
                         await self._cond.wait_for(
-                            lambda: self._client_status
-                            in [ClientState.CLOSED, ClientState.RESTARTING],
+                            lambda: (
+                                self._client_status
+                                in [ClientState.CLOSED, ClientState.RESTARTING]
+                            ),
                         )
                         logger.debug(
                             "client watcher %s exited. status: %s",
@@ -1017,8 +1023,10 @@ class McpServer(ContextProtocol):
         )
         async with self._cond:
             await self._cond.wait_for(
-                lambda: self._client_status
-                in [ClientState.RUNNING, ClientState.CLOSED, ClientState.FAILED]
+                lambda: (
+                    self._client_status
+                    in [ClientState.RUNNING, ClientState.CLOSED, ClientState.FAILED]
+                )
             )
 
     async def _local_http_teardown(self) -> None:
