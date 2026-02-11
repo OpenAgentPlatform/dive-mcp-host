@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from dive_mcp_host.internal_tools.tools import get_local_tools
+from dive_mcp_host.internal_tools.tools.export import get_local_tools
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
