@@ -341,7 +341,7 @@ async def add_mcp_server(
 
 
 async def trigger_mcp_reload(
-    config: RunnableConfig,
+    _: RunnableConfig,
     mcp_config: Any,
     server_name: str,
 ) -> str:

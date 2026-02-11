@@ -26,7 +26,7 @@ files (scripts, templates, etc.) are included alongside SKILL.md.
 
 When a task involves complex, specialized, or professional workflows (e.g., code review,
 deployment, database migration, security auditing), call dive_skill to load the relevant
-skill's instructions and follow them to complete the task."""
+skill's instructions and follow them to complete the task."""  # noqa: E501
 
 
 def default_system_prompt() -> str:
