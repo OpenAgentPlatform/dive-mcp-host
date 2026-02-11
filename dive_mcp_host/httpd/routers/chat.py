@@ -1,13 +1,17 @@
+from asyncio import TaskGroup
+from logging import getLogger
 from typing import TYPE_CHECKING, Annotated, TypeVar
 from uuid import uuid4
 
-from fastapi import APIRouter, Body, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from dive_mcp_host.httpd.database.models import Chat, ChatMessage, QueryInput
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, FTSResult, QueryInput
 from dive_mcp_host.httpd.dependencies import get_app, get_dive_user
 from dive_mcp_host.httpd.routers.models import (
+    CHAT_EVENT_STREAM,
+    DataResult,
     ResultResponse,
     SortBy,
     UserInputError,
@@ -23,15 +27,11 @@ from dive_mcp_host.httpd.server import DiveHostAPI
 if TYPE_CHECKING:
     from dive_mcp_host.httpd.middlewares.general import DiveUser
 
+logger = getLogger(__name__)
+
 chat = APIRouter(tags=["chat"])
 
 T = TypeVar("T")
-
-
-class DataResult[T](ResultResponse):
-    """Generic result that extends ResultResponse with a data field."""
-
-    data: T | None
 
 
 class ChatList(BaseModel):
@@ -41,25 +41,91 @@ class ChatList(BaseModel):
     normal: list[Chat] = Field(default_factory=list)
 
 
+@chat.post("/search")
+async def search(
+    query: Annotated[str, Body(description="Text to search for")],
+    max_length: Annotated[
+        int, Body(description="Max snippet length for title and content")
+    ] = 150,
+    app: DiveHostAPI = Depends(get_app),
+) -> DataResult[list[FTSResult]]:
+    """Full text search on chat title and message.
+
+    Returns a list of search results containing a chat title and message snippet.
+
+    Orderd by chat.updated_at DESC (Newest first), msg.created_at ASC (Oldest first)
+    """
+    async with app.db_sessionmaker() as session:
+        matches = await app.msg_store(session).full_text_search(
+            query=query, max_length=max_length, start_sel="", stop_sel=""
+        )
+
+    result: list[FTSResult] = []
+    existing_chat: set[str] = set()
+    for match in matches:
+        if match.chat_id in existing_chat:
+            continue
+        existing_chat.add(match.chat_id)
+        result.append(match)
+
+    return DataResult(success=True, message=None, data=result)
+
+
+@chat.post("/bulk-delete")
+async def bulk_delete(
+    chat_ids: Annotated[list[str], Body(description="List of chat IDs to delete")],
+    app: DiveHostAPI = Depends(get_app),
+    dive_user: "DiveUser" = Depends(get_dive_user),
+) -> ResultResponse:
+    """Delete multiple chats by their IDs."""
+    async with app.db_sessionmaker() as session:
+        await app.msg_store(session).bulk_delete(
+            chat_ids=chat_ids,
+            user_id=dive_user["user_id"],
+        )
+        await session.commit()
+
+    async with TaskGroup() as group:
+        for chat in chat_ids:
+            group.create_task(app.dive_host["default"].delete_thread(chat))
+
+    return ResultResponse(success=True, message=None)
+
+
+@chat.delete("/purge")
+async def purge(
+    app: DiveHostAPI = Depends(get_app),
+    dive_user: "DiveUser" = Depends(get_dive_user),
+) -> ResultResponse:
+    """Delete ALL chats."""
+    chat_ids: list[str] = []
+
+    async with app.db_sessionmaker() as session:
+        chats = await app.msg_store(session).get_all_chats(user_id=dive_user["user_id"])
+        chat_ids = [c.id for c in chats]
+        await app.msg_store(session).bulk_delete(
+            chat_ids=chat_ids,
+            user_id=dive_user["user_id"],
+        )
+        await session.commit()
+
+    async with TaskGroup() as group:
+        for chat in chat_ids:
+            group.create_task(app.dive_host["default"].delete_thread(chat))
+
+    return ResultResponse(success=True, message=None)
+
+
 @chat.get("/list")
 async def list_chat(
     app: DiveHostAPI = Depends(get_app),
     dive_user: "DiveUser" = Depends(get_dive_user),
-    sort_by: SortBy = SortBy.CHAT,
+    sort_by: Annotated[
+        SortBy,
+        Query(description="Sort by 'chat' or 'msg' creation time"),
+    ] = SortBy.CHAT,
 ) -> DataResult[ChatList]:
-    """List all available chats.
-
-    Args:
-        app (DiveHostAPI): The DiveHostAPI instance.
-        dive_user (DiveUser): The DiveUser instance.
-        sort_by (SortBy):
-            - 'chat': Sort by chat creation time.
-            - 'msg': Sort by message creation time.
-            default: 'chat'
-
-    Returns:
-        DataResult[ChatList]: List of starred and normal chats.
-    """
+    """List all available chats."""
     result = ChatList()
     async with app.db_sessionmaker() as session:
         chats = await app.msg_store(session).get_all_chats(
@@ -75,25 +141,26 @@ async def list_chat(
     return DataResult(success=True, message=None, data=result)
 
 
-@chat.post("")
+@chat.post(
+    "",
+    responses={200: CHAT_EVENT_STREAM},
+    response_class=StreamingResponse,
+)
 async def create_chat(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
-    chat_id: Annotated[str | None, Form(alias="chatId")] = None,
-    message: Annotated[str | None, Form()] = None,
-    files: Annotated[list[UploadFile] | None, File()] = None,
-    filepaths: Annotated[list[str] | None, Form()] = None,
+    chat_id: Annotated[
+        str | None, Form(alias="chatId", description="ID for the new chat")
+    ] = None,
+    message: Annotated[str | None, Form(description="Initial message to send")] = None,
+    files: Annotated[
+        list[UploadFile] | None, File(description="Files to upload")
+    ] = None,
+    filepaths: Annotated[
+        list[str] | None, Form(description="File paths to upload")
+    ] = None,
 ) -> StreamingResponse:
-    """Create a new chat.
-
-    Args:
-        request (Request): The request object.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        chat_id (str | None): The ID of the chat to create.
-        message (str | None): The message to send.
-        files (list[UploadFile] | None): The files to upload.
-        filepaths (list[str] | None): The file paths to upload.
-    """
+    """Create a new chat."""
     if files is None:
         files = []
 
@@ -120,18 +187,12 @@ async def patch_chat(
     chat_id: str,
     dive_user: "DiveUser" = Depends(get_dive_user),
     app: DiveHostAPI = Depends(get_app),
-    title: Annotated[str | None, Body()] = None,
-    star: Annotated[bool | None, Body()] = None,
+    title: Annotated[str | None, Body(description="New title for the chat")] = None,
+    star: Annotated[
+        bool | None, Body(description="New star status for the chat")
+    ] = None,
 ) -> ResultResponse:
-    """Edit chat title.
-
-    Args:
-        chat_id (str): The ID of the chat to edit.
-        title (str | None): The new title for this chat if provided.
-        star (bool | None): New star status for this chat if provided.
-        dive_user: DiveUser: The current Dive user.
-        app (DiveHostAPI): The DiveHostAPI instance.
-    """
+    """Update chat title or star status."""
     async with app.db_sessionmaker() as session:
         chat = await app.msg_store(session).patch_chat(
             chat_id=chat_id,
@@ -151,27 +212,31 @@ async def patch_chat(
 ERROR_MSG_ID = "0"
 
 
-@chat.post("/edit")
+@chat.post(
+    "/edit",
+    responses={200: CHAT_EVENT_STREAM},
+    response_class=StreamingResponse,
+)
 async def edit_chat(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
-    chat_id: Annotated[str | None, Form(alias="chatId")] = None,
-    message_id: Annotated[str | None, Form(alias="messageId")] = None,
-    content: Annotated[str | None, Form()] = None,
-    files: Annotated[list[UploadFile] | None, File()] = None,
-    filepaths: Annotated[list[str] | None, Form()] = None,
+    chat_id: Annotated[
+        str | None, Form(alias="chatId", description="ID of the chat to edit")
+    ] = None,
+    message_id: Annotated[
+        str | None, Form(alias="messageId", description="ID of the message to edit")
+    ] = None,
+    content: Annotated[
+        str | None, Form(description="New content for the message")
+    ] = None,
+    files: Annotated[
+        list[UploadFile] | None, File(description="Files to upload")
+    ] = None,
+    filepaths: Annotated[
+        list[str] | None, Form(description="File paths to upload")
+    ] = None,
 ) -> StreamingResponse:
-    """Edit a message in a chat and query again.
-
-    Args:
-        request (Request): The request object.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        chat_id (str | None): The ID of the chat to edit.
-        message_id (str | None): The ID of the message to edit.
-        content (str | None): The content to send.
-        files (list[UploadFile] | None): The files to upload.
-        filepaths (list[str] | None): The file paths to upload.
-    """
+    """Edit a message in a chat and query again."""
     if chat_id is None or message_id is None:
         raise UserInputError("Chat ID and Message ID are required")
 
@@ -200,21 +265,23 @@ async def edit_chat(
     return response
 
 
-@chat.post("/retry")
+@chat.post(
+    "/retry",
+    responses={200: CHAT_EVENT_STREAM},
+    response_class=StreamingResponse,
+)
 async def retry_chat(
     request: Request,
     app: DiveHostAPI = Depends(get_app),
-    chat_id: Annotated[str | None, Body(alias="chatId")] = None,
-    message_id: Annotated[str | None, Body(alias="messageId")] = None,
+    chat_id: Annotated[
+        str | None, Body(alias="chatId", description="ID of the chat to retry")
+    ] = None,
+    message_id: Annotated[
+        str | None,
+        Body(alias="messageId", description="ID of the message to retry from"),
+    ] = None,
 ) -> StreamingResponse:
-    """Retry a chat.
-
-    Args:
-        request (Request): The request object.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        chat_id (str | None): The ID of the chat to retry.
-        message_id (str | None): The ID of the message to retry.
-    """
+    """Retry a chat from a specific message."""
     if chat_id is None or message_id is None:
         raise UserInputError("Chat ID and Message ID are required")
 
@@ -235,17 +302,8 @@ async def get_chat(
     chat_id: str,
     app: DiveHostAPI = Depends(get_app),
     dive_user: "DiveUser" = Depends(get_dive_user),
-) -> DataResult[ChatMessage]:
-    """Get a specific chat by ID with its messages.
-
-    Args:
-        chat_id (str): The ID of the chat to retrieve.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        dive_user (DiveUser): The DiveUser instance.
-
-    Returns:
-        DataResult[ChatMessage]: The chat and its messages.
-    """
+) -> DataResult[ChatMessage | None]:
+    """Get a specific chat by ID with its messages."""
     async with app.db_sessionmaker() as session:
         chat = await app.msg_store(session).get_chat_with_messages(
             chat_id=chat_id,
@@ -264,16 +322,7 @@ async def delete_chat(
     app: DiveHostAPI = Depends(get_app),
     dive_user: "DiveUser" = Depends(get_dive_user),
 ) -> ResultResponse:
-    """Delete a specific chat by ID.
-
-    Args:
-        chat_id (str): The ID of the chat to delete.
-        app (DiveHostAPI): The DiveHostAPI instance.
-        dive_user (DiveUser): The DiveUser instance.
-
-    Returns:
-        ResultResponse: Result of the delete operation.
-    """
+    """Delete a specific chat by ID."""
     async with app.db_sessionmaker() as session:
         await app.msg_store(session).delete_chat(
             chat_id=chat_id,
@@ -289,15 +338,7 @@ async def abort_chat(
     chat_id: str,
     app: DiveHostAPI = Depends(get_app),
 ) -> ResultResponse:
-    """Abort an ongoing chat operation.
-
-    Args:
-        chat_id (str): The ID of the chat to abort.
-        app (DiveHostAPI): The DiveHostAPI instance.
-
-    Returns:
-        ResultResponse: Result of the abort operation.
-    """
+    """Abort an ongoing chat operation."""
     abort_controller = app.abort_controller
     ok = await abort_controller.abort(chat_id)
     if not ok:

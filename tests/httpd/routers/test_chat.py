@@ -4,20 +4,25 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolCall
 
-from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, DataResult
+from dive_mcp_host.httpd.database.models import Role
+from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
+from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
+from dive_mcp_host.httpd.routers.chat import ERROR_MSG_ID, ChatList, DataResult
 from dive_mcp_host.httpd.routers.models import SortBy
 from dive_mcp_host.httpd.server import DiveHostAPI
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.host import DiveMcpHost
 
-from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message
+from dive_mcp_host.httpd.database.models import Chat, ChatMessage, Message, NewMessage
 from dive_mcp_host.models.fake import FakeMessageToolModel
 from tests import helper
 
@@ -196,6 +201,41 @@ def test_delete_chat(test_client):
     # Validate response structure
     assert isinstance(response_data, dict)
     assert response_data["success"] is True
+
+
+def test_bulk_delete_chat(test_client):
+    """Test the /api/chat/bulk-delete endpoint."""
+    client, app = test_client
+
+    # Create three chats
+    chat_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for chat_id in chat_ids:
+        response = client.post(
+            "/api/chat", data={"message": "Hello, world!", "chatId": chat_id}
+        )
+        assert response.status_code == SUCCESS_CODE
+
+    # Verify all three chats exist in the list
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    listed_ids = {c["id"] for c in response.json()["data"]["normal"]}
+    for chat_id in chat_ids:
+        assert chat_id in listed_ids
+
+    # Bulk delete the first two chats
+    ids_to_delete = chat_ids[:2]
+    response = client.post("/api/chat/bulk-delete", json=ids_to_delete)
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+
+    # Verify only the third chat (and the conftest chat) remain
+    response = client.get("/api/chat/list")
+    assert response.status_code == SUCCESS_CODE
+    remaining_ids = {c["id"] for c in response.json()["data"]["normal"]}
+    for deleted_id in ids_to_delete:
+        assert deleted_id not in remaining_ids
+    assert chat_ids[2] in remaining_ids
 
 
 def test_abort_chat(test_client):
@@ -1656,3 +1696,189 @@ def test_chat_error_sends_message_info_for_retry(test_client, monkeypatch):
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
     assert "<chat-error>" in messages[1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_search(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test the /api/chat/search endpoint filters duplicate chat results."""
+    from datetime import timedelta
+
+    client, app = test_client
+
+    # Setup: create 3 chats with 2 messages each directly in the database.
+    # Chat 1 and Chat 2 contain "quantum" in their messages.
+    # Chat 3 does not contain "quantum".
+    # Use explicit timestamps to verify ordering:
+    # ORDER BY chats.updated_at DESC, messages.created_at ASC
+    base_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+    async with app.db_sessionmaker() as session:
+        # Chat 1: older updated_at (should appear second in results)
+        chat1_id = str(uuid.uuid4())
+        chat1_updated = base_time
+        chat1_msg1_id = str(uuid.uuid4())  # oldest message
+        chat1_msg2_id = str(uuid.uuid4())
+        session.add(
+            ORMChat(
+                id=chat1_id,
+                title="Physics Discussion",
+                created_at=base_time,
+                updated_at=chat1_updated,
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=chat1_msg1_id,
+                    chat_id=chat1_id,
+                    role="user",
+                    content="Tell me about quantum computing",
+                    created_at=base_time,
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=chat1_msg2_id,
+                    chat_id=chat1_id,
+                    role="assistant",
+                    content="Quantum computing uses qubits for processing",
+                    created_at=base_time + timedelta(seconds=1),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+
+        # Chat 2: newer updated_at (should appear first in results)
+        chat2_id = str(uuid.uuid4())
+        chat2_updated = base_time + timedelta(hours=1)
+        chat2_msg1_id = str(uuid.uuid4())  # oldest message
+        chat2_msg2_id = str(uuid.uuid4())
+        session.add(
+            ORMChat(
+                id=chat2_id,
+                title="Science Review",
+                created_at=base_time + timedelta(minutes=30),
+                updated_at=chat2_updated,
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=chat2_msg1_id,
+                    chat_id=chat2_id,
+                    role="user",
+                    content="Explain quantum entanglement",
+                    created_at=base_time + timedelta(minutes=30),
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=chat2_msg2_id,
+                    chat_id=chat2_id,
+                    role="assistant",
+                    content="Quantum entanglement links particles together",
+                    created_at=base_time + timedelta(minutes=30, seconds=1),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+
+        # Chat 3: no quantum content
+        chat3_id = str(uuid.uuid4())
+        chat3_time = base_time + timedelta(hours=2)
+        session.add(
+            ORMChat(
+                id=chat3_id,
+                title="Finance Report",
+                created_at=chat3_time,
+                updated_at=chat3_time,
+            )
+        )
+        await session.flush()
+        session.add_all(
+            [
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat3_id,
+                    role="user",
+                    content="What are the stock market trends",
+                    created_at=chat3_time,
+                    files="",
+                ),
+                ORMMessage(
+                    message_id=str(uuid.uuid4()),
+                    chat_id=chat3_id,
+                    role="assistant",
+                    content="The market shows positive growth patterns",
+                    created_at=chat3_time + timedelta(seconds=1),
+                    files="",
+                ),
+            ]
+        )
+        await session.flush()
+        await session.commit()
+
+    # Search for "quantum" — matches all 4 messages across chat1 and chat2,
+    # but the API deduplicates by chat_id, so only 2 results should be returned.
+    response = client.post("/api/chat/search", json={"query": "quantum"})
+    assert response.status_code == SUCCESS_CODE
+    response_data = response.json()
+    assert response_data["success"] is True
+    assert len(response_data["data"]) == 2
+
+    result_chat_ids = {r["chat_id"] for r in response_data["data"]}
+    assert chat1_id in result_chat_ids
+    assert chat2_id in result_chat_ids
+    assert chat3_id not in result_chat_ids
+
+    # Verify results are ordered by chat.updated_at DESC
+    results = response_data["data"]
+    assert results[0]["chat_id"] == chat2_id, (
+        "Most recently updated chat should be first"
+    )
+    assert results[1]["chat_id"] == chat1_id, "Older updated chat should be second"
+
+    # Verify messages within results are ordered by created_at ASC
+    assert results[0]["message_id"] == chat2_msg1_id, (
+        "Chat2 should return the oldest matching message"
+    )
+    assert results[1]["message_id"] == chat1_msg1_id, (
+        "Chat1 should return the oldest matching message"
+    )
+
+
+@pytest.mark.asyncio
+async def test_pruge_chat(test_client: tuple[TestClient, DiveHostAPI]):
+    """Test purge chat."""
+    client, app = test_client
+
+    chat_id = "chat1"
+    msg_id = "msg1"
+    async with app.db_sessionmaker() as session:
+        msg_store = app.msg_store(session)
+        await msg_store.create_chat(chat_id=chat_id, title="to be deleted")
+        await msg_store.create_message(
+            NewMessage(
+                content="to be deleted",
+                role=Role.USER,
+                messageId=msg_id,
+                chatId=chat_id,
+            )
+        )
+        await session.commit()
+
+    resp = client.get("/api/chat/list")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = DataResult[ChatList].model_validate_json(resp.content)
+    assert len(resp_data.data.normal) >= 1
+
+    resp = client.delete("/api/chat/purge")
+    assert resp.status_code == SUCCESS_CODE
+
+    resp = client.get("/api/chat/list")
+    assert resp.status_code == SUCCESS_CODE
+    resp_data = DataResult[ChatList].model_validate_json(resp.content)
+    assert len(resp_data.data.normal) == 0
+    assert len(resp_data.data.starred) == 0

@@ -1,11 +1,20 @@
 from datetime import UTC, datetime
+from logging import getLogger
 
+from sqlalchemy import column, func, literal_column, select, table
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import OperationalError
 
-from dive_mcp_host.httpd.database.models import Chat
-from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
+from dive_mcp_host.httpd.database.models import Chat, FTSResult
+from dive_mcp_host.httpd.database.msg_store.base import (
+    MIN_TRIGRAM_LENGTH,
+    BaseMessageStore,
+)
 from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
+from dive_mcp_host.httpd.database.orm_models import Message as ORMMessage
 from dive_mcp_host.httpd.database.orm_models import Users as ORMUsers
+
+logger = getLogger(__name__)
 
 
 class SQLiteMessageStore(BaseMessageStore):
@@ -68,3 +77,110 @@ class SQLiteMessageStore(BaseMessageStore):
             starredAt=chat.starred_at,
             user_id=chat.user_id,
         )
+
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_length: int = 150,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search using SQLite FTS5.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_length: Maximum number of characters in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by relevance.
+        """
+        if len(query) < MIN_TRIGRAM_LENGTH:
+            return await self._like_query_search(
+                query, user_id, max_length, start_sel, stop_sel
+            )
+
+        try:
+            fts = table(
+                "message_fts",
+                column("rowid"),
+                column("rank"),
+                column("chat_id"),
+            )
+
+            # Subquery to get max message timestamp per chat
+            last_msg_subq = (
+                select(
+                    ORMMessage.chat_id.label("chat_id"),
+                    func.max(ORMMessage.created_at).label("last_message_at"),
+                )
+                .group_by(ORMMessage.chat_id)
+                .subquery("last_msg")
+            )
+
+            stmt = (
+                select(
+                    ORMMessage.message_id,
+                    ORMMessage.chat_id,
+                    ORMMessage.created_at,
+                    ORMChat.updated_at.label("chat_updated_at"),
+                    func.snippet(
+                        literal_column("message_fts"),
+                        1,
+                        start_sel,
+                        stop_sel,
+                        "...",
+                        max_length,
+                    ).label("title_snippet"),
+                    func.snippet(
+                        literal_column("message_fts"),
+                        2,
+                        start_sel,
+                        stop_sel,
+                        "...",
+                        max_length,
+                    ).label("content_snippet"),
+                    last_msg_subq.c.last_message_at,
+                )
+                .select_from(fts)
+                .join(
+                    ORMMessage,
+                    literal_column("messages.rowid") == fts.c.rowid,
+                )
+                .join(
+                    ORMChat,
+                    ORMChat.id == ORMMessage.chat_id,
+                )
+                .join(
+                    last_msg_subq,
+                    last_msg_subq.c.chat_id == ORMMessage.chat_id,
+                )
+                .where(literal_column("message_fts").match(query))
+                .order_by(last_msg_subq.c.last_message_at.desc())
+                .order_by(ORMMessage.created_at.asc())
+            )
+
+            if user_id is not None:
+                stmt = stmt.where(ORMChat.user_id == user_id)
+
+            result = await self._session.execute(stmt)
+            return [
+                FTSResult(
+                    chat_id=row.chat_id,
+                    message_id=row.message_id,
+                    title_snippet=row.title_snippet,
+                    content_snippet=row.content_snippet,
+                    msg_created_at=row.created_at,
+                    chat_updated_at=row.chat_updated_at,
+                )
+                for row in result.mappings()
+            ]
+
+        except OperationalError:
+            logger.info("Fallback to LIKE search for query: %s", query)
+            return await self._like_query_search(
+                query, user_id, max_length, start_sel, stop_sel
+            )

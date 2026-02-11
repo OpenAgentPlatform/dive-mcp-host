@@ -416,11 +416,7 @@ async def do_verify_model(
     app: DiveHostAPI = Depends(get_app),
     settings: ModelVerifyRequest | None = None,
 ) -> ModelVerifyResult:
-    """Verify if a model supports streaming capabilities.
-
-    Returns:
-        ModelVerifyResult
-    """
+    """Verify if a model supports streaming capabilities."""
     dive_host = app.dive_host["default"]
 
     llm_config = settings.model_settings if settings else None
@@ -441,11 +437,7 @@ async def verify_model(
     app: DiveHostAPI = Depends(get_app),
     settings: dict[str, list[LLMConfigTypes]] | None = None,
 ) -> StreamingResponse:
-    """Verify if a model supports streaming capabilities.
-
-    Returns:
-        CompletionEventStreamContextManager
-    """
+    """Verify if a model supports streaming capabilities."""
     dive_host = app.dive_host["default"]
 
     llm_configs = settings.get("modelSettings") if settings else None

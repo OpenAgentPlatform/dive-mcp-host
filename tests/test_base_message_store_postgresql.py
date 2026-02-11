@@ -622,6 +622,42 @@ async def test_create_chat_duplicate(
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
+async def test_bulk_delete(
+    message_store: BaseMessageStore,
+    sample_user: ORMUsers,
+    session: AsyncSession,
+):
+    """Test bulk deleting chats."""
+    # Create three chats
+    chat_ids = [str(uuid.uuid4()) for _ in range(3)]
+    for chat_id in chat_ids:
+        chat = ORMChat(
+            id=chat_id,
+            title=f"Chat {chat_id}",
+            user_id=sample_user.id,
+            created_at=datetime.now(UTC),
+        )
+        session.add(chat)
+    await session.commit()
+
+    # Bulk delete the first two chats
+    await message_store.bulk_delete(chat_ids[:2], user_id=sample_user.id)
+
+    # Verify the first two chats were deleted
+    for chat_id in chat_ids[:2]:
+        query = select(ORMChat).where(ORMChat.id == chat_id)
+        result = await session.scalar(query)
+        assert result is None
+
+    # Verify the third chat still exists
+    query = select(ORMChat).where(ORMChat.id == chat_ids[2])
+    result = await session.scalar(query)
+    assert result is not None
+    assert result.id == chat_ids[2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(environ.get("POSTGRES_URI") is None, reason="No postgres setting")
 async def test_patch_chat(postgresql_message_store: PostgreSQLMessageStore):
     """Test if patch works."""
     chat = await postgresql_message_store.create_chat(
