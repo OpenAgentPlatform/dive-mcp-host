@@ -17,16 +17,21 @@ from typing import Annotated, Any
 
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import InjectedToolArg, tool
+from mcp import types
 from pydantic import Field
 
-from dive_mcp_host.mcp_installer_plugin.events import InstallerToolLog
-from dive_mcp_host.mcp_installer_plugin.tools.common import (
-    _check_aborted,
-    _ensure_config,
-    _get_abort_signal,
-    _get_dry_run,
-    _get_stream_writer,
+from dive_mcp_host.host.agents.agent_factory import (
+    ensure_config,
+    get_abort_signal,
+    get_dry_run,
+    get_stream_writer,
 )
+from dive_mcp_host.host.tools.elicitation_manager import (
+    ElicitationManager,
+    ElicitationTimeoutError,
+)
+from dive_mcp_host.internal_tools.events import InstallerToolLog
+from dive_mcp_host.internal_tools.tools.common import check_aborted
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +56,13 @@ async def read_file(
     Note: User confirmation is handled by the confirm_install node in the graph,
     not by individual tools.
     """
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Expand user home directory
@@ -122,10 +127,10 @@ async def write_file(
 
     Requests user confirmation before writing.
     """
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    dry_run = _get_dry_run(config)
+    stream_writer = get_stream_writer(config)
+    dry_run = get_dry_run(config)
 
     return await execute_write(
         path=path,
@@ -148,20 +153,13 @@ async def execute_write(
     config: RunnableConfig,
 ) -> str:
     """Execute the write file operation (internal implementation)."""
-    from mcp import types
-
-    from dive_mcp_host.host.tools.elicitation_manager import (
-        ElicitationManager,
-        ElicitationTimeoutError,
-    )
-
-    abort_signal = _get_abort_signal(config)
+    abort_signal = get_abort_signal(config)
     elicitation_manager: ElicitationManager | None = config.get("configurable", {}).get(
         "elicitation_manager"
     )
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Expand user home directory
@@ -242,7 +240,7 @@ async def execute_write(
             return f"Error getting confirmation: {e}"
 
     # Check abort before writing
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Write the file

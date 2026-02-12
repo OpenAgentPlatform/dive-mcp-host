@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from dive_mcp_host.mcp_installer_plugin.tools import get_local_tools
+from dive_mcp_host.internal_tools.tools.export import get_local_tools
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -111,7 +111,7 @@ class ToolManagerPlugin:
     ) -> None:
         """Set the MCP reload callback (deprecated).
 
-        Deprecated: Use mcp_installer_plugin.set_httpd_base_url() for HTTP API reload.
+        Deprecated: Use internal_tools.set_httpd_base_url() for HTTP API reload.
 
         Args:
             callback: An async callback function that triggers MCP server reload.

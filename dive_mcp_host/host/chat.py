@@ -27,9 +27,11 @@ from dive_mcp_host.host.errors import (
 )
 from dive_mcp_host.host.helpers.context import ContextProtocol
 from dive_mcp_host.host.prompt import default_system_prompt
+from dive_mcp_host.skills.manager import SkillManager
 
 if TYPE_CHECKING:
     from dive_mcp_host.host.tools.elicitation_manager import ElicitationManager
+
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         disable_default_system_prompt: bool = False,
         elicitation_manager: "ElicitationManager | None" = None,
         locale: str = "en",
-        mcp_reload_callback: Callable[[], Any] | None = None,
+        skill_manager: SkillManager | None = None,
     ) -> None:
         """Initialize the chat.
 
@@ -65,7 +67,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
             disable_default_system_prompt: disable default system prompt
             elicitation_manager: The elicitation manager for tool approval requests.
             locale: Locale for user-facing messages (e.g., 'en', 'zh-TW').
-            mcp_reload_callback: Callback to reload MCP servers (deprecated).
+            skill_manager: Skill related operations
 
         The agent_factory is called only once to compile the agent.
         """
@@ -81,7 +83,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
         self._disable_default_system_prompt = disable_default_system_prompt
         self._elicitation_manager = elicitation_manager
         self._locale = locale
-        self._mcp_reload_callback = mcp_reload_callback
+        self._skill_manager = skill_manager
 
     @property
     def active_agent(self) -> CompiledStateGraph:
@@ -221,7 +223,7 @@ class Chat[STATE_TYPE: MessagesState](ContextProtocol):
                 abort_signal=signal,
                 elicitation_manager=self._elicitation_manager,
                 locale=self._locale,
-                mcp_reload_callback=self._mcp_reload_callback,
+                skill_manager=self._skill_manager,
             )
             try:
                 async for response in self.active_agent.astream(

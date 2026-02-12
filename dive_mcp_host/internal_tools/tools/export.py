@@ -1,16 +1,10 @@
-"""Tools for the MCP Server Installer Agent.
-
-These tools provide fetch, bash, and filesystem operations with built-in
-elicitation support for user approval of potentially dangerous operations.
-"""
-
 from langchain_core.tools import BaseTool
 
-from dive_mcp_host.mcp_installer_plugin.tools.bash import bash
-from dive_mcp_host.mcp_installer_plugin.tools.confirmation import request_confirmation
-from dive_mcp_host.mcp_installer_plugin.tools.fetch import fetch
-from dive_mcp_host.mcp_installer_plugin.tools.file_ops import read_file, write_file
-from dive_mcp_host.mcp_installer_plugin.tools.mcp_server import (
+from dive_mcp_host.internal_tools.tools.bash import bash
+from dive_mcp_host.internal_tools.tools.confirmation import request_confirmation
+from dive_mcp_host.internal_tools.tools.fetch import fetch
+from dive_mcp_host.internal_tools.tools.file_ops import read_file, write_file
+from dive_mcp_host.internal_tools.tools.mcp_server import (
     add_mcp_server,
     get_mcp_config,
     install_mcp_instructions,

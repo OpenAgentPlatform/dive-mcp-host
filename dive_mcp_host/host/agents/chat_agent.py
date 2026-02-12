@@ -60,6 +60,7 @@ from dive_mcp_host.host.agents.tools_in_prompt import (
 from dive_mcp_host.host.helpers import today_datetime
 from dive_mcp_host.host.prompt import PromptType, tools_prompt
 from dive_mcp_host.host.store.base import StoreManagerProtocol
+from dive_mcp_host.skills.manager import SkillManager
 
 type StructuredResponse = dict | BaseModel
 type StructuredResponseSchema = dict | type[BaseModel]
@@ -292,9 +293,11 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         tools: Sequence[BaseTool] | ToolNode,
         tools_in_prompt: bool = False,
         store: StoreManagerProtocol | None = None,
+        skill_manager: SkillManager | None = None,
     ) -> None:
         """Initialize the chat agent factory."""
         self._model = model
+        self._skill_manager = skill_manager
         self._model_class = type(model).__name__
         self._tools: ToolNode = (
             tools
@@ -343,7 +346,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
         elicitation_manager: Any | None = None,
         stream_writer: Any | None = None,
         locale: str = "en",
-        mcp_reload_callback: Any | None = None,
+        skill_manager: Any | None = None,
     ) -> RunnableConfig:
         """Create a config for the agent."""
         return {
@@ -356,7 +359,7 @@ class ChatAgentFactory(AgentFactory[AgentState]):
                 ConfigurableKey.ELICITATION_MANAGER: elicitation_manager,
                 ConfigurableKey.STREAM_WRITER: stream_writer,
                 ConfigurableKey.LOCALE: locale,
-                ConfigurableKey.MCP_RELOAD_CALLBACK: mcp_reload_callback,
+                ConfigurableKey.SKILL_MANAGER: skill_manager,
             },
             "recursion_limit": 102,
         }
@@ -582,6 +585,7 @@ def get_chat_agent_factory(
     tools: Sequence[BaseTool] | ToolNode,
     tools_in_prompt: bool = False,
     store: StoreManagerProtocol | None = None,
+    skill_manager: SkillManager | None = None,
 ) -> ChatAgentFactory:
     """Get an agent factory."""
     return ChatAgentFactory(
@@ -589,6 +593,7 @@ def get_chat_agent_factory(
         tools=tools,
         tools_in_prompt=tools_in_prompt,
         store=store,
+        skill_manager=skill_manager,
     )
 
 

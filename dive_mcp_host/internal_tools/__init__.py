@@ -13,7 +13,7 @@ The installer consists of:
 ## Usage
 
 ```python
-from dive_mcp_host.mcp_installer_plugin import get_local_tools
+from dive_mcp_host.internal_tools import get_local_tools
 
 # Get all local tools for external LLMs
 tools = get_local_tools()

@@ -66,7 +66,7 @@ class ImageBase64Msg:
             inline_base64: 'data:image/jpeg;base64,{base64_image}'
         """
         mime = inline_base64.removeprefix("data:").split(";")[0]
-        base64_data = inline_base64.split(",")[-1]
+        base64_data = inline_base64.rsplit(",", maxsplit=1)[-1]
         return asdict(cls(base64=base64_data, mime_type=mime))
 
 
