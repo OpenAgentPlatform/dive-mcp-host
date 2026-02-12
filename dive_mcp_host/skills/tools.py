@@ -1,105 +1,28 @@
 """Skill tools for LangChain agents.
 
-Provides tools for reading and installing skills.
+Provides tools for installing skills.
 """
 
-# ruff: noqa: PLR2004, PLR0911
+# ruff: noqa: PLR0911
 
 from __future__ import annotations
 
 import logging
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from langchain_core.runnables import RunnableConfig  # noqa: TC002
-from langchain_core.tools import BaseTool, InjectedToolArg, StructuredTool, tool
+from langchain_core.tools import InjectedToolArg, tool
 from langgraph.pregel.main import ensure_config
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from dive_mcp_host.host.agents.agent_factory import get_abort_signal, get_skill_manager
 from dive_mcp_host.internal_tools.tools.common import (
     check_aborted,
 )
 
-if TYPE_CHECKING:
-    from dive_mcp_host.skills.manager import SkillManager
-    from dive_mcp_host.skills.models import Skill
-
 logger = logging.getLogger(__name__)
-
-
-def _build_dive_skill_description(skills: list[Skill]) -> str:
-    """Build the dynamic tool description listing available skills."""
-    base = (
-        "Load a skill to get detailed instructions for a specific task.\n"
-        "Skills provide specialized knowledge and step-by-step guidance.\n"
-        "Use this when a task matches an available skill's description."
-    )
-    if not skills:
-        return base + "\n\nNo skills are currently available."
-
-    lines = ["<available_skills>"]
-    for skill in skills:
-        lines.append("  <skill>")
-        lines.append(f"    <name>{skill.meta.name}</name>")
-        if skill.meta.description:
-            lines.append(f"    <description>{skill.meta.description}</description>")
-        lines.append("  </skill>")
-    lines.append("</available_skills>")
-
-    return base + "\nOnly the skills listed here are available:\n" + "\n".join(lines)
-
-
-class _DiveSkillInput(BaseModel):
-    """Input schema for the dive_skill tool."""
-
-    skill_name: str = Field(description="Name of the skill to load.")
-
-
-def create_dive_skill_tool(manager: SkillManager) -> BaseTool:
-    """Create the dive_skill tool with a dynamic description of available skills.
-
-    Args:
-        manager: The SkillManager instance to use for reading skills.
-
-    Returns:
-        A BaseTool instance named 'dive_skill'.
-    """
-    skills = manager.list_skills()
-    description = _build_dive_skill_description(skills)
-
-    def read_skill_content(skill_name: str) -> str:
-        """Read a skill's content using the bound SkillManager."""
-        skill = manager.get_skill(skill_name)
-
-        if skill is None:
-            installed = manager.list_skills()
-            if installed:
-                available = ", ".join(s.meta.name for s in installed)
-                return (
-                    f"Error: Skill '{skill_name}' not found. "
-                    f"Available skills: {available}"
-                )
-            return f"Error: Skill '{skill_name}' not found. No skills are installed."
-
-        content = skill.content
-        if len(content) > 100000:
-            content = content[:100000] + "\n... (truncated)"
-
-        return f"""
-## Skill: {skill_name}
-
-**Base directory**: {skill.base_dir}
-
-{content}"""
-
-    return StructuredTool.from_function(
-        func=read_skill_content,
-        name="dive_skill",
-        description=description,
-        args_schema=_DiveSkillInput,
-    )
 
 
 @tool(

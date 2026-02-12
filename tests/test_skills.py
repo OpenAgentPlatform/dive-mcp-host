@@ -9,10 +9,7 @@ from langgraph.graph.state import RunnableConfig
 
 from dive_mcp_host.host.agents.agent_factory import ConfigurableKey
 from dive_mcp_host.skills.manager import SkillManager
-from dive_mcp_host.skills.tools import (
-    create_dive_skill_tool,
-    dive_install_skill_from_path,
-)
+from dive_mcp_host.skills.tools import dive_install_skill_from_path
 
 
 def _make_config(skill_manager: SkillManager) -> RunnableConfig:
@@ -78,7 +75,7 @@ def temp_resource() -> Generator[tuple[SkillManager, Path]]:
 
 
 class TestDiveSkill:
-    """Tests for the dive_skill tool created by create_dive_skill_tool."""
+    """Tests for the dive_skill tool created by SkillManager.get_tools."""
 
     def test_load_existing_skill(
         self, temp_resource: tuple[SkillManager, Path]
@@ -88,7 +85,7 @@ class TestDiveSkill:
         _write_skill(manager.skill_dir, "code-review", VALID_SKILL)
 
         manager.refresh()
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
         result = tool.invoke({"skill_name": "code-review"})
 
         assert "## Instructions" in result
@@ -102,7 +99,7 @@ class TestDiveSkill:
         _write_skill(manager.skill_dir, "code-review", VALID_SKILL)
 
         manager.refresh()
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
         result = tool.invoke({"skill_name": "nonexistent"})
 
         assert "Error" in result
@@ -114,7 +111,7 @@ class TestDiveSkill:
     ) -> None:
         """Test loading a nonexistent skill when no skills are installed."""
         manager, _ = temp_resource
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
         result = tool.invoke({"skill_name": "nonexistent"})
 
         assert "Error" in result
@@ -130,7 +127,7 @@ class TestDiveSkill:
         _write_skill(manager.skill_dir, "git-commit", GIT_COMMIT_SKILL)
 
         manager.refresh()
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
 
         assert "code-review" in tool.description
         assert "git-commit" in tool.description
@@ -143,7 +140,7 @@ class TestDiveSkill:
     ) -> None:
         """Test that an empty skill directory produces the no-skills message."""
         manager, _ = temp_resource
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
 
         assert "No skills are currently available" in tool.description
         assert "<available_skills>" not in tool.description
@@ -154,7 +151,7 @@ class TestDiveSkill:
             skill_dir = Path(tmp) / "nonexistent"
 
             manager = SkillManager(skill_dir)
-            tool = create_dive_skill_tool(manager)
+            tool = manager.get_tools()[0]
 
             assert "No skills are currently available" in tool.description
 
@@ -167,7 +164,7 @@ class TestDiveSkill:
         _write_skill(manager.skill_dir, "big-skill", large_content)
 
         manager.refresh()
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
         result = tool.invoke({"skill_name": "big-skill"})
 
         assert len(result) <= 100100
@@ -176,7 +173,7 @@ class TestDiveSkill:
     def test_tool_name(self, temp_resource: tuple[SkillManager, Path]) -> None:
         """Test that the tool is named dive_skill."""
         manager, _ = temp_resource
-        tool = create_dive_skill_tool(manager)
+        tool = manager.get_tools()[0]
         assert tool.name == "dive_skill"
 
 

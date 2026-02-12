@@ -1,22 +1,29 @@
 """Skill manager for reading and managing skills."""
 
+# ruff: noqa: PLR2004
+
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
 import frontmatter
+from langchain_core.tools import BaseTool, StructuredTool
+from pydantic import BaseModel, Field
 
 from dive_mcp_host.env import DIVE_SKILL_DIR
 from dive_mcp_host.skills.models import Skill, SkillMeta
-from dive_mcp_host.skills.tools import create_dive_skill_tool
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from langchain_core.tools import BaseTool
-
 logger = logging.getLogger(__name__)
+
+
+class _DiveSkillInput(BaseModel):
+    """Input schema for the dive_skill tool."""
+
+    skill_name: str = Field(description="Name of the skill to load.")
 
 
 class SkillManager:
@@ -100,6 +107,77 @@ class SkillManager:
             logger.exception("Failed to load skill: %s", skill_file)
             return None
 
-    def get_tools(self) -> list[BaseTool]:
-        """Transform skills into tools."""
-        return [create_dive_skill_tool(self)]
+    def get_tools(self, skill_names: list[str] | None = None) -> list[BaseTool]:
+        """Transform skills into tools.
+
+        Args:
+            skill_names: Optional list of skill names to include.
+                         If None, all skills are included.
+        """
+        if skill_names is not None:
+            skills = [
+                s for name in skill_names if (s := self.get_skill(name)) is not None
+            ]
+        else:
+            skills = self.list_skills()
+
+        base_desc = (
+            "Load a skill to get detailed instructions for a specific task.\n"
+            "Skills provide specialized knowledge and step-by-step guidance.\n"
+            "Use this when a task matches an available skill's description."
+        )
+        if not skills:
+            description = base_desc + "\n\nNo skills are currently available."
+        else:
+            lines = ["<available_skills>"]
+            for skill in skills:
+                lines.append("  <skill>")
+                lines.append(f"    <name>{skill.meta.name}</name>")
+                if skill.meta.description:
+                    lines.append(
+                        f"    <description>{skill.meta.description}</description>"
+                    )
+                lines.append("  </skill>")
+            lines.append("</available_skills>")
+            description = (
+                base_desc
+                + "\nOnly the skills listed here are available:\n"
+                + "\n".join(lines)
+            )
+
+        skills_dict = {s.meta.name: s for s in skills}
+
+        def read_skill_content(skill_name: str) -> str:
+            """Read a skill's content."""
+            skill = skills_dict.get(skill_name)
+
+            if skill is None:
+                if skills_dict:
+                    available = ", ".join(skills_dict)
+                    return (
+                        f"Error: Skill '{skill_name}' not found. "
+                        f"Available skills: {available}"
+                    )
+                return (
+                    f"Error: Skill '{skill_name}' not found. No skills are installed."
+                )
+
+            content = skill.content
+            if len(content) > 100000:
+                content = content[:100000] + "\n... (truncated)"
+
+            return f"""
+## Skill: {skill_name}
+
+**Base directory**: {skill.base_dir}
+
+{content}"""
+
+        return [
+            StructuredTool.from_function(
+                func=read_skill_content,
+                name="dive_skill",
+                description=description,
+                args_schema=_DiveSkillInput,
+            )
+        ]
