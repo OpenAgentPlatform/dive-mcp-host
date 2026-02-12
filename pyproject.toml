@@ -148,6 +148,7 @@ lint.ignore = [
     "PGH003",
     "TC006", # forces use of string type for 'cast' ex: cast("dict[str, Any]", response.json())
     "C901",
+	"PLR0911",
     "PLR0915",
     "PLR0912",
     "PLR0913",
