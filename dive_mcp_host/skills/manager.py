@@ -1,7 +1,5 @@
 """Skill manager for reading and managing skills."""
 
-# ruff: noqa: PLR2004
-
 from __future__ import annotations
 
 import logging
@@ -18,6 +16,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+MAX_SKILL_CONTENT_LENGTH = 100_000
 
 
 class _DiveSkillInput(BaseModel):
@@ -163,8 +163,8 @@ class SkillManager:
                 )
 
             content = skill.content
-            if len(content) > 100000:
-                content = content[:100000] + "\n... (truncated)"
+            if len(content) > MAX_SKILL_CONTENT_LENGTH:
+                content = content[:MAX_SKILL_CONTENT_LENGTH] + "\n... (truncated)"
 
             return f"""
 ## Skill: {skill_name}
