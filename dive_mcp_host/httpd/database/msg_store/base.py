@@ -1,14 +1,25 @@
 import json
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import delete, desc, exists, func, insert, select, update
+from sqlalchemy import (
+    delete,
+    desc,
+    exists,
+    func,
+    insert,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dive_mcp_host.httpd.database.models import (
     Chat,
     ChatMessage,
+    FTSResult,
     Message,
     NewMessage,
     QueryInput,
@@ -26,6 +37,46 @@ from .abstract import AbstractMessageStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+# Trigram tokenizer / tsquery requires at least 3 characters
+MIN_TRIGRAM_LENGTH = 3
+
+
+def _build_snippet(
+    content: str,
+    query: str,
+    max_length: int = 150,
+    start_sel: str = "<b>",
+    stop_sel: str = "</b>",
+) -> str:
+    """Build a highlighted snippet from content, similar to FTS5 snippet()."""
+    escaped = re.escape(query)
+
+    # Find the position of the first match
+    match = re.search(escaped, content, re.IGNORECASE)
+    match_pos = match.start() if match else 0
+
+    # Extract a window of characters around the first match
+    half = max_length // 2
+    start = max(0, match_pos - half)
+    end = min(len(content), start + max_length)
+    # Re-adjust start if we hit the end of content
+    start = max(0, end - max_length)
+    snippet_text = content[start:end]
+
+    # Add ellipsis if truncated
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(content) else ""
+
+    # Highlight all occurrences of the query
+    highlighted = re.sub(
+        f"({escaped})",
+        lambda m: f"{start_sel}{m.group(1)}{stop_sel}",
+        snippet_text,
+        flags=re.IGNORECASE,
+    )
+
+    return f"{prefix}{highlighted}{suffix}"
 
 
 class BaseMessageStore(AbstractMessageStore):
@@ -344,6 +395,22 @@ class BaseMessageStore(AbstractMessageStore):
         )
         await self._session.execute(query)
 
+    async def bulk_delete(
+        self, chat_ids: list[str], user_id: str | None = None
+    ) -> None:
+        """Bulk delete chat from the database.
+
+        Args:
+            chat_ids: A list of chat id.
+            user_id: User ID or fingerprint, depending on the prefix.
+        """
+        query = (
+            delete(ORMChat)
+            .where(ORMChat.id.in_(chat_ids))
+            .where(ORMChat.user_id == user_id)
+        )
+        await self._session.execute(query)
+
     async def delete_messages_after(
         self,
         chat_id: str,
@@ -521,6 +588,71 @@ class BaseMessageStore(AbstractMessageStore):
             resource_usage=resource_usage,
         )
 
+    async def _like_query_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_length: int = 150,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """ILIKE fallback for queries shorter than 3 characters."""
+        # Subquery to get max message timestamp per chat
+        last_msg_subq = (
+            select(
+                ORMMessage.chat_id.label("chat_id"),
+                func.max(ORMMessage.created_at).label("last_message_at"),
+            )
+            .group_by(ORMMessage.chat_id)
+            .subquery("last_msg")
+        )
+
+        stmt = (
+            select(
+                ORMMessage,
+                ORMChat.title,
+                ORMChat.updated_at.label("chat_updated_at"),
+                last_msg_subq.c.last_message_at,
+            )
+            .join(ORMChat, ORMMessage.chat_id == ORMChat.id)
+            .join(last_msg_subq, last_msg_subq.c.chat_id == ORMMessage.chat_id)
+            .where(
+                or_(
+                    ORMChat.title.ilike(f"%{query}%"),
+                    ORMMessage.content.ilike(f"%{query}%"),
+                )
+            )
+            .order_by(last_msg_subq.c.last_message_at.desc())
+            .order_by(ORMMessage.created_at.asc())
+        )
+        if user_id is not None:
+            stmt = stmt.where(ORMChat.user_id == user_id)
+
+        result = await self._session.execute(stmt)
+        return [
+            FTSResult(
+                chat_id=row.Message.chat_id,
+                message_id=row.Message.message_id,
+                title_snippet=_build_snippet(
+                    row.title,
+                    query,
+                    max_length=max_length,
+                    start_sel=start_sel,
+                    stop_sel=stop_sel,
+                ),
+                content_snippet=_build_snippet(
+                    row.Message.content,
+                    query,
+                    max_length=max_length,
+                    start_sel=start_sel,
+                    stop_sel=stop_sel,
+                ),
+                msg_created_at=row.Message.created_at,
+                chat_updated_at=row.chat_updated_at,
+            )
+            for row in result
+        ]
+
     async def update_message_resource_usage(
         self,
         message_id: str,
@@ -571,3 +703,27 @@ class BaseMessageStore(AbstractMessageStore):
                 total_run_time=resource_usage.total_run_time,
             )
             await self._session.execute(insert_query)
+
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_length: int = 150,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search on chat titles and message content.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_length: Maximum number of characters in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by relevance.
+        """
+        raise NotImplementedError(
+            "The implementation of the method varies on different database."
+        )

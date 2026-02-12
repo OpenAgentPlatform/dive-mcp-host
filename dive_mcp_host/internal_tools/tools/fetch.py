@@ -20,13 +20,13 @@ from langchain_core.runnables import RunnableConfig  # noqa: TC002
 from langchain_core.tools import InjectedToolArg, tool
 from pydantic import Field
 
-from dive_mcp_host.mcp_installer_plugin.events import InstallerToolLog
-from dive_mcp_host.mcp_installer_plugin.tools.common import (
-    _check_aborted,
-    _ensure_config,
-    _get_abort_signal,
-    _get_stream_writer,
+from dive_mcp_host.host.agents.agent_factory import (
+    ensure_config,
+    get_abort_signal,
+    get_stream_writer,
 )
+from dive_mcp_host.internal_tools.events import InstallerToolLog
+from dive_mcp_host.internal_tools.tools.common import check_aborted
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +52,13 @@ async def fetch(
     Note: User confirmation is handled by the confirm_install node in the graph,
     not by individual tools.
     """
-    config = _ensure_config(config)
+    config = ensure_config(config)
 
-    stream_writer = _get_stream_writer(config)
-    abort_signal = _get_abort_signal(config)
+    stream_writer = get_stream_writer(config)
+    abort_signal = get_abort_signal(config)
 
     # Check if already aborted
-    if _check_aborted(abort_signal):
+    if check_aborted(abort_signal):
         return "Error: Operation aborted."
 
     # Perform the fetch

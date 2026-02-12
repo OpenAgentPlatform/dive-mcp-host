@@ -5,6 +5,7 @@ from abc import ABC, abstractmethod
 from dive_mcp_host.httpd.database.models import (
     Chat,
     ChatMessage,
+    FTSResult,
     Message,
     NewMessage,
     QueryInput,
@@ -169,4 +170,26 @@ class AbstractMessageStore(ABC):
         Args:
             message_id: Unique identifier for the message.
             resource_usage: ResourceUsage data to update or create.
+        """
+
+    @abstractmethod
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_length: int = 150,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search on chat titles and message content.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_length: Maximum number of characters in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by relevance.
         """

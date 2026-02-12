@@ -13,6 +13,7 @@ from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import ResultResponse, StreamMessage
 from dive_mcp_host.httpd.routers.utils import ChatProcessor, EventStreamContextManager
 from dive_mcp_host.httpd.server import DiveHostAPI
+from dive_mcp_host.skills.manager import SkillManager
 
 openai = APIRouter(tags=["openai"])
 
@@ -127,21 +128,13 @@ class CompletionEventStreamContextManager(EventStreamContextManager):
 
 @openai.get("/")
 async def get_openai() -> ResultResponse:
-    """Returns a welcome message for the Dive Compatible API.
-
-    Returns:
-        ResultResponse: A success response with welcome message.
-    """
+    """Returns a welcome message for the Dive Compatible API."""
     return ResultResponse(success=True, message="Welcome to Dive Compatible API! 🚀")
 
 
 @openai.get("/models")
 async def list_models(app: DiveHostAPI = Depends(get_app)) -> ModelsResult:
-    """Lists all available OpenAI compatible models.
-
-    Returns:
-        ModelsResult: A list of available models.
-    """
+    """Lists all available OpenAI compatible models."""
     return ModelsResult(
         success=True,
         models=[
@@ -161,11 +154,7 @@ async def create_chat_completion(
     params: CompletionsArgs,
     app: DiveHostAPI = Depends(get_app),
 ) -> object:  # idk what this actual do...
-    """Creates a chat completion using the OpenAI compatible API.
-
-    Returns:
-        The chat completion result.
-    """
+    """Creates a chat completion using the OpenAI compatible API."""
     has_system_message = False
     messages = []
     for message in params.messages:
@@ -208,7 +197,7 @@ async def create_chat_completion(
     async def process() -> tuple[CompletionsMessageResp, CompletionsUsage]:
         async with stream:
             task = asyncio.create_task(abort_handler())
-            processor = ChatProcessor(app, request.state, stream)
+            processor = ChatProcessor(app, request.state, stream, SkillManager())
             result, usage = await processor.handle_chat_with_history(
                 chat_id,
                 None,

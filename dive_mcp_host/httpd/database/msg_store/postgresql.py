@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.dialects.postgresql import insert
 
-from dive_mcp_host.httpd.database.models import Chat
+from dive_mcp_host.httpd.database.models import Chat, FTSResult
 from dive_mcp_host.httpd.database.msg_store.base import BaseMessageStore
 from dive_mcp_host.httpd.database.orm_models import Chat as ORMChat
 from dive_mcp_host.httpd.database.orm_models import Users as ORMUsers
@@ -67,4 +67,28 @@ class PostgreSQLMessageStore(BaseMessageStore):
             updatedAt=chat.updated_at,
             starredAt=chat.starred_at,
             user_id=chat.user_id,
+        )
+
+    async def full_text_search(
+        self,
+        query: str,
+        user_id: str | None = None,
+        max_length: int = 150,
+        start_sel: str = "<b>",
+        stop_sel: str = "</b>",
+    ) -> list[FTSResult]:
+        """Run full text search using ILIKE and Python-based snippets.
+
+        Args:
+            query: Search query string.
+            user_id: Optional user ID to filter results.
+            max_length: Maximum number of characters in content snippet.
+            start_sel: Opening tag for highlighted matches.
+            stop_sel: Closing tag for highlighted matches.
+
+        Returns:
+            List of FTSResult objects sorted by created_at ascending.
+        """
+        return await self._like_query_search(
+            query, user_id, max_length, start_sel, stop_sel
         )

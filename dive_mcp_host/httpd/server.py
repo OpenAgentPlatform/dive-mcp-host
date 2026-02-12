@@ -200,7 +200,7 @@ class DiveHostAPI(FastAPI):
 
             # Set httpd base URL for installer tools
             if self._listen_ip and self._listen_port:
-                from dive_mcp_host.mcp_installer_plugin.runtime import (
+                from dive_mcp_host.internal_tools.runtime import (
                     set_httpd_base_url,
                 )
 

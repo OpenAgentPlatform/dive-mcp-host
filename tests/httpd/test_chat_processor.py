@@ -7,14 +7,20 @@ from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
+from fastapi.datastructures import State
 from langchain_core.messages import AIMessage, HumanMessage
 
 from dive_mcp_host.httpd.conf.httpd_service import ServiceManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.conf.prompt import PromptKey
-from dive_mcp_host.httpd.routers.utils import ChatProcessor, ContentHandler
+from dive_mcp_host.httpd.routers.utils import (
+    ChatProcessor,
+    ContentHandler,
+    EventStreamContextManager,
+)
 from dive_mcp_host.httpd.server import DiveHostAPI
 from dive_mcp_host.httpd.store.manager import StoreManager
+from dive_mcp_host.skills.manager import SkillManager
 from tests.httpd.routers.conftest import config_files  # noqa: F401
 
 if TYPE_CHECKING:
@@ -35,16 +41,12 @@ async def server(config_files) -> AsyncGenerator[DiveHostAPI, None]:  # noqa: F8
 @pytest_asyncio.fixture
 async def processor(server: DiveHostAPI) -> ChatProcessor:
     """Create a processor for testing."""
-
-    class State:
-        dive_user: dict[str, str]
-
     state = State()
     state.dive_user = {"user_id": "default"}
-    return ChatProcessor(server, state, EmptyStream())  # type: ignore
+    return ChatProcessor(server, state, EmptyStream(), SkillManager())
 
 
-class EmptyStream:
+class EmptyStream(EventStreamContextManager):
     """Empty stream."""
 
     async def write(self, *args: Any, **kwargs: Any) -> None:

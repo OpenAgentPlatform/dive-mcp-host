@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
 from dive_mcp_host.host.tools.model_types import ClientState
@@ -82,11 +82,7 @@ async def initialized(
 async def list_tools(
     app: DiveHostAPI = Depends(get_app),
 ) -> ToolsResult:
-    """Lists all available MCP tools.
-
-    Returns:
-        ToolsResult: A list of available tools.
-    """
+    """Lists all available MCP tools."""
     result: dict[str, McpTool] = {}
 
     # get full list of servers from config
@@ -176,10 +172,14 @@ async def list_tools(
 class LogsStreamBody(BaseModel):
     """Body for logs stream API."""
 
-    names: list[str]
-    stream_until: ClientState | None = None
-    stop_on_notfound: bool = True
-    max_retries: int = 10
+    names: list[str] = Field(description="MCP server names to listen for logs")
+    stream_until: ClientState | None = Field(
+        default=None, description="Stream until MCP server state matches"
+    )
+    stop_on_notfound: bool = Field(
+        default=True, description="Stop streaming if MCP server not found"
+    )
+    max_retries: int = Field(default=10, description="Max retries to listen for logs")
 
 
 @tools.post("/logs/stream")
@@ -187,20 +187,7 @@ async def stream_server_logs(
     body: LogsStreamBody,
     app: DiveHostAPI = Depends(get_app),
 ) -> StreamingResponse:
-    """Stream logs from MCP servers.
-
-    Args:
-        body (LogsStreamBody):
-            - names: MCP servers to listen for logs
-            - stream_until: Stream until mcp server state matches the provided state
-            - stop_on_notfound: Stop streaming if mcp server is not found
-            - max_retries: Retry N times to listen for logs
-        app (DiveHostAPI): The DiveHostAPI instance.
-
-    Returns:
-        StreamingResponse: A streaming response of the server logs.
-        Keep streaming until client disconnects.
-    """
+    """Stream logs from MCP servers until client disconnects."""
     log_manager = app.dive_host["default"].log_manager
     stream = EventStreamContextManager()
     response = stream.get_response()
@@ -403,15 +390,8 @@ async def respond_to_elicitation(
 ) -> ElicitationRespondResult:
     """Respond to an elicitation request from an MCP server.
 
-    This endpoint is called by the frontend when the user responds to an
-    elicitation request (e.g., user input form).
-
-    Args:
-        request: The elicitation response with request_id, action, content.
-        app: The DiveHostAPI instance.
-
-    Returns:
-        ElicitationRespondResult: Result of the respond operation.
+    Called by the frontend when the user responds to an elicitation request
+    (e.g., user input form).
     """
     elicitation_manager = app.dive_host["default"].elicitation_manager
     found = await elicitation_manager.respond_to_request(

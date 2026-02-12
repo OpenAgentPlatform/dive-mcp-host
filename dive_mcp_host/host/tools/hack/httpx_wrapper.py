@@ -9,7 +9,7 @@ The workaround is to use the same AsyncClient when possible.
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 import httpx
 
@@ -233,7 +233,7 @@ class AsyncClient:
             if key in cls._custom_clients_loops:
                 del cls._custom_clients_loops[key]
 
-    async def __aenter__(self) -> "AsyncClient":
+    async def __aenter__(self) -> Self:
         """Enter async context."""
         return self
 
