@@ -57,16 +57,51 @@ class MCPServerManagerPlugin:
         self, device_token: str | None, mcp_server_manager: MCPServerManager
     ) -> None:
         """Update the device token and refresh the configs."""
+        logout = device_token is None
+        prev_token = self.device_token
         self.device_token = device_token
         self._http_client.headers = {"Authorization": f"Bearer {self.device_token}"}
         update_oap_token(self.device_token)
-        await self.refresh(mcp_server_manager)
+        await self.refresh(mcp_server_manager, logout, prev_token)
 
-    async def refresh(self, mcp_server_manager: MCPServerManager) -> None:
+    def _logout_handler(self, config: Config, prev_token: str) -> Config:
+        """Find current OAP MCPs (ones with `extraData['oap']`).
+        Replace device token back to placeholder.
+        """  # noqa: D205
+
+        def _token_to_placeholder(inpt: str) -> str:
+            return inpt.replace(prev_token, TOKEN_PLACEHOLDER)
+
+        for server in config.mcp_servers.values():
+            if server.extra_data and server.extra_data.get("oap"):
+                if server.url:
+                    server.url = _token_to_placeholder(server.url)
+                if server.env:
+                    server.env = {
+                        _token_to_placeholder(k): _token_to_placeholder(v)
+                        for k, v in server.env.items()
+                    }
+                if server.headers:
+                    server.headers = {
+                        _token_to_placeholder(k): SecretStr(
+                            _token_to_placeholder(v.get_secret_value())
+                        )
+                        for k, v in server.headers.items()
+                    }
+        return config
+
+    async def refresh(
+        self,
+        mcp_server_manager: MCPServerManager,
+        logout: bool = False,
+        prev_token: str | None = None,
+    ) -> None:
         """Refresh the MCP server configs."""
         cfg = await mcp_server_manager.get_current_config()
         # we already merged the configuration in callback function
         assert cfg is not None
+        if logout and prev_token:
+            self._logout_handler(cfg, prev_token)
         await mcp_server_manager.update_all_configs(cfg)
 
     def update_all_config_callback(self, new_config: Config) -> Config:

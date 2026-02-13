@@ -144,3 +144,76 @@ def test_oap_plugin(test_client: tuple[TestClient, DiveHostAPI]):
         extraData=oap_extra_data,
         headers=None,
     )
+
+    # Logout
+    response = client.delete("/api/plugins/oap-platform/auth")
+    assert response.status_code == 200
+
+    # Token should be removed
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+    new_config_2 = Config.model_validate(response.json()["config"])
+
+    assert new_config_2.mcp_servers["echo"] == config.mcp_servers["echo"]
+    # Token should be replaced with placeholder
+    assert new_config_2.mcp_servers["oap_token_set"] == MCPServerConfig.model_validate(
+        {
+            "transport": "streamable",
+            "enabled": True,
+            "url": "https://proxy.oaphub.ai/v1/mcp/181672830075666436",
+            "extraData": oap_extra_data,
+            "headers": {"Authorization": f"Bearer {TOKEN_PLACEHOLDER}"},
+            "exclude_tools": [],
+        }
+    )
+    assert (
+        new_config_2.mcp_servers["oap_header_need_token"]
+        == new_config_2.mcp_servers["oap_token_set"]
+    )
+    # Env token should be replaced with placeholder
+    assert new_config_2.mcp_servers["oap_env_need_token"] == MCPServerConfig(
+        transport="stdio",
+        command="python3",
+        args=["-m", "dive_mcp_host.host.tools.echo", "--transport=stdio"],
+        env={"OAP_MCP_TOKEN": TOKEN_PLACEHOLDER},
+        extraData=oap_extra_data,
+        headers=None,
+    )
+
+    # login again
+    new_oap_token = "new-fake-oap-token"  # noqa: S105
+    response = client.post(
+        "/api/plugins/oap-platform/auth", json={"token": new_oap_token}
+    )
+    assert response.status_code == 200
+
+    # Get mcp server, token should be updated
+    response = client.get("/api/config/mcpserver")
+    assert response.status_code == 200
+    new_config_3 = Config.model_validate(response.json()["config"])
+    assert new_config_3.mcp_servers["echo"] == config.mcp_servers["echo"]
+    # Token should be updated to new token
+    assert new_config_3.mcp_servers["oap_token_set"] == MCPServerConfig.model_validate(
+        {
+            "transport": "streamable",
+            "enabled": True,
+            "url": "https://proxy.oaphub.ai/v1/mcp/181672830075666436",
+            "extraData": oap_extra_data,
+            "headers": {"Authorization": f"Bearer {new_oap_token}"},
+            "exclude_tools": [],
+        }
+    )
+    # Headers should be set with new token
+    assert (
+        new_config_3.mcp_servers["oap_header_need_token"]
+        == new_config_3.mcp_servers["oap_token_set"]
+    )
+    # Env should be set with new token
+    assert new_config_3.mcp_servers["oap_env_need_token"] == MCPServerConfig(
+        transport="stdio",
+        command="python3",
+        args=["-m", "dive_mcp_host.host.tools.echo", "--transport=stdio"],
+        env={"OAP_MCP_TOKEN": new_oap_token},
+        extraData=oap_extra_data,
+        headers=None,
+    )
