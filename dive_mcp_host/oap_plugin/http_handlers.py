@@ -28,7 +28,6 @@ class OAPHttpHandlers:
         self._router = APIRouter(tags=["oap_plugin"])
         self._router.post("/auth")(self.auth_handler)
         self._router.delete("/auth")(self.logout_handler)
-        self._router.post("/config/refresh")(self.refresh_config_handler)
 
     async def auth_handler(
         self, body: AuthBody, app: DiveHostAPI = Depends(get_app)
