@@ -1106,7 +1106,7 @@ class McpServer(ContextProtocol):
                     env=env,
                 ) as proc:
                     async with self._cond:
-                        self._init_result, tool_results, self._pid = proc
+                        self._initialize_result, tool_results, self._pid = proc
                         self._mcp_tools = [
                             McpTool.from_tool(tool, self) for tool in tool_results.tools
                         ]

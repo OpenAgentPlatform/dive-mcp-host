@@ -239,6 +239,31 @@ async def test_get_prompt_without_capability_raises_value_error(
 
 
 @pytest.mark.asyncio
+async def test_local_http_populates_initialize_result(
+    echo_tool_local_sse_config: dict[str, ServerConfig],
+    log_config: LogConfig,
+) -> None:
+    """Local-HTTP spawn-and-connect servers must surface initialize_result.
+
+    Previously the local-http watcher wrote to `self._init_result`, which
+    was a typo: the rest of the class reads `self._initialize_result`. As
+    a result local-HTTP servers always reported initialize_result=None and
+    no prompts/tools metadata was exposed to the front-end.
+    """
+    async with McpServer(
+        name="echo",
+        config=echo_tool_local_sse_config["echo"],
+        log_buffer_length=log_config.buffer_length,
+        auth_manager=OAuthManager(),
+        elicitation_manager=ElicitationManager(),
+    ) as server:
+        await server.wait([ClientState.RUNNING])
+        info = server.server_info
+        assert info.initialize_result is not None
+        assert info.initialize_result.capabilities is not None
+
+
+@pytest.mark.asyncio
 async def test_refresh_prompts_dedupes_concurrent_notifications(
     log_config: LogConfig,
 ) -> None:
