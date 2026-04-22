@@ -82,6 +82,7 @@ MOCK_MODEL_CONFIG_WITH_NONE_PROVIDER = ModelFullConfigs.model_validate(
 SUCCESS_CODE = status.HTTP_200_OK
 BAD_REQUEST_CODE = status.HTTP_400_BAD_REQUEST
 TEST_PROVIDER = "openai"
+BASE_HEADER = {"content-type": "application/json"}
 
 
 def test_get_mcp_server(test_client):
@@ -329,11 +330,11 @@ def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
     response = client.post(
         "/api/config/model",
         content=model_settings.model_dump_json(by_alias=True).encode("utf-8"),
+        headers=BASE_HEADER,
     )
-    assert app.dive_host["default"].model._llm_type == "openai-chat"
-
     # Verify response status code
     assert response.status_code == SUCCESS_CODE
+    assert app.dive_host["default"].model._llm_type == "openai-chat"
 
     # Parse JSON response
     response_data = response.json()
@@ -406,10 +407,12 @@ def test_post_model(test_client: tuple[TestClient, "DiveHostAPI"]):
     response = client.post(
         "/api/config/model",
         content=model_settings.model_dump_json(by_alias=True).encode("utf-8"),
+        headers=BASE_HEADER,
     )
 
     from langchain_ollama import ChatOllama
 
+    assert response.status_code == SUCCESS_CODE
     assert app.dive_host["default"].model._llm_type == "chat-ollama"
     assert cast(ChatOllama, app.dive_host["default"].model).num_ctx == 999
 
@@ -486,6 +489,7 @@ def test_post_model_replace_all(test_client):
     response = client.post(
         "/api/config/model/replaceAll",
         content=model_config_data,
+        headers=BASE_HEADER,
     )
 
     assert app.dive_host["default"].model._llm_type == "openai-chat"
@@ -541,6 +545,7 @@ def test_post_model_replace_all_with_none_provider(test_client):
     response = client.post(
         "/api/config/model/replaceAll",
         content=model_config_data,
+        headers=BASE_HEADER,
     )
 
     assert app.dive_host["default"].model._llm_type == "fake-model"

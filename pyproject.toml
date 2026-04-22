@@ -35,7 +35,6 @@ dependencies = [
     "asyncpg>=0.30.0",
     "aiosqlite<0.22.0",
     "python-multipart>=0.0.20",
-    "pillow>=11.3.0",
     "websockets >= 15.0.1",
     "python-dotenv>=1.0.1",
     "langchain-anthropic>=1.2.0",
@@ -50,8 +49,9 @@ dependencies = [
     "httpx[brotli,http2,socks,zstd]>=0.28.1",
     "langchain>=1.2.1",
     "langchain-google-genai>=4.1.2",
-    "langchain-core>=1.2.5",
     "python-frontmatter>=1.1.0",
+    "pillow>=12.1.1",
+    "langchain-core>=1.2.15",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",

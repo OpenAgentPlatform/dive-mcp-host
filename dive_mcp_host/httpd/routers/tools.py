@@ -3,8 +3,9 @@ from logging import getLogger
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, StreamingResponse
+from mcp.types import GetPromptResult
 from pydantic import BaseModel, Field, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
@@ -13,8 +14,11 @@ from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
+    DataResult,
+    GetPromptRequest,
     McpTool,
     ResultResponse,
+    SimplePromptInfo,
     SimpleToolInfo,
     ToolsCache,
 )
@@ -110,6 +114,16 @@ async def list_tools(
                     icons=tool.icons,
                 )
                 for tool in server_info.tools
+            ],
+            prompts=[
+                SimplePromptInfo(
+                    name=prompt.name,
+                    title=prompt.title,
+                    description=prompt.description,
+                    arguments=prompt.arguments,
+                    icons=prompt.icons,
+                )
+                for prompt in server_info.prompts
             ],
             url=server_info.url,
             description="",
@@ -381,6 +395,55 @@ class ElicitationRespondResult(ResultResponse):
     """Response model for elicitation respond."""
 
     found: bool
+
+
+def _resolve_server(app: DiveHostAPI, server_name: str) -> McpServer:
+    try:
+        return app.dive_host["default"].get_mcp_server(server_name)
+    except KeyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"MCP server {server_name!r} not found",
+        ) from e
+
+
+@tools.get("/{server_name}/prompts")
+async def list_server_prompts(
+    server_name: str,
+    refresh: bool = False,
+    app: DiveHostAPI = Depends(get_app),
+) -> DataResult[list[SimplePromptInfo]]:
+    """List the prompts advertised by a single MCP server."""
+    server = _resolve_server(app, server_name)
+    prompts = await server.list_prompts(use_cache=not refresh)
+    data = [
+        SimplePromptInfo(
+            name=p.name,
+            title=p.title,
+            description=p.description,
+            arguments=p.arguments,
+            icons=p.icons,
+        )
+        for p in prompts
+    ]
+    return DataResult(success=True, message=None, data=data)
+
+
+@tools.post("/{server_name}/prompts/get")
+async def get_server_prompt(
+    server_name: str,
+    request: GetPromptRequest,
+    app: DiveHostAPI = Depends(get_app),
+) -> DataResult[GetPromptResult]:
+    """Fetch a specific prompt and its rendered messages from an MCP server."""
+    server = _resolve_server(app, server_name)
+    try:
+        prompt = await server.get_prompt(request.name, arguments=request.arguments)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
+        ) from e
+    return DataResult(success=True, message=None, data=prompt)
 
 
 @tools.post("/elicitation/respond")

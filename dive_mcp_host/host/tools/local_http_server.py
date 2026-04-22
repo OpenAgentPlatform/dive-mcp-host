@@ -9,11 +9,11 @@ from typing import Any
 
 import httpx
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from mcp import ClientSession
+from mcp import ClientSession, McpError
 from mcp.client.sse import sse_client
 from mcp.client.websocket import websocket_client
 from mcp.shared.message import SessionMessage
-from mcp.types import InitializeResult, ListToolsResult
+from mcp.types import METHOD_NOT_FOUND, InitializeResult, ListToolsResult
 from pydantic import SecretStr
 
 from dive_mcp_host.host.conf import ServerConfig
@@ -134,7 +134,19 @@ async def local_http_server(
                 ):
                     async with asyncio.timeout(config.initial_timeout):
                         initialize_result = await session.initialize()
-                        tools = await session.list_tools()
+                        if initialize_result.capabilities.tools is not None:
+                            try:
+                                tools = await session.list_tools()
+                            except McpError as e:
+                                if e.error.code != METHOD_NOT_FOUND:
+                                    raise
+                                logger.info(
+                                    "Server %s does not implement tools/list",
+                                    config.name,
+                                )
+                                tools = ListToolsResult(tools=[])
+                        else:
+                            tools = ListToolsResult(tools=[])
                         logger.info(
                             "Successfully connected to server %s, got tools: %s",
                             config.name,

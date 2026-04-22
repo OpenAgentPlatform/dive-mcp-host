@@ -49,8 +49,10 @@ class MockServerInfo:
         error=None,
         url: str | None = None,
         initialize_result: InitializeResult | None = None,
+        prompts=None,
     ):
         self.tools = tools or []
+        self.prompts = prompts or []
         self.url = url
         self.error_str = error
         self.client_status = ClientState.FAILED if error else ClientState.RUNNING
@@ -480,13 +482,25 @@ def test_stream_logs_notfound_wait(test_client: tuple[TestClient, DiveHostAPI]):
             responses.append(data)
 
         assert len(responses) >= 3
-        assert responses[-3].event == LogEvent.STREAMING_ERROR
-
-        assert responses[-2].event == LogEvent.STDERR
-        assert responses[-2].client_state == ClientState.INIT
-
+        # Final event must be the successful transition to RUNNING.
         assert responses[-1].event == LogEvent.STATUS_CHANGE
         assert responses[-1].client_state == ClientState.RUNNING
+
+        # At least one STREAMING_ERROR is emitted before the server comes up.
+        streaming_error_indices = [
+            i for i, r in enumerate(responses) if r.event == LogEvent.STREAMING_ERROR
+        ]
+        assert streaming_error_indices, "expected at least one STREAMING_ERROR"
+
+        # Everything between the last STREAMING_ERROR and the final
+        # STATUS_CHANGE is stderr from the MCP server during init. The exact
+        # count depends on what the server logs (e.g. one line per JSON-RPC
+        # request processed), so don't pin it.
+        init_stderr = responses[streaming_error_indices[-1] + 1 : -1]
+        assert init_stderr, "expected at least one STDERR event during init"
+        for r in init_stderr:
+            assert r.event == LogEvent.STDERR
+            assert r.client_state == ClientState.INIT
 
 
 def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]):
@@ -534,13 +548,19 @@ def test_stream_logs_name_with_slash(test_client: tuple[TestClient, DiveHostAPI]
             responses.append(data)
 
         assert len(responses) >= 3
-        assert responses[-3].event == LogEvent.STREAMING_ERROR
-
-        assert responses[-2].event == LogEvent.STDERR
-        assert responses[-2].client_state == ClientState.INIT
-
         assert responses[-1].event == LogEvent.STATUS_CHANGE
         assert responses[-1].client_state == ClientState.RUNNING
+
+        streaming_error_indices = [
+            i for i, r in enumerate(responses) if r.event == LogEvent.STREAMING_ERROR
+        ]
+        assert streaming_error_indices, "expected at least one STREAMING_ERROR"
+
+        init_stderr = responses[streaming_error_indices[-1] + 1 : -1]
+        assert init_stderr, "expected at least one STDERR event during init"
+        for r in init_stderr:
+            assert r.event == LogEvent.STDERR
+            assert r.client_state == ClientState.INIT
 
 
 def test_stream_multiple_logs(test_client: tuple[TestClient, DiveHostAPI]):
