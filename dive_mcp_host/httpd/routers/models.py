@@ -2,7 +2,7 @@ import json
 from enum import StrEnum
 from typing import Any, Literal, Self, TypeVar
 
-from mcp.types import GetPromptResult, Icon, PromptArgument
+from mcp.types import Icon, PromptArgument
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -132,12 +132,6 @@ class GetPromptRequest(BaseModel):
 
     name: str
     arguments: dict[str, str] | None = None
-
-
-class GetPromptResponse(ResultResponse):
-    """Response for retrieving a single MCP prompt."""
-
-    prompt: GetPromptResult | None = None
 
 
 class ToolsCache(RootModel[dict[str, McpTool]]):

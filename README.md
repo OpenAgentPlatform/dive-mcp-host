@@ -139,7 +139,7 @@ dive_cli -c CHAT_ID "and what about tech?"   # resume a thread
 ### Embed in Python
 
 ```python
-from dive_mcp_host.host import DiveMcpHost
+from dive_mcp_host.host.host import DiveMcpHost
 from dive_mcp_host.host.conf import HostConfig
 
 config = HostConfig(...)  # see model_config.json / mcp_config.json samples
@@ -236,8 +236,10 @@ GET  /api/tools/{server}/prompts          # list (?refresh=true bypasses cache)
 POST /api/tools/{server}/prompts/get      # body: {"name": "...", "arguments": {...}}
 ```
 
-`prompts/get` returns the rendered `GetPromptResult` (description + ordered
-`PromptMessage`s) ready to append to a chat thread.
+Both endpoints return the repo-standard `DataResult[T]` envelope
+(`{success, message, data}`); `data` is the list of prompts or the
+rendered `GetPromptResult` (description + ordered `PromptMessage`s)
+ready to append to a chat thread.
 
 ---
 

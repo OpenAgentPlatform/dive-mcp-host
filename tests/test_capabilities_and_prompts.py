@@ -90,11 +90,7 @@ async def test_no_capabilities_server(log_config: LogConfig) -> None:
 @pytest.mark.asyncio
 async def test_method_not_found_is_swallowed(log_config: LogConfig) -> None:
     """A server that advertises tools but raises -32601 should still init."""
-    cfg = {
-        "srv": _capability_config(
-            "srv", "tools,prompts", broken="tools,prompts"
-        )
-    }
+    cfg = {"srv": _capability_config("srv", "tools,prompts", broken="tools,prompts")}
     async with ToolManager(cfg, log_config) as tm:
         await tm.initialized_event.wait()
         info = tm.mcp_server_info["srv"]
@@ -184,9 +180,7 @@ async def test_prompts_list_changed_refreshes_cache(log_config: LogConfig) -> No
         # directly to the server's message handler. _refresh_prompts will then
         # re-query the live server.
         async with server._cond:
-            server._prompts = [
-                Prompt(name="stale", description="should be replaced")
-            ]
+            server._prompts = [Prompt(name="stale", description="should be replaced")]
 
         await server._message_handler(
             ServerNotification(root=PromptListChangedNotification())

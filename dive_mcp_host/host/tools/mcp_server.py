@@ -301,9 +301,7 @@ class McpServer(ContextProtocol):
         try:
             prompts = await self.list_prompts(use_cache=False)
         except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "Failed to refresh prompts for %s: %s", self.name, e
-            )
+            logger.warning("Failed to refresh prompts for %s: %s", self.name, e)
             return
         async with self._cond:
             self._prompts = prompts
@@ -332,9 +330,7 @@ class McpServer(ContextProtocol):
         # not found for tools/list, which previously broke initialization.
         tool_results: types.ListToolsResult | None = None
         if capabilities.tools is not None:
-            tool_results = await _safe_list(
-                session.list_tools, self.name, "tools/list"
-            )
+            tool_results = await _safe_list(session.list_tools, self.name, "tools/list")
         prompts: list[types.Prompt] = []
         if capabilities.prompts is not None:
             prompt_result = await _safe_list(
@@ -442,9 +438,7 @@ class McpServer(ContextProtocol):
         if not self._supports_prompts():
             return []
         async with self.session(chat_id=chat_id) as session:
-            result = await _safe_list(
-                session.list_prompts, self.name, "prompts/list"
-            )
+            result = await _safe_list(session.list_prompts, self.name, "prompts/list")
         return list(result.prompts) if result is not None else []
 
     async def get_prompt(
@@ -459,9 +453,7 @@ class McpServer(ContextProtocol):
             ValueError: The server did not advertise the prompts capability.
         """
         if not self._supports_prompts():
-            raise ValueError(
-                f"MCP server {self.name!r} does not support prompts"
-            )
+            raise ValueError(f"MCP server {self.name!r} does not support prompts")
         async with self.session(chat_id=chat_id) as session:
             return await session.get_prompt(name, arguments=arguments)
 

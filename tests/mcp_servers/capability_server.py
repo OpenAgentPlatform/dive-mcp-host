@@ -41,6 +41,7 @@ def build_server(
     notif = NotificationOptions()
 
     if "tools" in features:
+
         @server.list_tools()
         async def _list_tools() -> list[Tool]:
             if "tools" in broken:

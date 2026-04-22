@@ -5,6 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse, StreamingResponse
+from mcp.types import GetPromptResult
 from pydantic import BaseModel, Field, ValidationError
 
 from dive_mcp_host.host.tools.mcp_server import McpServer
@@ -13,8 +14,8 @@ from dive_mcp_host.host.tools.oauth import OAuthManager
 from dive_mcp_host.httpd.conf.mcp_servers import Config
 from dive_mcp_host.httpd.dependencies import get_app
 from dive_mcp_host.httpd.routers.models import (
+    DataResult,
     GetPromptRequest,
-    GetPromptResponse,
     McpTool,
     ResultResponse,
     SimplePromptInfo,
@@ -411,11 +412,11 @@ async def list_server_prompts(
     server_name: str,
     refresh: bool = False,
     app: DiveHostAPI = Depends(get_app),
-) -> list[SimplePromptInfo]:
+) -> DataResult[list[SimplePromptInfo]]:
     """List the prompts advertised by a single MCP server."""
     server = _resolve_server(app, server_name)
     prompts = await server.list_prompts(use_cache=not refresh)
-    return [
+    data = [
         SimplePromptInfo(
             name=p.name,
             title=p.title,
@@ -425,6 +426,7 @@ async def list_server_prompts(
         )
         for p in prompts
     ]
+    return DataResult(success=True, message=None, data=data)
 
 
 @tools.post("/{server_name}/prompts/get")
@@ -432,7 +434,7 @@ async def get_server_prompt(
     server_name: str,
     request: GetPromptRequest,
     app: DiveHostAPI = Depends(get_app),
-) -> GetPromptResponse:
+) -> DataResult[GetPromptResult]:
     """Fetch a specific prompt and its rendered messages from an MCP server."""
     server = _resolve_server(app, server_name)
     try:
@@ -441,7 +443,7 @@ async def get_server_prompt(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)
         ) from e
-    return GetPromptResponse(success=True, prompt=prompt)
+    return DataResult(success=True, message=None, data=prompt)
 
 
 @tools.post("/elicitation/respond")
