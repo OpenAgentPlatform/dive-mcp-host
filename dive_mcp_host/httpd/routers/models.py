@@ -2,7 +2,7 @@ import json
 from enum import StrEnum
 from typing import Any, Literal, Self, TypeVar
 
-from mcp.types import Icon
+from mcp.types import GetPromptResult, Icon, PromptArgument
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -101,11 +101,22 @@ class SimpleToolInfo(BaseModel):
     icons: list[Icon] | None = None
 
 
+class SimplePromptInfo(BaseModel):
+    """Represents an MCP prompt with its metadata."""
+
+    name: str
+    title: str | None = None
+    description: str | None = None
+    arguments: list[PromptArgument] | None = None
+    icons: list[Icon] | None = None
+
+
 class McpTool(BaseModel):
     """Represents an MCP tool with its properties and metadata."""
 
     name: str
     tools: list[SimpleToolInfo]
+    prompts: list[SimplePromptInfo] = []
     description: str
     enabled: bool
     icon: str
@@ -114,6 +125,19 @@ class McpTool(BaseModel):
     error: str | None = None
     icons: list[Icon] | None = None
     has_credential: bool = False
+
+
+class GetPromptRequest(BaseModel):
+    """Request body for retrieving a single MCP prompt."""
+
+    name: str
+    arguments: dict[str, str] | None = None
+
+
+class GetPromptResponse(ResultResponse):
+    """Response for retrieving a single MCP prompt."""
+
+    prompt: GetPromptResult | None = None
 
 
 class ToolsCache(RootModel[dict[str, McpTool]]):

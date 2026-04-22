@@ -49,8 +49,10 @@ class MockServerInfo:
         error=None,
         url: str | None = None,
         initialize_result: InitializeResult | None = None,
+        prompts=None,
     ):
         self.tools = tools or []
+        self.prompts = prompts or []
         self.url = url
         self.error_str = error
         self.client_status = ClientState.FAILED if error else ClientState.RUNNING

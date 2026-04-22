@@ -82,6 +82,28 @@ if TYPE_CHECKING:
 logger = getLogger(__name__)
 
 
+async def _safe_list[T](
+    fn: Callable[[], Awaitable[T]], server_name: str, method: str
+) -> T | None:
+    """Call an MCP list_* method, swallowing METHOD_NOT_FOUND.
+
+    Optional capabilities should not break server initialization. Even when
+    a capability is advertised, a misbehaving server may still respond with
+    -32601, so this defensive wrapper keeps init alive.
+    """
+    try:
+        return await fn()
+    except McpError as e:
+        if e.error.code == types.METHOD_NOT_FOUND:
+            logger.info(
+                "Server %s does not implement %s (Method not found); skipping.",
+                server_name,
+                method,
+            )
+            return None
+        raise
+
+
 class ToolInfo(types.Tool):
     """Custom tool info with extra info."""
 
@@ -100,6 +122,8 @@ class McpServerInfo(BaseModel):
     """The name of the MCP server."""
     tools: list[ToolInfo]
     """The tools provided by the MCP server."""
+    prompts: list[types.Prompt] = []
+    """The prompts provided by the MCP server."""
     initialize_result: types.InitializeResult | None
     """The result of the initialize method.
 
@@ -169,6 +193,7 @@ class McpServer(ContextProtocol):
         """The condition variable to synchronize access to shared variables."""
         self._client_status: ClientState = ClientState.INIT
         self._tool_results: types.ListToolsResult | None = None
+        self._prompts: list[types.Prompt] = []
         self._initialize_result: types.InitializeResult | None = None
         self._exception: BaseException | BaseExceptionGroup | None = None
         self._mcp_tools: list[McpTool] = []
@@ -178,6 +203,11 @@ class McpServer(ContextProtocol):
         # Background task for the server.
         # Used for stdio, and local http server.
         self._server_task: asyncio.Task | None = None
+
+        # Tracks an in-flight prompts/list refresh kicked off by a
+        # notifications/prompts/list_changed. We keep the reference both to
+        # avoid GC of the task and to dedup overlapping notifications.
+        self._refresh_prompts_task: asyncio.Task | None = None
 
         # stdio can only have one session at a time
         self._stdio_client_session: ClientSession | None = None
@@ -244,6 +274,41 @@ class McpServer(ContextProtocol):
         if isinstance(message, Exception):
             raise message
 
+        if isinstance(message, types.ServerNotification) and isinstance(
+            message.root, types.PromptListChangedNotification
+        ):
+            self._schedule_refresh_prompts()
+
+    def _schedule_refresh_prompts(self) -> None:
+        """Kick off a prompts/list refresh, deduping in-flight refreshes."""
+        if self._client_status != ClientState.RUNNING:
+            return
+        existing = self._refresh_prompts_task
+        if existing is not None and not existing.done():
+            # A refresh is already underway; the running task will pick up
+            # whatever the server has when it queries. Notifications that
+            # arrive while it runs would otherwise pile up tasks (each one
+            # spawning a fresh stdio subprocess), so collapse them here.
+            return
+        logger.debug("Scheduling prompt list refresh for %s.", self.name)
+        self._refresh_prompts_task = asyncio.create_task(
+            self._refresh_prompts(),
+            name=f"refresh-prompts-{self.name}",
+        )
+
+    async def _refresh_prompts(self) -> None:
+        """Refresh the cached prompt list from the server."""
+        try:
+            prompts = await self.list_prompts(use_cache=False)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to refresh prompts for %s: %s", self.name, e
+            )
+            return
+        async with self._cond:
+            self._prompts = prompts
+            self._cond.notify_all()
+
     async def _init_tool_info(self, session: ClientSession) -> None:
         """Initialize the session."""
         logger.debug(
@@ -259,24 +324,48 @@ class McpServer(ContextProtocol):
                 self.name,
                 self._initialize_result,
             )
-        tool_results = await session.list_tools()
+
+        capabilities = self._initialize_result.capabilities
+        # MCP spec: only call <feature>/list if the server advertises that
+        # capability in its initialize response. Some servers expose only
+        # prompts (or only resources) and will respond with -32601 Method
+        # not found for tools/list, which previously broke initialization.
+        tool_results: types.ListToolsResult | None = None
+        if capabilities.tools is not None:
+            tool_results = await _safe_list(
+                session.list_tools, self.name, "tools/list"
+            )
+        prompts: list[types.Prompt] = []
+        if capabilities.prompts is not None:
+            prompt_result = await _safe_list(
+                session.list_prompts, self.name, "prompts/list"
+            )
+            if prompt_result is not None:
+                prompts = list(prompt_result.prompts)
+
+        if tool_results is None:
+            tool_results = types.ListToolsResult(tools=[])
+
         self._last_active = time.time()
         mcp_tools = [McpTool.from_tool(tool, self) for tool in tool_results.tools]
         logger.debug(
-            "Client %s initialized successfully with %d tools",
+            "Client %s initialized successfully with %d tools, %d prompts",
             self.name,
             len(mcp_tools),
+            len(prompts),
         )
         async with self._cond:
             self._tool_results = tool_results
             self._mcp_tools = mcp_tools
+            self._prompts = prompts
             self._exception = None
             self._retries = 0
             await self.__change_state(ClientState.RUNNING, None, None)
             logger.debug(
-                "Client %s initialized successfully with %d tools",
+                "Client %s initialized successfully with %d tools, %d prompts",
                 self.name,
                 len(mcp_tools),
+                len(prompts),
             )
 
     @property
@@ -299,6 +388,7 @@ class McpServer(ContextProtocol):
             name=self.name,
             initialize_result=self._initialize_result,
             tools=tools,
+            prompts=list(self._prompts),
             client_status=self._client_status,
             url=self.config.url,
             error=self._exception,
@@ -318,6 +408,62 @@ class McpServer(ContextProtocol):
         if self._client_status == ClientState.RUNNING:
             return self._get_enabled_tools()
         return []
+
+    @property
+    def prompts(self) -> list[types.Prompt]:
+        """Get the cached prompts list."""
+        if self._client_status == ClientState.RUNNING:
+            return list(self._prompts)
+        return []
+
+    def _supports_prompts(self) -> bool:
+        """Whether the server advertised the prompts capability."""
+        if self._initialize_result is None:
+            return False
+        return self._initialize_result.capabilities.prompts is not None
+
+    async def list_prompts(
+        self, chat_id: str = "default", use_cache: bool = True
+    ) -> list[types.Prompt]:
+        """List prompts from the server.
+
+        Args:
+            chat_id: The chat id used to scope the session.
+            use_cache: If True, return the cached prompt list. The cache is
+                populated at initialization so trusting it avoids spawning
+                another stdio subprocess on every read.
+
+        Returns:
+            The list of prompts. Empty if the server does not advertise the
+            prompts capability or returns Method not found.
+        """
+        if use_cache:
+            return list(self._prompts)
+        if not self._supports_prompts():
+            return []
+        async with self.session(chat_id=chat_id) as session:
+            result = await _safe_list(
+                session.list_prompts, self.name, "prompts/list"
+            )
+        return list(result.prompts) if result is not None else []
+
+    async def get_prompt(
+        self,
+        name: str,
+        arguments: dict[str, str] | None = None,
+        chat_id: str = "default",
+    ) -> types.GetPromptResult:
+        """Fetch a specific prompt by name.
+
+        Raises:
+            ValueError: The server did not advertise the prompts capability.
+        """
+        if not self._supports_prompts():
+            raise ValueError(
+                f"MCP server {self.name!r} does not support prompts"
+            )
+        async with self.session(chat_id=chat_id) as session:
+            return await session.get_prompt(name, arguments=arguments)
 
     def session(
         self,
@@ -403,6 +549,13 @@ class McpServer(ContextProtocol):
                     self.name,
                     self.session_count,
                 )
+            if (
+                self._refresh_prompts_task is not None
+                and not self._refresh_prompts_task.done()
+            ):
+                self._refresh_prompts_task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await self._refresh_prompts_task
             await self._session_store.cleanup()
             await self._teardown()
 
