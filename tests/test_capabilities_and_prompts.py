@@ -218,7 +218,9 @@ async def test_list_prompts_cache_does_not_refetch_when_empty(
         # If the cache check is buggy (truthiness on empty list), this would
         # fall through to opening a fresh session.
         with patch.object(
-            server, "session", side_effect=AssertionError("session should not be opened")
+            server,
+            "session",
+            side_effect=AssertionError("session should not be opened"),
         ):
             assert await server.list_prompts() == []
             assert await server.list_prompts(use_cache=True) == []

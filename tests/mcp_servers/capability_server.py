@@ -33,7 +33,10 @@ from mcp.types import (
 )
 
 
-def build_server(features: set[str], broken: set[str]) -> tuple[Server, NotificationOptions]:
+def build_server(
+    features: set[str], broken: set[str]
+) -> tuple[Server, NotificationOptions]:
+    """Build an MCP server advertising only the requested capabilities."""
     server: Server[Any, Any] = Server("capability-server")
     notif = NotificationOptions()
 
@@ -58,7 +61,10 @@ def build_server(features: set[str], broken: set[str]) -> tuple[Server, Notifica
             ]
 
         @server.call_tool()
-        async def _call_tool(name: str, arguments: dict) -> list[TextContent]:
+        async def _call_tool(
+            name: str,  # noqa: ARG001
+            arguments: dict,
+        ) -> list[TextContent]:
             return [TextContent(type="text", text=arguments.get("msg", "pong"))]
 
     if "prompts" in features:
@@ -115,6 +121,7 @@ async def _amain(features: set[str], broken: set[str]) -> None:
 
 
 def main() -> None:
+    """CLI entry point for the capability test server."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--features",
