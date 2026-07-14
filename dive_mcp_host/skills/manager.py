@@ -44,6 +44,7 @@ class SkillManager:
         if not self._skill_dir.exists():
             logger.warning("skill dir not found: %s", self._skill_dir)
             self._skills_cache = {}
+            return
 
         result: dict[str, Skill] = {}
         try:
