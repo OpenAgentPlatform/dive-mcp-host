@@ -610,7 +610,7 @@ def drop_empty_messages(inpt: ChatPromptValue | list[BaseMessage]) -> list[BaseM
                 not message.content
                 and not message.tool_calls
                 and not message.invalid_tool_calls
-                and not message.chunk_position  # type: ignore
+                and not getattr(message, "chunk_position", None)
             ):
                 continue
         # ToolMessage, SystemMessage, HumanMessage needs to have content
