@@ -1,7 +1,11 @@
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 
-from dive_mcp_host.host.agents.chat_agent import ChatAgentFactory, complete_tool_calls
+from dive_mcp_host.host.agents.chat_agent import (
+    ChatAgentFactory,
+    complete_tool_calls,
+    drop_empty_messages,
+)
 from dive_mcp_host.models.fake import FakeMessageToolModel
 
 
@@ -72,3 +76,16 @@ def test_complete_tool_calls():
         if isinstance(message, ToolMessage)
     }
     assert tool_message_ids == {"tool-1", "tool-2"}
+
+
+def test_drop_empty_messages_drops_empty_ai_message():
+    """Test dropping an empty AI message without chunk metadata."""
+    assert drop_empty_messages.invoke([AIMessage(content="")]) == []
+
+
+def test_drop_empty_messages_keeps_last_empty_ai_message_chunk():
+    """Test keeping the final empty AI message chunk."""
+    chunk = AIMessageChunk(content="", chunk_position="last")
+
+    assert drop_empty_messages.invoke([chunk]) == [chunk]
+
